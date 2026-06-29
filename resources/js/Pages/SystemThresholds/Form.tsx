@@ -1,0 +1,9 @@
+import InputError from '@/Components/InputError';
+import InputLabel from '@/Components/InputLabel';
+import PrimaryButton from '@/Components/PrimaryButton';
+import TextInput from '@/Components/TextInput';
+import { SystemThreshold } from '@/types';
+import { Link, useForm } from '@inertiajs/react';
+import { FormEvent } from 'react';
+
+export default function Form({ systemThreshold }: { systemThreshold?: SystemThreshold }) { const form = useForm({ key: systemThreshold?.key ?? '', value: systemThreshold?.value ?? '', description: systemThreshold?.description ?? '' }); const submit = (event: FormEvent) => { event.preventDefault(); systemThreshold ? form.patch(route('system-thresholds.update', systemThreshold.id)) : form.post(route('system-thresholds.store')); }; return <form onSubmit={submit} className="space-y-6 bg-white p-6 shadow-sm sm:rounded-lg"><div><InputLabel htmlFor="key" value="Key" /><TextInput id="key" className="mt-1 block w-full" value={form.data.key} onChange={(e) => form.setData('key', e.target.value)} required /><InputError message={form.errors.key} className="mt-2" /></div><div><InputLabel htmlFor="value" value="Value" /><TextInput id="value" className="mt-1 block w-full" value={form.data.value} onChange={(e) => form.setData('value', e.target.value)} required /><InputError message={form.errors.value} className="mt-2" /></div><div><InputLabel htmlFor="description" value="Description" /><TextInput id="description" className="mt-1 block w-full" value={form.data.description ?? ''} onChange={(e) => form.setData('description', e.target.value)} /><InputError message={form.errors.description} className="mt-2" /></div><div className="flex items-center gap-3"><PrimaryButton disabled={form.processing}>Save</PrimaryButton><Link href={route('system-thresholds.index')} className="text-sm text-gray-600 hover:text-gray-900">Cancel</Link></div></form>; }
