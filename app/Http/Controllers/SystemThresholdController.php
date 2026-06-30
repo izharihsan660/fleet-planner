@@ -6,6 +6,7 @@ use App\Http\Requests\StoreSystemThresholdRequest;
 use App\Http\Requests\UpdateSystemThresholdRequest;
 use App\Models\SystemThreshold;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -13,14 +14,14 @@ class SystemThresholdController extends Controller
 {
     public function index(): Response
     {
-        $this->authorize('viewAny', SystemThreshold::class);
+        Gate::authorize('viewAny', SystemThreshold::class);
 
         return Inertia::render('SystemThresholds/Index', ['systemThresholds' => SystemThreshold::query()->with('updatedBy:id,name')->orderBy('key')->get()]);
     }
 
     public function create(): Response
     {
-        $this->authorize('create', SystemThreshold::class);
+        Gate::authorize('create', SystemThreshold::class);
 
         return Inertia::render('SystemThresholds/Create');
     }
@@ -34,7 +35,7 @@ class SystemThresholdController extends Controller
 
     public function edit(SystemThreshold $systemThreshold): Response
     {
-        $this->authorize('update', $systemThreshold);
+        Gate::authorize('update', $systemThreshold);
 
         return Inertia::render('SystemThresholds/Edit', ['systemThreshold' => $systemThreshold]);
     }
@@ -48,7 +49,7 @@ class SystemThresholdController extends Controller
 
     public function destroy(SystemThreshold $systemThreshold): RedirectResponse
     {
-        $this->authorize('delete', $systemThreshold);
+        Gate::authorize('delete', $systemThreshold);
         $systemThreshold->delete();
 
         return redirect()->route('system-thresholds.index');

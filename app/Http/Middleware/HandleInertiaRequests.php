@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Resources\NotificationResource;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -33,6 +34,15 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user()?->only('id', 'name', 'email', 'email_verified_at', 'role', 'site_id'),
+            ],
+            'notifications' => fn () => $request->user() ? [
+                'unread_count' => $request->user()->appNotifications()->whereNull('read_at')->count(),
+                'latest' => NotificationResource::collection(
+                    $request->user()->appNotifications()->latest()->limit(5)->get()
+                )->resolve(),
+            ] : [
+                'unread_count' => 0,
+                'latest' => [],
             ],
         ];
     }

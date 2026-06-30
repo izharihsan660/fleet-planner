@@ -6,6 +6,7 @@ use App\Http\Requests\StoreSiteRequest;
 use App\Http\Requests\UpdateSiteRequest;
 use App\Models\Site;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -13,14 +14,14 @@ class SiteController extends Controller
 {
     public function index(): Response
     {
-        $this->authorize('viewAny', Site::class);
+        Gate::authorize('viewAny', Site::class);
 
         return Inertia::render('Sites/Index', ['sites' => Site::query()->withCount(['units', 'users'])->latest()->get()]);
     }
 
     public function create(): Response
     {
-        $this->authorize('create', Site::class);
+        Gate::authorize('create', Site::class);
 
         return Inertia::render('Sites/Create');
     }
@@ -34,7 +35,7 @@ class SiteController extends Controller
 
     public function edit(Site $site): Response
     {
-        $this->authorize('update', $site);
+        Gate::authorize('update', $site);
 
         return Inertia::render('Sites/Edit', ['site' => $site]);
     }
@@ -48,7 +49,7 @@ class SiteController extends Controller
 
     public function destroy(Site $site): RedirectResponse
     {
-        $this->authorize('delete', $site);
+        Gate::authorize('delete', $site);
         $site->delete();
 
         return redirect()->route('sites.index');

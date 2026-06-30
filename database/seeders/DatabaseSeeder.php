@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
             RoleUserSeeder::class,
             PlanningItemSeeder::class,
             SystemThresholdSeeder::class,
+            UnitPlanningSeeder::class,
         ]);
     }
 }

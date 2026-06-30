@@ -1,0 +1,47 @@
+import InputError from '@/Components/InputError';
+import PrimaryButton from '@/Components/PrimaryButton';
+import SecondaryButton from '@/Components/SecondaryButton';
+import TextInput from '@/Components/TextInput';
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { PageProps, UnitPlanning, WorkOrder, WorkOrderItem } from '@/types';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { FormEvent, useState } from 'react';
+
+interface ResourceItem<T> {
+    data: T;
+}
+
+function CompleteItemForm({ item, workOrderId, currentOdo }: { item: WorkOrderItem; workOrderId: number; currentOdo: number }) {
+    const { data, setData, post, processing, errors } = useForm({ completed_odo: currentOdo.toString(), completed_date: new Date().toISOString().slice(0, 10), notes: '' });
+    const submit = (event: FormEvent) => { event.preventDefault(); post(route('work-orders.items.complete', [workOrderId, item.id]), { preserveScroll: true }); };
+
+    return <form onSubmit={submit} className="mt-3 grid gap-3 rounded-md bg-gray-50 p-3 md:grid-cols-4"><div><TextInput className="w-full" type="number" value={data.completed_odo} onChange={(event) => setData('completed_odo', event.target.value)} /><InputError message={errors.completed_odo} className="mt-1" /></div><div><TextInput className="w-full" type="date" value={data.completed_date} onChange={(event) => setData('completed_date', event.target.value)} /><InputError message={errors.completed_date} className="mt-1" /></div><div><TextInput className="w-full" value={data.notes} placeholder="Catatan" onChange={(event) => setData('notes', event.target.value)} /><InputError message={errors.notes} className="mt-1" /></div><PrimaryButton disabled={processing}>Complete</PrimaryButton></form>;
+}
+
+function ReasonForm({ title, onCancel, onSubmit, processing, reason, setReason, error }: { title: string; onCancel: () => void; onSubmit: (event: FormEvent) => void; processing: boolean; reason: string; setReason: (reason: string) => void; error?: string }) {
+    return <form onSubmit={onSubmit} className="mt-4 space-y-3 rounded-md border border-yellow-200 bg-yellow-50 p-4"><h4 className="font-semibold text-yellow-900">{title}</h4><textarea className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" rows={3} value={reason} placeholder="Alasan" onChange={(event) => setReason(event.target.value)} /><InputError message={error} /><div className="flex gap-2"><PrimaryButton disabled={processing}>Simpan</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form>;
+}
+
+function BreakdownInspectionForm({ unitId, currentOdo, plannings }: { unitId: number; currentOdo: number; plannings: UnitPlanning[] }) {
+    const { data, setData, post, processing, errors } = useForm({ unit_planning_id: plannings[0]?.id.toString() ?? '', completed_odo: currentOdo.toString() });
+    const submit = (event: FormEvent) => { event.preventDefault(); post(route('units.breakdown-inspection', unitId), { preserveScroll: true }); };
+
+    return <form onSubmit={submit} className="grid gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 md:grid-cols-3"><div className="md:col-span-3"><h4 className="font-semibold text-amber-900">Inspeksi setelah Breakdown wajib diisi</h4><p className="text-sm text-amber-800">Pilih part maintenance yang diganti dan KM saat breakdown selesai.</p></div><div><select className="w-full rounded-md border-gray-300 shadow-sm" value={data.unit_planning_id} onChange={(event) => setData('unit_planning_id', event.target.value)}>{plannings.map((planning) => <option key={planning.id} value={planning.id}>{planning.planning_item?.name}</option>)}</select><InputError message={errors.unit_planning_id} className="mt-1" /></div><div><TextInput className="w-full" type="number" value={data.completed_odo} onChange={(event) => setData('completed_odo', event.target.value)} /><InputError message={errors.completed_odo} className="mt-1" /></div><PrimaryButton disabled={processing}>Simpan Inspeksi</PrimaryButton></form>;
+}
+
+export default function Show({ auth, workOrder }: PageProps<{ workOrder: ResourceItem<WorkOrder> }>) {
+    const workOrderData = workOrder.data;
+    const [blockedItemId, setBlockedItemId] = useState<number | null>(null);
+    const [showBreakdownForm, setShowBreakdownForm] = useState(false);
+    const canApprove = ['spv_ops', 'superadmin'].includes(auth.user.role) && workOrderData.status === 'open';
+    const canCondition = ['superadmin', 'admin_site', 'mekanik'].includes(auth.user.role);
+    const approve = () => router.post(route('work-orders.approve', workOrderData.id), {}, { preserveScroll: true });
+    const blockedForm = useForm({ reason: '' });
+    const breakdownForm = useForm({ reason: '' });
+    const inspectionPlannings = (workOrderData.items ?? []).filter((item) => item.freeze_end && item.unit_planning).map((item) => item.unit_planning as UnitPlanning);
+
+    const markBlocked = (event: FormEvent, itemId: number) => { event.preventDefault(); blockedForm.post(route('work-order-items.blocked', itemId), { preserveScroll: true, onSuccess: () => { blockedForm.reset(); setBlockedItemId(null); } }); };
+    const markBreakdown = (event: FormEvent) => { event.preventDefault(); if (!workOrderData.unit) return; breakdownForm.post(route('units.breakdown', workOrderData.unit.id), { preserveScroll: true, onSuccess: () => { breakdownForm.reset(); setShowBreakdownForm(false); } }); };
+
+    return <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Detail Work Order</h2>}><Head title={`WO #${workOrderData.id}`} /><div className="py-12"><div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8"><div><Link href={route('work-orders.index')}><SecondaryButton>Kembali</SecondaryButton></Link></div><section className="bg-white p-6 shadow-sm sm:rounded-lg"><div className="flex flex-wrap items-start justify-between gap-4"><div><h3 className="text-lg font-semibold text-gray-900">WO #{workOrderData.id} - {workOrderData.unit?.current_plate}</h3><p className="text-sm text-gray-500">{workOrderData.site?.name} · {workOrderData.trigger_type} · {workOrderData.created_at?.slice(0, 10)}</p></div><div className="flex flex-wrap gap-2"><span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700">{workOrderData.status}</span>{workOrderData.unit?.status === 'breakdown' && <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700">Breakdown</span>}</div></div><div className="mt-6 flex flex-wrap gap-2">{canApprove && <PrimaryButton onClick={approve}>Approve</PrimaryButton>}{canCondition && workOrderData.unit && <SecondaryButton onClick={() => setShowBreakdownForm(true)}>Breakdown</SecondaryButton>}</div>{showBreakdownForm && <ReasonForm title="Tandai Unit Breakdown" reason={breakdownForm.data.reason} setReason={(reason) => breakdownForm.setData('reason', reason)} error={breakdownForm.errors.reason} processing={breakdownForm.processing} onCancel={() => setShowBreakdownForm(false)} onSubmit={markBreakdown} />}</section>{workOrderData.unit?.status === 'active' && inspectionPlannings.length > 0 && <BreakdownInspectionForm unitId={workOrderData.unit.id} currentOdo={workOrderData.unit.current_odo} plannings={inspectionPlannings} />}<section className="space-y-4">{workOrderData.items?.map((item) => { const canComplete = canCondition && item.status !== 'complete' && item.status !== 'blocked' && item.status !== 'breakdown'; const canBlock = canCondition && ['on_hold', 'in_progress'].includes(item.status); return <article key={item.id} className="bg-white p-6 shadow-sm sm:rounded-lg"><div className="flex flex-wrap items-start justify-between gap-4"><div><h4 className="font-semibold text-gray-900">{item.planning_item?.name}</h4><p className="text-sm text-gray-500">Due KM {item.unit_planning?.next_due_km?.toLocaleString() ?? '-'} · Due Date {item.unit_planning?.next_due_date ?? '-'}</p>{item.reason && <p className="mt-1 text-sm text-gray-500">Alasan: {item.reason}</p>}</div><div className="flex flex-wrap gap-2"><span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">{item.status}</span>{item.status === 'blocked' && <span className="rounded-full bg-yellow-50 px-3 py-1 text-sm font-medium text-yellow-700">Blocked</span>}{item.status === 'breakdown' && <span className="rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700">Breakdown</span>}</div></div>{item.completed_odo && <p className="mt-3 text-sm text-gray-600">Selesai pada {item.completed_date} di KM {item.completed_odo.toLocaleString()}</p>}<div className="mt-3 flex flex-wrap gap-2">{canBlock && <SecondaryButton onClick={() => setBlockedItemId(item.id)}>Blocked</SecondaryButton>}</div>{blockedItemId === item.id && <ReasonForm title="Tandai Item Blocked" reason={blockedForm.data.reason} setReason={(reason) => blockedForm.setData('reason', reason)} error={blockedForm.errors.reason} processing={blockedForm.processing} onCancel={() => setBlockedItemId(null)} onSubmit={(event) => markBlocked(event, item.id)} />}{canComplete && workOrderData.unit && <CompleteItemForm item={item} workOrderId={workOrderData.id} currentOdo={workOrderData.unit.current_odo} />}</article>; })}{(!workOrderData.items || workOrderData.items.length === 0) && <div className="bg-white p-6 text-center text-sm text-gray-500 shadow-sm sm:rounded-lg">Belum ada item.</div>}</section></div></div></AuthenticatedLayout>;
+}

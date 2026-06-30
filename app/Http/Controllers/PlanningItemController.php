@@ -6,6 +6,7 @@ use App\Http\Requests\StorePlanningItemRequest;
 use App\Http\Requests\UpdatePlanningItemRequest;
 use App\Models\PlanningItem;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -13,14 +14,14 @@ class PlanningItemController extends Controller
 {
     public function index(): Response
     {
-        $this->authorize('viewAny', PlanningItem::class);
+        Gate::authorize('viewAny', PlanningItem::class);
 
         return Inertia::render('PlanningItems/Index', ['planningItems' => PlanningItem::query()->orderBy('name')->get()]);
     }
 
     public function create(): Response
     {
-        $this->authorize('create', PlanningItem::class);
+        Gate::authorize('create', PlanningItem::class);
 
         return Inertia::render('PlanningItems/Create');
     }
@@ -34,7 +35,7 @@ class PlanningItemController extends Controller
 
     public function edit(PlanningItem $planningItem): Response
     {
-        $this->authorize('update', $planningItem);
+        Gate::authorize('update', $planningItem);
 
         return Inertia::render('PlanningItems/Edit', ['planningItem' => $planningItem]);
     }
@@ -48,7 +49,7 @@ class PlanningItemController extends Controller
 
     public function destroy(PlanningItem $planningItem): RedirectResponse
     {
-        $this->authorize('delete', $planningItem);
+        Gate::authorize('delete', $planningItem);
         $planningItem->delete();
 
         return redirect()->route('planning-items.index');

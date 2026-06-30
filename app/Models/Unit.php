@@ -17,6 +17,7 @@ class Unit extends Model
         'brand',
         'year',
         'current_odo',
+        'avg_km_per_day',
         'status',
     ];
 
@@ -38,6 +39,30 @@ class Unit extends Model
     public function plateHistories(): HasMany
     {
         return $this->hasMany(UnitPlateHistory::class);
+    }
+
+    /**
+     * @return HasMany<InspectionLog, $this>
+     */
+    public function inspectionLogs(): HasMany
+    {
+        return $this->hasMany(InspectionLog::class);
+    }
+
+    /**
+     * @return HasMany<UnitPlanning, $this>
+     */
+    public function unitPlannings(): HasMany
+    {
+        return $this->hasMany(UnitPlanning::class);
+    }
+
+    /**
+     * @return HasMany<WorkOrder, $this>
+     */
+    public function workOrders(): HasMany
+    {
+        return $this->hasMany(WorkOrder::class);
     }
 
     /**

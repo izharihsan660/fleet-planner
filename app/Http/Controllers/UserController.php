@@ -9,6 +9,7 @@ use App\Models\Site;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -16,14 +17,14 @@ class UserController extends Controller
 {
     public function index(): Response
     {
-        $this->authorize('viewAny', User::class);
+        Gate::authorize('viewAny', User::class);
 
         return Inertia::render('Users/Index', ['users' => User::query()->with('site:id,name')->latest()->get()]);
     }
 
     public function create(): Response
     {
-        $this->authorize('create', User::class);
+        Gate::authorize('create', User::class);
 
         return Inertia::render('Users/Create', $this->formOptions());
     }
@@ -37,7 +38,7 @@ class UserController extends Controller
 
     public function edit(User $user): Response
     {
-        $this->authorize('update', $user);
+        Gate::authorize('update', $user);
 
         return Inertia::render('Users/Edit', [...$this->formOptions(), 'managedUser' => $user->load('site:id,name')]);
     }
@@ -57,7 +58,7 @@ class UserController extends Controller
 
     public function destroy(User $user): RedirectResponse
     {
-        $this->authorize('delete', $user);
+        Gate::authorize('delete', $user);
         $user->delete();
 
         return redirect()->route('users.index');

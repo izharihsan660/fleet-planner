@@ -44,7 +44,7 @@ class MasterDataAccessTest extends TestCase
 
         $unit->update(['current_plate' => 'KT 2000 BB']);
 
-        $this->assertDatabaseHas('unit_plate_histories', ['unit_id' => $unit->id, 'plate_number' => 'KT 1000 AA', 'active_until' => now()->toDateString()]);
+        $this->assertDatabaseHas('unit_plate_histories', ['unit_id' => $unit->id, 'plate_number' => 'KT 1000 AA', 'active_until' => now()->startOfDay()->toDateTimeString()]);
         $this->assertDatabaseHas('unit_plate_histories', ['unit_id' => $unit->id, 'plate_number' => 'KT 2000 BB', 'active_until' => null]);
     }
 
