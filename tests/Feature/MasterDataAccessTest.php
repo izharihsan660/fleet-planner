@@ -56,10 +56,10 @@ class MasterDataAccessTest extends TestCase
         $mekanik = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
 
         foreach (['sites.index', 'units.index'] as $routeName) {
-            $this->actingAs($mekanik)->get(route($routeName))->assertOk();
+            $this->actingAs($mekanik)->get(route($routeName))->assertForbidden();
         }
 
-        foreach (['sites.create', 'units.create', 'planning-items.index', 'system-thresholds.index'] as $routeName) {
+        foreach (['sites.index', 'units.index', 'sites.create', 'units.create', 'planning-items.index', 'system-thresholds.index'] as $routeName) {
             $this->actingAs($plannerHo)->get(route($routeName))->assertOk();
         }
 

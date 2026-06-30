@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Unit;
+use App\Services\UnitPlanningGenerator;
 use Illuminate\Support\Carbon;
 
 class UnitObserver
@@ -13,6 +14,8 @@ class UnitObserver
             'plate_number' => $unit->current_plate,
             'active_from' => Carbon::today(),
         ]);
+
+        app(UnitPlanningGenerator::class)->generateForUnit($unit, Carbon::today());
     }
 
     public function updated(Unit $unit): void

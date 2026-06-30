@@ -1,10 +1,8 @@
 import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
-import NavLink from '@/Components/NavLink';
-import ResponsiveNavLink from '@/Components/ResponsiveNavLink';
 import { Notification, PageProps } from '@/types';
 import { Link, router, usePage } from '@inertiajs/react';
-import { PropsWithChildren, ReactNode, useState } from 'react';
+import { PropsWithChildren, ReactNode, useMemo, useState } from 'react';
 
 type NotificationSharedProps = {
     notifications?: {
@@ -13,6 +11,14 @@ type NotificationSharedProps = {
     };
 };
 
+type NavigationItem = {
+    label: string;
+    href: string;
+    active: boolean;
+};
+
+const canAccess = (role: string, allowedRoles: string[]): boolean => allowedRoles.includes(role);
+
 export default function Authenticated({
     header,
     children,
@@ -20,11 +26,54 @@ export default function Authenticated({
     const page = usePage<PageProps & NotificationSharedProps>();
     const user = page.props.auth.user;
     const notifications = page.props.notifications ?? { unread_count: 0, latest: [] };
-    const canViewHighUsage = ['superadmin', 'planner_ho', 'admin_site', 'spv_ops'].includes(user.role);
-    const canViewProjections = ['superadmin', 'planner_ho', 'admin_site', 'spv_ops', 'logistik'].includes(user.role);
-    const canViewReports = ['superadmin', 'planner_ho', 'admin_site', 'spv_ops', 'logistik', 'mekanik'].includes(user.role);
+    const [showingSidebar, setShowingSidebar] = useState(false);
 
-    const [showingNavigationDropdown, setShowingNavigationDropdown] = useState(false);
+    const mainNavigation = useMemo<NavigationItem[]>(() => {
+        const items: Array<NavigationItem | false> = [
+            { label: 'Dashboard', href: route('dashboard'), active: route().current('dashboard') },
+            canAccess(user.role, ['superadmin', 'admin_site', 'mekanik']) && {
+                label: 'Input KM',
+                href: route('inspections.create'),
+                active: route().current('inspections.create'),
+            },
+            { label: 'Riwayat Inspeksi', href: route('inspections.index'), active: route().current('inspections.index') },
+            { label: 'Work Orders', href: route('work-orders.index'), active: route().current('work-orders.*') },
+            canAccess(user.role, ['superadmin', 'planner_ho', 'admin_site', 'spv_ops']) && {
+                label: 'High Usage',
+                href: route('high-usage.index'),
+                active: route().current('high-usage.*'),
+            },
+            canAccess(user.role, ['superadmin', 'planner_ho', 'admin_site', 'spv_ops', 'logistik']) && {
+                label: 'Projections',
+                href: route('projections.index'),
+                active: route().current('projections.*'),
+            },
+            { label: 'Reports', href: route('reports.index'), active: route().current('reports.*') || route().current('units.history') },
+        ];
+
+        return items.filter(Boolean) as NavigationItem[];
+    }, [user.role]);
+
+    const masterDataNavigation = useMemo<NavigationItem[]>(() => {
+        if (!canAccess(user.role, ['superadmin', 'planner_ho'])) {
+            return [];
+        }
+
+        return [
+            { label: 'Sites', href: route('sites.index'), active: route().current('sites.*') },
+            { label: 'Units', href: route('units.index'), active: route().current('units.*') && !route().current('units.history') },
+            { label: 'Planning Items', href: route('planning-items.index'), active: route().current('planning-items.*') },
+            { label: 'System Thresholds', href: route('system-thresholds.index'), active: route().current('system-thresholds.*') },
+        ];
+    }, [user.role]);
+
+    const userNavigation = useMemo<NavigationItem[]>(() => {
+        if (user.role !== 'superadmin') {
+            return [];
+        }
+
+        return [{ label: 'User Management', href: route('users.index'), active: route().current('users.*') }];
+    }, [user.role]);
 
     const readNotification = (notification: Notification) => {
         router.post(route('notifications.read', notification.id), {
@@ -32,28 +81,105 @@ export default function Authenticated({
         });
     };
 
-    return (
-        <div className="min-h-screen bg-gray-100">
-            <nav className="border-b border-gray-100 bg-white">
-                <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                    <div className="flex h-16 justify-between">
-                        <div className="flex">
-                            <div className="flex shrink-0 items-center">
-                                <Link href="/">
-                                    <ApplicationLogo className="block h-9 w-auto fill-current text-gray-800" />
-                                </Link>
-                            </div>
+    const closeMobileSidebar = () => setShowingSidebar(false);
 
-                            <div className="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                                <NavLink href={route('dashboard')} active={route().current('dashboard')}>Dashboard</NavLink>
-                                <NavLink href={route('work-orders.index')} active={route().current('work-orders.*')}>Work Orders</NavLink>
-                                {canViewHighUsage && <NavLink href={route('high-usage.index')} active={route().current('high-usage.*')}>High Usage</NavLink>}
-                                {canViewProjections && <NavLink href={route('projections.index')} active={route().current('projections.*')}>Projections</NavLink>}
-                                {canViewReports && <NavLink href={route('reports.index')} active={route().current('reports.*') || route().current('units.history')}>Reports</NavLink>}
+    const SidebarLink = ({ item }: { item: NavigationItem }) => (
+        <Link
+            href={item.href}
+            onClick={closeMobileSidebar}
+            className={[
+                'block rounded-lg px-3 py-2 text-sm font-medium transition',
+                item.active
+                    ? 'bg-indigo-50 text-indigo-700'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+            ].join(' ')}
+        >
+            {item.label}
+        </Link>
+    );
+
+    const SidebarContent = () => (
+        <div className="flex h-full flex-col bg-white">
+            <div className="flex h-16 shrink-0 items-center border-b border-gray-100 px-6">
+                <Link href={route('dashboard')} onClick={closeMobileSidebar} className="flex items-center gap-3">
+                    <ApplicationLogo className="block h-9 w-auto fill-current text-gray-800" />
+                    <span className="text-sm font-semibold uppercase tracking-wide text-gray-700">Fleet Planner</span>
+                </Link>
+            </div>
+
+            <nav className="flex-1 space-y-6 overflow-y-auto px-4 py-6">
+                <div className="space-y-1">
+                    {mainNavigation.map((item) => (
+                        <SidebarLink key={item.label} item={item} />
+                    ))}
+                </div>
+
+                {masterDataNavigation.length > 0 && (
+                    <div>
+                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Master Data</div>
+                        <div className="mt-2 space-y-1">
+                            {masterDataNavigation.map((item) => (
+                                <SidebarLink key={item.label} item={item} />
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {userNavigation.length > 0 && (
+                    <div>
+                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Administration</div>
+                        <div className="mt-2 space-y-1">
+                            {userNavigation.map((item) => (
+                                <SidebarLink key={item.label} item={item} />
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </nav>
+        </div>
+    );
+
+    return (
+        <div className="min-h-screen bg-gray-100 lg:flex">
+            <aside className="hidden w-72 shrink-0 border-r border-gray-100 lg:sticky lg:top-0 lg:flex lg:h-screen">
+                <SidebarContent />
+            </aside>
+
+            {showingSidebar && (
+                <div className="fixed inset-0 z-40 lg:hidden">
+                    <button
+                        type="button"
+                        aria-label="Close navigation menu"
+                        className="absolute inset-0 bg-gray-900/50"
+                        onClick={closeMobileSidebar}
+                    />
+                    <aside className="relative h-full w-72 max-w-[85vw] shadow-xl">
+                        <SidebarContent />
+                    </aside>
+                </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+                <header className="sticky top-0 z-30 border-b border-gray-100 bg-white">
+                    <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowingSidebar((previous) => !previous)}
+                                className="inline-flex items-center justify-center rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 focus:bg-gray-100 focus:outline-none lg:hidden"
+                            >
+                                <span className="sr-only">Open navigation menu</span>
+                                <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                                </svg>
+                            </button>
+
+                            <div className="truncate">
+                                {header ?? <h2 className="text-lg font-semibold leading-tight text-gray-800">Dashboard</h2>}
                             </div>
                         </div>
 
-                        <div className="hidden sm:ms-6 sm:flex sm:items-center sm:gap-3">
+                        <div className="flex items-center gap-3">
                             <Dropdown>
                                 <Dropdown.Trigger>
                                     <button type="button" className="relative rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none">
@@ -72,7 +198,7 @@ export default function Authenticated({
                                         <button key={notification.id} type="button" onClick={() => readNotification(notification)} className="block w-full px-4 py-3 text-left text-sm hover:bg-gray-50">
                                             <div className="flex items-start justify-between gap-3">
                                                 <span className="font-medium text-gray-900">{notification.title}</span>
-                                                {!notification.read_at && <span className="mt-1 h-2 w-2 rounded-full bg-indigo-600" />}
+                                                {!notification.read_at && <span className="mt-1 h-2 w-2 rounded-full bg-indigo-500" />}
                                             </div>
                                             <p className="mt-1 line-clamp-2 text-xs text-gray-500">{notification.message}</p>
                                         </button>
@@ -80,64 +206,29 @@ export default function Authenticated({
                                 </Dropdown.Content>
                             </Dropdown>
 
-                            <div className="relative ms-3">
-                                <Dropdown>
-                                    <Dropdown.Trigger>
-                                        <span className="inline-flex rounded-md">
-                                            <button type="button" className="inline-flex items-center rounded-md border border-transparent bg-white px-3 py-2 text-sm font-medium leading-4 text-gray-500 transition duration-150 ease-in-out hover:text-gray-700 focus:outline-none">
-                                                {user.name}
-                                                <svg className="-me-0.5 ms-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                                                </svg>
-                                            </button>
-                                        </span>
-                                    </Dropdown.Trigger>
+                            <Dropdown>
+                                <Dropdown.Trigger>
+                                    <span className="inline-flex rounded-md">
+                                        <button type="button" className="inline-flex max-w-40 items-center truncate rounded-md border border-transparent bg-white px-3 py-2 text-sm font-medium leading-4 text-gray-500 transition duration-150 ease-in-out hover:text-gray-700 focus:outline-none sm:max-w-none">
+                                            <span className="truncate">{user.name}</span>
+                                            <svg className="-me-0.5 ms-2 h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    </span>
+                                </Dropdown.Trigger>
 
-                                    <Dropdown.Content>
-                                        <Dropdown.Link href={route('profile.edit')}>Profile</Dropdown.Link>
-                                        <Dropdown.Link href={route('logout')} method="post" as="button">Log Out</Dropdown.Link>
-                                    </Dropdown.Content>
-                                </Dropdown>
-                            </div>
-                        </div>
-
-                        <div className="-me-2 flex items-center sm:hidden">
-                            <button onClick={() => setShowingNavigationDropdown((previous) => !previous)} className="inline-flex items-center justify-center rounded-md p-2 text-gray-400 transition duration-150 ease-in-out hover:bg-gray-100 hover:text-gray-500 focus:bg-gray-100 focus:text-gray-500 focus:outline-none">
-                                <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                                    <path className={!showingNavigationDropdown ? 'inline-flex' : 'hidden'} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
-                                    <path className={showingNavigationDropdown ? 'inline-flex' : 'hidden'} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
+                                <Dropdown.Content>
+                                    <Dropdown.Link href={route('profile.edit')}>Profile</Dropdown.Link>
+                                    <Dropdown.Link href={route('logout')} method="post" as="button">Log Out</Dropdown.Link>
+                                </Dropdown.Content>
+                            </Dropdown>
                         </div>
                     </div>
-                </div>
+                </header>
 
-                <div className={(showingNavigationDropdown ? 'block' : 'hidden') + ' sm:hidden'}>
-                    <div className="space-y-1 pb-3 pt-2">
-                        <ResponsiveNavLink href={route('dashboard')} active={route().current('dashboard')}>Dashboard</ResponsiveNavLink>
-                        <ResponsiveNavLink href={route('work-orders.index')} active={route().current('work-orders.*')}>Work Orders</ResponsiveNavLink>
-                        {canViewHighUsage && <ResponsiveNavLink href={route('high-usage.index')} active={route().current('high-usage.*')}>High Usage</ResponsiveNavLink>}
-                        {canViewProjections && <ResponsiveNavLink href={route('projections.index')} active={route().current('projections.*')}>Projections</ResponsiveNavLink>}
-                        {canViewReports && <ResponsiveNavLink href={route('reports.index')} active={route().current('reports.*') || route().current('units.history')}>Reports</ResponsiveNavLink>}
-                    </div>
-
-                    <div className="border-t border-gray-200 pb-1 pt-4">
-                        <div className="px-4">
-                            <div className="text-base font-medium text-gray-800">{user.name}</div>
-                            <div className="text-sm font-medium text-gray-500">{user.email}</div>
-                        </div>
-
-                        <div className="mt-3 space-y-1">
-                            <ResponsiveNavLink href={route('profile.edit')}>Profile</ResponsiveNavLink>
-                            <ResponsiveNavLink method="post" href={route('logout')} as="button">Log Out</ResponsiveNavLink>
-                        </div>
-                    </div>
-                </div>
-            </nav>
-
-            {header && <header className="bg-white shadow"><div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{header}</div></header>}
-
-            <main>{children}</main>
+                <main>{children}</main>
+            </div>
         </div>
     );
 }

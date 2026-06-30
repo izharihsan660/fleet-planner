@@ -8,6 +8,7 @@ use App\Http\Resources\ProjectionResultResource;
 use App\Http\Resources\SiteResource;
 use App\Models\Site;
 use App\Services\ProjectionService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,12 +23,15 @@ class ProjectionController extends Controller
         $months = (int) ($request->validated('months') ?? 1);
         $requestedSiteId = $request->validated('site_id');
         $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::SpvOps]);
-        $siteId = $user->hasRole(UserRole::AdminSite) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
+        $siteId = $user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
         $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null);
 
         return Inertia::render('Projections/Index', [
             'projection' => ProjectionResultResource::make($result)->resolve(),
-            'sites' => SiteResource::collection(Site::query()->orderBy('name')->get()),
+            'sites' => SiteResource::collection(Site::query()
+                ->when($user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]), fn (Builder $query) => $query->whereKey($user->site_id))
+                ->orderBy('name')
+                ->get()),
             'filters' => [
                 'months' => $months,
                 'site_id' => $siteId,

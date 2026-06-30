@@ -28,8 +28,6 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    Route::resource('sites', SiteController::class)->except('show');
-    Route::resource('units', UnitController::class)->except('show');
     Route::get('inspections', [InspectionController::class, 'index'])->name('inspections.index');
     Route::get('inspections/create', [InspectionController::class, 'create'])->name('inspections.create');
     Route::post('inspections', [InspectionController::class, 'store'])->name('inspections.store');
@@ -53,6 +51,8 @@ Route::middleware('auth')->group(function () {
     Route::post('units/{unit}/breakdown-inspection', [BlockedBreakdownController::class, 'storeInspection'])->name('units.breakdown-inspection');
 
     Route::middleware('role:superadmin,planner_ho')->group(function () {
+        Route::resource('sites', SiteController::class)->except('show');
+        Route::resource('units', UnitController::class)->except('show');
         Route::resource('planning-items', PlanningItemController::class)->except('show');
         Route::resource('system-thresholds', SystemThresholdController::class)->except('show');
     });

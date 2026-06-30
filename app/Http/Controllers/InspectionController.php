@@ -11,6 +11,7 @@ use App\Models\SystemThreshold;
 use App\Models\Unit;
 use App\Services\InspectionService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -25,11 +26,16 @@ class InspectionController extends Controller
         Gate::authorize('viewAny', InspectionLog::class);
 
         $filters = $request->only(['unit_id', 'inspection_date']);
+        $user = $request->user();
 
         $logs = InspectionLog::query()
             ->with(['unit.site', 'mechanic:id,name'])
-            ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
-            ->when($filters['inspection_date'] ?? null, fn ($query, string $date) => $query->whereDate('inspection_date', $date))
+            ->when(
+                $user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]),
+                fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)),
+            )
+            ->when($filters['unit_id'] ?? null, fn (Builder $query, string $unitId) => $query->where('unit_id', $unitId))
+            ->when($filters['inspection_date'] ?? null, fn (Builder $query, string $date) => $query->whereDate('inspection_date', $date))
             ->latest('inspection_date')
             ->latest('id')
             ->get();
@@ -89,8 +95,8 @@ class InspectionController extends Controller
         return Unit::query()
             ->with('site:id,name,region')
             ->when(
-                $user->hasRole(UserRole::Mekanik),
-                fn ($query) => $query->where('site_id', $user->site_id),
+                $user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]),
+                fn (Builder $query) => $query->where('site_id', $user->site_id),
             )
             ->orderBy('current_plate')
             ->get();
@@ -100,11 +106,11 @@ class InspectionController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isOneOf([UserRole::Superadmin, UserRole::AdminSite])) {
+        if ($user->hasRole(UserRole::Superadmin)) {
             return true;
         }
 
-        if ($user->hasRole(UserRole::Mekanik)) {
+        if ($user->isOneOf([UserRole::AdminSite, UserRole::Mekanik])) {
             return $unit->site_id === $user->site_id;
         }
 
