@@ -18,5 +18,9 @@ class DatabaseSeeder extends Seeder
             SystemThresholdSeeder::class,
             UnitPlanningSeeder::class,
         ]);
+
+        if ((bool) env('SEED_DEMO_DATA', false)) {
+            $this->call(DemoDataSeeder::class);
+        }
     }
 }

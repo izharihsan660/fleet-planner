@@ -9,6 +9,7 @@ use App\Http\Resources\UnitResource;
 use App\Http\Resources\WorkOrderResource;
 use App\Models\Site;
 use App\Models\Unit;
+use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Carbon\CarbonImmutable;
@@ -33,7 +34,7 @@ class WorkOrderController extends Controller
             ->withCount('items')
             ->withExists(['items as has_blocked_items' => fn ($query) => $query->where('status', 'blocked')])
             ->withExists(['items as has_high_usage_items' => fn ($query) => $query->where('triggered_by_high_usage', true)])
-            ->when(! $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo]), fn ($query) => $query->where('site_id', $user->site_id))
+            ->when(! $this->canAccessAllSites($user), fn ($query) => $query->where('site_id', $user->site_id))
             ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->where('site_id', $siteId))
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
@@ -133,7 +134,7 @@ class WorkOrderController extends Controller
         $user = $request->user();
 
         return Site::query()
-            ->when(! $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo]), fn ($query) => $query->whereKey($user->site_id))
+            ->when(! $this->canAccessAllSites($user), fn ($query) => $query->whereKey($user->site_id))
             ->orderBy('name')
             ->get();
     }
@@ -144,16 +145,21 @@ class WorkOrderController extends Controller
 
         return Unit::query()
             ->with('site:id,name,region')
-            ->when(! $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo]), fn ($query) => $query->where('site_id', $user->site_id))
+            ->when(! $this->canAccessAllSites($user), fn ($query) => $query->where('site_id', $user->site_id))
             ->orderBy('current_plate')
             ->get();
+    }
+
+    private function canAccessAllSites(User $user): bool
+    {
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::SpvOps]);
     }
 
     private function abortIfCannotAccessSite(Request $request, WorkOrder $workOrder): void
     {
         $user = $request->user();
 
-        if ($user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo])) {
+        if ($this->canAccessAllSites($user)) {
             return;
         }
 

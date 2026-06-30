@@ -110,7 +110,7 @@ class MaintenanceTriggerTest extends TestCase
             'planning_item_id' => $planningItem->id,
             'status' => 'on_hold',
         ]);
-        $spvOps = User::factory()->create(['role' => UserRole::SpvOps, 'site_id' => $site->id]);
+        $spvOps = User::factory()->create(['role' => UserRole::SpvOps, 'site_id' => null]);
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
 
         $this->actingAs($spvOps)->post(route('work-orders.approve', $workOrder))->assertRedirect(route('work-orders.show', $workOrder));

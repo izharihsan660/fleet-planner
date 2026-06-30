@@ -13,6 +13,7 @@ use Database\Seeders\PlanningItemSeeder;
 use Database\Seeders\SystemThresholdSeeder;
 use Database\Seeders\UnitPlanningSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class InspectionInputTest extends TestCase
@@ -102,6 +103,48 @@ class InspectionInputTest extends TestCase
             'inspection_date' => now()->toDateString(),
             'odometer' => 200,
         ])->assertForbidden();
+    }
+
+    public function test_inspection_index_returns_resource_collection_props(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 100));
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        InspectionLog::query()->create([
+            'unit_id' => $unit->id,
+            'mechanic_id' => $mechanic->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 100,
+        ]);
+
+        $this->actingAs($mechanic)
+            ->get(route('inspections.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Inspections/Index')
+                ->has('inspectionLogs.data', 1)
+                ->has('units.data', 1)
+            );
+    }
+
+    public function test_inspection_create_returns_units_resource_collection_prop(): void
+    {
+        $this->seed(SystemThresholdSeeder::class);
+
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        Unit::query()->create($this->unitPayload($site->id, 100));
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $this->actingAs($mechanic)
+            ->get(route('inspections.create'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Inspections/Create')
+                ->has('units.data', 1)
+                ->has('today')
+                ->has('minimumInspectionData')
+            );
     }
 
     /**

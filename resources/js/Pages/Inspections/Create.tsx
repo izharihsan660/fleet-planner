@@ -7,14 +7,14 @@ import { PageProps, Unit } from '@/types';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { FormEvent, useMemo } from 'react';
 
-interface ResourceCollection<T> {
-    data: T[];
-}
+type ResourceCollection<T> = T[] | { data: T[] };
+
+const collectionData = <T,>(collection: ResourceCollection<T>): T[] => (Array.isArray(collection) ? collection : collection.data);
 
 const digitsToInteger = (value: string): number => parseInt(value.replace(/\D/g, '') || '0', 10);
 
 export default function Create({ units, today, minimumInspectionData }: PageProps<{ units: ResourceCollection<Unit>; today: string; minimumInspectionData: number }>) {
-    const unitData = units.data;
+    const unitData = collectionData(units);
     const form = useForm({ unit_id: unitData[0]?.id ?? '', inspection_date: today, odometer: unitData[0]?.current_odo ?? 0 });
     const selectedUnit = useMemo(() => unitData.find((unit) => unit.id === Number(form.data.unit_id)), [form.data.unit_id, unitData]);
     const hasInsufficientData = selectedUnit ? (selectedUnit.inspection_logs_count ?? 0) < minimumInspectionData : false;
