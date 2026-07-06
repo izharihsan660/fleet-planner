@@ -72,6 +72,8 @@ class UnitHistoryController extends Controller
             'notes' => $item->notes,
             'completed_odo' => $item->completed_odo,
             'completed_date' => $item->completed_date?->toDateString(),
+            'previous_due_km' => $item->previous_due_km,
+            'previous_due_date' => $item->previous_due_date?->toDateString(),
             'new_due_km' => $item->new_due_km,
             'new_due_date' => $item->new_due_date?->toDateString(),
             'submitted_by' => $item->submittedBy?->name,

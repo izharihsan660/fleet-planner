@@ -16,7 +16,6 @@ class InspectionPolicy
     {
         return $user->isOneOf([
             UserRole::Superadmin,
-            UserRole::AdminSite,
             UserRole::Mekanik,
         ]);
     }

@@ -45,8 +45,14 @@ Route::middleware('auth')->group(function () {
     Route::post('high-usage/{flag}/schedule', [HighUsageController::class, 'submitSchedule'])->name('high-usage.schedule');
     Route::get('work-orders/{wo}', [WorkOrderController::class, 'show'])->name('work-orders.show');
     Route::post('work-orders/{wo}/approve', [WorkOrderController::class, 'approve'])->name('work-orders.approve');
+    Route::post('work-orders/{wo}/reject', [WorkOrderController::class, 'reject'])->name('work-orders.reject');
+    Route::post('work-orders/{wo}/assign-mechanic', [WorkOrderController::class, 'assignMechanic'])->name('work-orders.assign-mechanic');
+    Route::post('unit-plannings/{planning}/create-work-order', [WorkOrderController::class, 'createFromPlanning'])->name('unit-plannings.create-work-order');
+    Route::post('work-orders/{wo}/items/{item}/replace', [WorkOrderController::class, 'submitReplace'])->name('work-orders.items.replace');
+    Route::post('work-orders/{wo}/items/{item}/postpone', [WorkOrderController::class, 'submitPostpone'])->name('work-orders.items.postpone');
     Route::post('work-orders/{wo}/items/{item}/complete', [WorkOrderController::class, 'complete'])->name('work-orders.items.complete');
     Route::post('work-order-items/{item}/blocked', [BlockedBreakdownController::class, 'markBlocked'])->name('work-order-items.blocked');
+    Route::post('work-order-items/{item}/resolve-blocked', [BlockedBreakdownController::class, 'resolveBlocked'])->name('work-order-items.resolve-blocked');
     Route::post('units/{unit}/breakdown', [BlockedBreakdownController::class, 'markBreakdown'])->name('units.breakdown');
     Route::post('units/{unit}/breakdown-inspection', [BlockedBreakdownController::class, 'storeInspection'])->name('units.breakdown-inspection');
 

@@ -31,7 +31,7 @@ export default function Authenticated({
     const mainNavigation = useMemo<NavigationItem[]>(() => {
         const items: Array<NavigationItem | false> = [
             { label: 'Dashboard', href: route('dashboard'), active: route().current('dashboard') },
-            canAccess(user.role, ['superadmin', 'admin_site', 'mekanik']) && {
+            canAccess(user.role, ['superadmin', 'mekanik']) && {
                 label: 'Input KM',
                 href: route('inspections.create'),
                 active: route().current('inspections.create'),

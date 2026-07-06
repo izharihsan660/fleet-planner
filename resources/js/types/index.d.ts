@@ -70,8 +70,17 @@ export interface UnitPlanning {
 }
 
 export type WorkOrderStatus = 'open' | 'in_progress' | 'complete' | 'cancelled';
-export type WorkOrderItemStatus = 'on_hold' | 'in_progress' | 'complete' | 'postponed' | 'blocked' | 'breakdown' | 'overdue';
-export type WorkOrderItemAction = 'replace' | 'postpone' | 'blocked' | 'breakdown';
+export type WorkOrderItemStatus = 'on_hold' | 'pending_create' | 'replace' | 'postpone' | 'in_progress' | 'complete' | 'postponed' | 'blocked' | 'breakdown' | 'overdue' | 'rejected';
+export type WorkOrderItemAction = 'create_task' | 'replace' | 'postpone' | 'blocked' | 'breakdown';
+export type DueLevel = 'green' | 'yellow' | 'red';
+export type WorkOrderSubStatus = 'waiting_approval' | 'waiting_part' | 'assigned' | 'working';
+
+export interface DueMeta {
+    next_due_km: number | null;
+    next_due_date: string | null;
+    level: DueLevel;
+    label: string;
+}
 
 export interface WorkOrderItem {
     id: number;
@@ -84,6 +93,7 @@ export interface WorkOrderItem {
     notes: string | null;
     new_due_km: number | null;
     new_due_date: string | null;
+    available_date: string | null;
     freeze_start: string | null;
     freeze_end: string | null;
     completed_odo: number | null;
@@ -105,6 +115,8 @@ export interface WorkOrder {
     submitted_by_id: number | null;
     approved_by_id: number | null;
     approved_at: string | null;
+    assigned_mechanic_id: number | null;
+    scheduled_date: string | null;
     notes: string | null;
     created_at: string | null;
     unit?: Unit;
@@ -113,8 +125,27 @@ export interface WorkOrder {
     items_count?: number;
     has_blocked_items?: boolean;
     has_high_usage_items?: boolean;
+    has_overdue_items?: boolean;
+    has_rejected_items?: boolean;
+    planning_item_names?: string[];
+    nearest_due?: DueMeta | null;
+    sub_status?: { key: WorkOrderSubStatus; label: string } | null;
     submitted_by?: User | null;
     approved_by?: User | null;
+    assigned_mechanic?: User | null;
+}
+
+export interface WorkOrderPreviewItem {
+    id: number;
+    unit_id: number;
+    planning_item_id: number;
+    unit_plate: string;
+    site_name: string | null;
+    planning_item_name: string;
+    next_due_km: number | null;
+    next_due_date: string | null;
+    due: DueMeta | null;
+    approval_status: 'rejected' | null;
 }
 
 export interface HighUsageFlag {
@@ -255,6 +286,8 @@ export interface UnitHistoryItem {
     notes: string | null;
     completed_odo: number | null;
     completed_date: string | null;
+    previous_due_km: number | null;
+    previous_due_date: string | null;
     new_due_km: number | null;
     new_due_date: string | null;
     submitted_by: string | null;

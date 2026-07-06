@@ -25,6 +25,11 @@ class DemoDataSeeder extends Seeder
 
     public function run(): void
     {
+        $this->call([
+            PlanningItemSeeder::class,
+            SystemThresholdSeeder::class,
+        ]);
+
         $today = CarbonImmutable::today();
         $sites = $this->sites();
         $users = $this->users($sites);
@@ -67,6 +72,23 @@ class DemoDataSeeder extends Seeder
             'superadmin@example.com', 'planner.ho@example.com', 'admin.site@example.com',
             'spv.ops@example.com', 'logistik@example.com', 'mekanik@example.com',
         ])->update(['password' => Hash::make(self::PASSWORD)]);
+
+        User::query()->updateOrCreate(
+            ['email' => 'superadmin@example.com'],
+            ['name' => 'Superadmin Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Superadmin, 'site_id' => null],
+        );
+        User::query()->updateOrCreate(
+            ['email' => 'planner.ho@example.com'],
+            ['name' => 'Planner HO Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::PlannerHo, 'site_id' => null],
+        );
+        User::query()->updateOrCreate(
+            ['email' => 'spv.ops@example.com'],
+            ['name' => 'SPV Ops Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::SpvOps, 'site_id' => null],
+        );
+        User::query()->updateOrCreate(
+            ['email' => 'logistik@example.com'],
+            ['name' => 'Logistik Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Logistik, 'site_id' => null],
+        );
 
         foreach ($sites as $slug => $site) {
             $label = Str::of($slug)->replace('-', ' ')->headline()->toString();
@@ -135,16 +157,19 @@ class DemoDataSeeder extends Seeder
 
     private function specials(array $units, array $users, CarbonImmutable $today): void
     {
+        $admin = fn (Unit $unit): User => $users[$this->slug($unit)]['admin'];
+
         foreach (['BPN-001', 'SMR-001'] as $plate) {
             $this->dueSoon($units[$plate], 'PM Check / Reguler Services', $today);
             app(MaintenanceTriggerService::class)->checkAndTrigger($units[$plate]->refresh());
         }
 
-        foreach (['SMR-001', 'PKU-001'] as $plate) {
-            $this->highUsage($units[$plate], $today);
-        }
+        $this->previewPlanning($units['BPN-002'], 'Service A', $today->addDays(24));
+        $this->previewPlanning($units['BJM-002'], 'Service A', $today->addDays(12));
 
-        $admin = fn (Unit $unit): User => $users[$this->slug($unit)]['admin'];
+        $this->highUsage($units['SMR-001'], $today);
+        $this->highUsage($units['PKU-001'], $today, true, $admin($units['PKU-001']));
+
         $item = $this->woItem($units['JKT-001'], 'Service B', 'in_progress', $admin($units['JKT-001']), $today);
         app(BlockedBreakdownService::class)->markBreakdown($units['JKT-001']->refresh(), $admin($units['JKT-001']), 'Demo UAT: unit breakdown dan WO item freeze.');
 
@@ -170,19 +195,47 @@ class DemoDataSeeder extends Seeder
         );
     }
 
-    private function highUsage(Unit $unit, CarbonImmutable $today): void
+    private function previewPlanning(Unit $unit, string $name, CarbonImmutable $dueDate): UnitPlanning
+    {
+        $item = PlanningItem::query()->where('name', $name)->firstOrFail();
+
+        return UnitPlanning::query()->updateOrCreate(
+            ['unit_id' => $unit->id, 'planning_item_id' => $item->id],
+            [
+                'last_done_km' => max(0, $unit->current_odo - $item->interval_km),
+                'last_done_date' => $dueDate->subDays($item->interval_days)->toDateString(),
+                'next_due_km' => $unit->current_odo + 5000,
+                'next_due_date' => $dueDate->toDateString(),
+                'freeze_start' => null,
+            ],
+        );
+    }
+
+    private function highUsage(Unit $unit, CarbonImmutable $today, bool $windowTwo = false, ?User $actor = null): void
     {
         $planning = $this->dueSoon($unit, 'Ban', $today->addDays(10));
         HighUsageFlag::query()->updateOrCreate(
             ['unit_planning_id' => $planning->id, 'resolved_at' => null],
-            ['unit_id' => $unit->id, 'planning_item_id' => $planning->planning_item_id, 'avg_km_per_day' => $unit->avg_km_per_day, 'estimated_due_days' => 2, 'flagged_at' => now()],
+            [
+                'unit_id' => $unit->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'avg_km_per_day' => $unit->avg_km_per_day,
+                'estimated_due_days' => 2,
+                'flagged_at' => $windowTwo ? now()->subDays(6) : now(),
+                'action_taken' => $windowTwo ? 'deferred' : null,
+                'action_taken_at' => $windowTwo ? now()->subDays(6) : null,
+                'action_taken_by' => $windowTwo ? $actor?->id : null,
+            ],
         );
     }
 
     private function woItem(Unit $unit, string $name, string $status, User $actor, CarbonImmutable $today): WorkOrderItem
     {
         $item = PlanningItem::query()->where('name', $name)->firstOrFail();
-        $planning = UnitPlanning::query()->where('unit_id', $unit->id)->where('planning_item_id', $item->id)->firstOrFail();
+        $planning = UnitPlanning::query()->firstOrCreate(
+            ['unit_id' => $unit->id, 'planning_item_id' => $item->id],
+            ['last_done_km' => max(0, $unit->current_odo - $item->interval_km), 'last_done_date' => $today->subDays($item->interval_days), 'next_due_km' => $unit->current_odo + 500, 'next_due_date' => $today->addDays(5)],
+        );
         $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'normal', 'status' => $status === 'complete' ? 'complete' : 'open', 'submitted_by' => $actor->id, 'notes' => 'Demo UAT generated work order.']);
 
         return WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $planning->id, 'planning_item_id' => $item->id, 'status' => $status, 'submitted_by' => $actor->id]);

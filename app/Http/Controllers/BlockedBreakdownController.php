@@ -29,6 +29,22 @@ class BlockedBreakdownController extends Controller
         return back()->with('status', 'Item work order berhasil ditandai Blocked.');
     }
 
+    public function resolveBlocked(WorkOrderItem $item): RedirectResponse
+    {
+        Gate::authorize('markBlocked', WorkOrder::class);
+
+        $item->load('workOrder');
+        $this->abortIfCannotAccessSite(request()->user(), $item->workOrder->site_id);
+
+        if ($item->status !== 'blocked') {
+            return back()->withErrors(['action' => 'Hanya item Blocked yang bisa di-resolve.']);
+        }
+
+        $item->update(['status' => 'on_hold']);
+
+        return back()->with('status', 'Blocked berhasil di-resolve. Item kembali On Hold.');
+    }
+
     public function markBreakdown(MarkConditionRequest $request, Unit $unit, BlockedBreakdownService $service): RedirectResponse
     {
         Gate::authorize('markBreakdown', WorkOrder::class);
@@ -56,9 +72,25 @@ class BlockedBreakdownController extends Controller
             'last_done_date' => Carbon::today()->toDateString(),
             'next_due_km' => $completedOdo + $unitPlanning->planningItem->interval_km,
             'next_due_date' => Carbon::today()->addDays($unitPlanning->planningItem->interval_days)->toDateString(),
+            'freeze_start' => null,
         ]);
 
-        return back()->with('status', 'Inspeksi breakdown berhasil disimpan.');
+        WorkOrderItem::query()
+            ->where('unit_planning_id', $unitPlanning->id)
+            ->where('status', 'breakdown')
+            ->update([
+                'status' => 'complete',
+                'action' => 'breakdown',
+                'completed_odo' => $completedOdo,
+                'completed_date' => Carbon::today()->toDateString(),
+                'freeze_end' => now(),
+            ]);
+
+        if (! WorkOrderItem::query()->where('status', 'breakdown')->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))->exists()) {
+            $unit->update(['status' => 'active']);
+        }
+
+        return back()->with('status', 'Inspeksi breakdown tersimpan, cycle lanjut normal.');
     }
 
     private function abortIfCannotAccessSite(User $user, int $siteId): void

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\InspectionLog;
 use App\Models\PlanningItem;
 use App\Models\Site;
@@ -10,7 +11,6 @@ use App\Models\Unit;
 use App\Models\User;
 use Database\Seeders\PlanningItemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class RequestedBugFixVerificationTest extends TestCase
@@ -38,7 +38,7 @@ class RequestedBugFixVerificationTest extends TestCase
         $this->assertTrue(PlanningItem::query()->where('interval_km', '>', 0)->where('interval_days', '>', 0)->count() === 18);
     }
 
-    public function test_admin_site_only_sees_units_from_own_site_on_inspection_create(): void
+    public function test_admin_site_is_blocked_from_daily_km_input(): void
     {
         $this->seed(PlanningItemSeeder::class);
 
@@ -49,12 +49,7 @@ class RequestedBugFixVerificationTest extends TestCase
 
         $this->actingAs($adminSite)
             ->get(route('inspections.create'))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('Inspections/Create')
-                ->where('units.data.0.id', $unitA->id)
-                ->missing("units.data.1")
-            );
+            ->assertForbidden();
 
         $this->actingAs($adminSite)
             ->post(route('inspections.store'), [
@@ -72,7 +67,7 @@ class RequestedBugFixVerificationTest extends TestCase
 
         $this->actingAs($mekanik)
             ->withHeader('X-Inertia', 'true')
-            ->withHeader('X-Inertia-Version', app(\App\Http\Middleware\HandleInertiaRequests::class)->version(request()))
+            ->withHeader('X-Inertia-Version', app(HandleInertiaRequests::class)->version(request()))
             ->withHeader('Accept', 'text/html, application/xhtml+xml')
             ->withHeader('X-Requested-With', 'XMLHttpRequest')
             ->get(route('units.index'))
@@ -80,15 +75,15 @@ class RequestedBugFixVerificationTest extends TestCase
             ->assertJsonPath('component', 'Errors/Forbidden');
     }
 
-    public function test_odometer_9500_is_stored_as_9500(): void
+    public function test_mekanik_odometer_9500_is_stored_as_9500(): void
     {
         $this->seed(PlanningItemSeeder::class);
 
         $site = Site::query()->create(['name' => 'Site A', 'region' => 'A']);
-        $adminSite = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
+        $mekanik = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $unit = $this->makeUnit($site, 'DD 9500 OD', 9000);
 
-        $this->actingAs($adminSite)
+        $this->actingAs($mekanik)
             ->post(route('inspections.store'), [
                 'unit_id' => $unit->id,
                 'inspection_date' => today()->toDateString(),

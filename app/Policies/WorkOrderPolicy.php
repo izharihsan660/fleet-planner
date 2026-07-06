@@ -33,6 +33,11 @@ class WorkOrderPolicy
         return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite, UserRole::Mekanik]) && $this->canAccessSite($user, $workOrder);
     }
 
+    public function assignMechanic(User $user, WorkOrder $workOrder): bool
+    {
+        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]) && $this->canAccessSite($user, $workOrder);
+    }
+
     public function markBlocked(User $user): bool
     {
         return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite, UserRole::Mekanik]);

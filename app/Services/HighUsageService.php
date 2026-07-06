@@ -66,7 +66,7 @@ class HighUsageService
     }
 
     /**
-     * @param  array{new_due_km?: int, new_due_date?: string}  $data
+     * @param  array{available_date?: string, new_due_km?: int, new_due_date?: string}  $data
      */
     public function takeAction(HighUsageFlag $flag, User $actor, string $action, array $data = []): void
     {
@@ -97,7 +97,8 @@ class HighUsageService
             }
 
             if ($action === 'scheduled') {
-                $this->createWorkOrderItem($flag, $actor, true, $data);
+                $item = $this->createWorkOrderItem($flag, $actor, true, $data);
+                app(FleetNotificationService::class)->taskSubmitted($item, 'postpone');
 
                 $flag->update([
                     'action_taken' => 'triggered',
@@ -111,15 +112,18 @@ class HighUsageService
 
     public function checkPendingFlags(): void
     {
-        HighUsageFlag::query()
+        $pendingFlags = HighUsageFlag::query()
             ->whereNull('action_taken')
             ->where('flagged_at', '<=', now()->subDays(5))
             ->get();
 
-        HighUsageFlag::query()
+        $deferredFlags = HighUsageFlag::query()
             ->where('action_taken', 'deferred')
             ->where('action_taken_at', '<=', now()->subDays(5))
             ->get();
+
+        $pendingFlags->merge($deferredFlags)
+            ->each(fn (HighUsageFlag $flag) => app(FleetNotificationService::class)->highUsageSecondWindow($flag));
     }
 
     private function shouldFlag(Unit $unit, UnitPlanning $unitPlanning, float $averageKmPerDay, int $thresholdPercentage, CarbonImmutable $today): bool
@@ -157,7 +161,7 @@ class HighUsageService
     }
 
     /**
-     * @param  array{new_due_km?: int, new_due_date?: string}  $data
+     * @param  array{available_date?: string, new_due_km?: int, new_due_date?: string}  $data
      */
     private function createWorkOrderItem(HighUsageFlag $flag, User $actor, bool $triggeredByHighUsage, array $data = []): WorkOrderItem
     {
@@ -181,10 +185,15 @@ class HighUsageService
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $flag->unit_planning_id,
             'planning_item_id' => $flag->planning_item_id,
-            'status' => 'on_hold',
+            'status' => empty($data) ? 'on_hold' : 'postpone',
+            'action' => empty($data) ? null : 'postpone',
+            'reason' => empty($data) ? null : 'High Usage Window 2: jadwal baru diajukan.',
+            'previous_due_km' => $flag->unitPlanning?->next_due_km,
+            'previous_due_date' => $flag->unitPlanning?->next_due_date?->toDateString(),
             'submitted_by' => $actor->id,
             'new_due_km' => $data['new_due_km'] ?? null,
             'new_due_date' => $data['new_due_date'] ?? null,
+            'available_date' => $data['available_date'] ?? null,
             'triggered_by_high_usage' => $triggeredByHighUsage,
         ]);
     }

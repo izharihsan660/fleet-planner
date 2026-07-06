@@ -16,6 +16,8 @@ class WorkOrder extends Model
         'submitted_by',
         'approved_by',
         'approved_at',
+        'assigned_mechanic_id',
+        'scheduled_date',
         'notes',
     ];
 
@@ -23,6 +25,7 @@ class WorkOrder extends Model
     {
         return [
             'approved_at' => 'datetime',
+            'scheduled_date' => 'date',
         ];
     }
 
@@ -64,5 +67,13 @@ class WorkOrder extends Model
     public function approvedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function assignedMechanic(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_mechanic_id');
     }
 }

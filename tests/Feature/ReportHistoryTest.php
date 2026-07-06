@@ -122,6 +122,23 @@ class ReportHistoryTest extends TestCase
         $this->assertSame(2, Notification::query()->where('type', 'maintenance_overdue')->count());
     }
 
+    public function test_check_overdue_command_notifies_existing_overdue_items(): void
+    {
+        $this->createReportScenario();
+        User::factory()->create(['role' => UserRole::SpvOps]);
+        User::factory()->create(['role' => UserRole::PlannerHo]);
+
+        $item = WorkOrderItem::query()->firstOrFail();
+        $item->update(['status' => 'overdue']);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame(2, Notification::query()
+            ->where('type', 'maintenance_overdue')
+            ->where('data->work_order_item_id', $item->id)
+            ->count());
+    }
+
     /**
      * @return array{0: Site, 1: Unit}
      */

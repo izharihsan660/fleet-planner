@@ -19,6 +19,8 @@ class BlockedBreakdownService
             'submitted_by' => $actor->id,
         ]);
 
+        app(FleetNotificationService::class)->taskSubmitted($item->refresh(), 'blocked');
+
         return $item->refresh();
     }
 
@@ -45,6 +47,8 @@ class BlockedBreakdownService
                 'freeze_start' => $freezeStart,
                 'updated_at' => $freezeStart,
             ]);
+
+            app(FleetNotificationService::class)->unitBreakdown($unit->refresh());
         });
     }
 

@@ -73,13 +73,15 @@ class BlockedBreakdownTest extends TestCase
     public function test_breakdown_inspection_resets_selected_unit_planning_cycle(): void
     {
         CarbonImmutable::setTestNow('2026-07-04 08:00:00');
-        [$site, $unit, $planning] = $this->createWorkOrderScenario();
+        [$site, $unit, $planning, $item] = $this->createWorkOrderScenario();
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $item->update(['status' => 'breakdown', 'action' => 'breakdown', 'freeze_start' => now()]);
+        $unit->update(['status' => 'breakdown']);
 
         $this->actingAs($mechanic)->post(route('units.breakdown-inspection', $unit), [
             'unit_planning_id' => $planning->id,
             'completed_odo' => 1500,
-        ])->assertRedirect();
+        ])->assertRedirect()->assertSessionHas('status', 'Inspeksi breakdown tersimpan, cycle lanjut normal.');
 
         $planning->refresh();
 
@@ -87,6 +89,9 @@ class BlockedBreakdownTest extends TestCase
         $this->assertSame('2026-07-04', $planning->last_done_date->toDateString());
         $this->assertSame(6500, $planning->next_due_km);
         $this->assertSame('2026-08-03', $planning->next_due_date->toDateString());
+        $this->assertNull($planning->freeze_start);
+        $this->assertSame('complete', $item->refresh()->status);
+        $this->assertSame('active', $unit->refresh()->status);
 
         CarbonImmutable::setTestNow();
     }

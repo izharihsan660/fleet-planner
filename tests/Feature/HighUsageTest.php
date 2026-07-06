@@ -10,6 +10,8 @@ use App\Models\SystemThreshold;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\User;
+use App\Models\WorkOrder;
+use App\Models\WorkOrderItem;
 use App\Services\HighUsageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -60,6 +62,7 @@ class HighUsageTest extends TestCase
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
         $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
         $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $unit->site_id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
 
         $this->actingAs($admin)->post(route('high-usage.action', $flag), [
             'action' => 'deferred',
@@ -69,16 +72,28 @@ class HighUsageTest extends TestCase
         $this->assertNull($flag->resolved_at);
 
         $this->actingAs($admin)->post(route('high-usage.schedule', $flag), [
+            'available_date' => now()->addDays(3)->toDateString(),
             'new_due_km' => 2400,
             'new_due_date' => now()->addDays(8)->toDateString(),
         ])->assertRedirect();
 
-        $this->assertDatabaseHas('work_order_items', [
-            'unit_planning_id' => $unitPlanning->id,
-            'new_due_km' => 2400,
-            'triggered_by_high_usage' => true,
-        ]);
+        $item = WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->firstOrFail();
+
+        $this->assertSame(now()->addDays(3)->toDateString(), $item->available_date->toDateString());
+        $this->assertSame(2400, $item->new_due_km);
+        $this->assertSame(now()->addDays(8)->toDateString(), $item->new_due_date->toDateString());
+        $this->assertSame('postpone', $item->status);
+        $this->assertTrue($item->triggered_by_high_usage);
         $this->assertNotNull($flag->refresh()->resolved_at);
+
+        $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame(2400, $unitPlanning->refresh()->next_due_km);
+        $this->assertSame(now()->addDays(8)->toDateString(), $unitPlanning->next_due_date->toDateString());
     }
 
     public function test_admin_site_only_sees_flags_for_own_site(): void

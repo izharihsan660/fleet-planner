@@ -110,7 +110,7 @@ class InspectionController extends Controller
             return true;
         }
 
-        if ($user->isOneOf([UserRole::AdminSite, UserRole::Mekanik])) {
+        if ($user->hasRole(UserRole::Mekanik)) {
             return $unit->site_id === $user->site_id;
         }
 

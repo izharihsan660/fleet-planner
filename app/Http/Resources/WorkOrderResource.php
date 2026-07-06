@@ -23,6 +23,8 @@ class WorkOrderResource extends JsonResource
             'submitted_by_id' => $this->submitted_by,
             'approved_by_id' => $this->approved_by,
             'approved_at' => $this->approved_at?->toDateTimeString(),
+            'assigned_mechanic_id' => $this->assigned_mechanic_id,
+            'scheduled_date' => $this->scheduled_date?->toDateString(),
             'notes' => $this->notes,
             'created_at' => $this->created_at?->toDateTimeString(),
             'unit' => UnitResource::make($this->whenLoaded('unit')),
@@ -31,8 +33,14 @@ class WorkOrderResource extends JsonResource
             'items_count' => $this->whenCounted('items'),
             'has_blocked_items' => $this->when(isset($this->has_blocked_items), (bool) $this->has_blocked_items),
             'has_high_usage_items' => $this->when(isset($this->has_high_usage_items), (bool) $this->has_high_usage_items),
+            'has_overdue_items' => $this->when($this->has_overdue_items !== null, (bool) $this->has_overdue_items),
+            'has_rejected_items' => $this->when($this->has_rejected_items !== null, (bool) $this->has_rejected_items),
+            'planning_item_names' => $this->when($this->planning_item_names !== null, $this->planning_item_names),
+            'nearest_due' => $this->when($this->nearest_due !== null, $this->nearest_due),
+            'sub_status' => $this->when($this->sub_status !== null, $this->sub_status),
             'submitted_by' => $this->whenLoaded('submittedBy'),
             'approved_by' => $this->whenLoaded('approvedBy'),
+            'assigned_mechanic' => $this->whenLoaded('assignedMechanic'),
         ];
     }
 }

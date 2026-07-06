@@ -25,6 +25,7 @@ class WorkOrderItemResource extends JsonResource
             'notes' => $this->notes,
             'new_due_km' => $this->new_due_km,
             'new_due_date' => $this->new_due_date?->toDateString(),
+            'available_date' => $this->available_date?->toDateString(),
             'freeze_start' => $this->freeze_start?->toDateTimeString(),
             'freeze_end' => $this->freeze_end?->toDateTimeString(),
             'completed_odo' => $this->completed_odo,

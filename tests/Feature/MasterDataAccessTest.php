@@ -23,6 +23,25 @@ class MasterDataAccessTest extends TestCase
 
         $this->assertSame(18, PlanningItem::query()->count());
         $this->assertSame('500', SystemThreshold::query()->where('key', 'warning_km')->value('value'));
+        $this->assertSame('14', SystemThreshold::query()->where('key', 'ancang_ancang_days')->value('value'));
+        $this->assertSame('2000', SystemThreshold::query()->where('key', 'upcoming_km')->value('value'));
+    }
+
+    public function test_preview_threshold_order_must_stay_above_warning_threshold(): void
+    {
+        $this->seed(SystemThresholdSeeder::class);
+        $plannerHo = User::factory()->create(['role' => UserRole::PlannerHo]);
+        $threshold = SystemThreshold::query()->where('key', 'ancang_ancang_days')->firstOrFail();
+
+        $this->actingAs($plannerHo)
+            ->patch(route('system-thresholds.update', $threshold), [
+                'key' => 'ancang_ancang_days',
+                'value' => '7',
+                'description' => $threshold->description,
+            ])
+            ->assertSessionHasErrors('value');
+
+        $this->assertSame('14', $threshold->refresh()->value);
     }
 
     public function test_unit_plate_history_is_created_and_updated_when_plate_changes(): void
