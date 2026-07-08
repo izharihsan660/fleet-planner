@@ -1,11 +1,14 @@
 import DangerButton from '@/Components/DangerButton';
+import PaginationLinks from '@/Components/PaginationLinks';
 import PrimaryButton from '@/Components/PrimaryButton';
+import { Card, CardContent } from '@/Components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, Site } from '@/types';
+import { PageProps, PaginatedCollection, Site } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 
-export default function Index({ auth, sites }: PageProps<{ sites: (Site & { units_count: number; users_count: number })[] }>) {
-    const canManage = auth.user.role === 'superadmin' || auth.user.role === 'planner_ho';
+export default function Index({ auth, sites }: PageProps<{ sites: PaginatedCollection<Site & { units_count: number; users_count: number }> }>) {
+    const canManage = auth.user.role === 'superadmin' || auth.user.role === 'spv_ho';
 
     const destroy = (site: Site) => {
         if (confirm(`Delete site ${site.name}?`)) {
@@ -14,17 +17,17 @@ export default function Index({ auth, sites }: PageProps<{ sites: (Site & { unit
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Sites</h2>}>
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Sites</h2>}>
             <Head title="Sites" />
-            <div className="py-12"><div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
+            <div className="py-10"><div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                 {canManage && <Link href={route('sites.create')}><PrimaryButton>Add Site</PrimaryButton></Link>}
-                <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg"><table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50"><tr>{['Name','Region','Units','Users','Actions'].map((head) => <th key={head} className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">{head}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">{sites.map((site) => <tr key={site.id}>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">{site.name}</td><td className="px-6 py-4 text-sm text-gray-500">{site.region}</td><td className="px-6 py-4 text-sm text-gray-500">{site.units_count}</td><td className="px-6 py-4 text-sm text-gray-500">{site.users_count}</td>
-                        <td className="space-x-3 px-6 py-4 text-sm">{canManage && <><Link className="text-indigo-600 hover:text-indigo-900" href={route('sites.edit', site.id)}>Edit</Link><DangerButton onClick={() => destroy(site)}>Delete</DangerButton></>}</td>
-                    </tr>)}</tbody>
-                </table></div>
+                <Card><CardContent><div className="overflow-x-auto"><Table>
+                    <TableHeader><TableRow>{['Name','Region','Units','Users','Actions'].map((head) => <TableHead key={head}>{head}</TableHead>)}</TableRow></TableHeader>
+                    <TableBody>{sites.data.map((site) => <TableRow key={site.id}>
+                        <TableCell className="font-medium text-foreground">{site.name}</TableCell><TableCell>{site.region}</TableCell><TableCell>{site.units_count}</TableCell><TableCell>{site.users_count}</TableCell>
+                        <TableCell><div className="flex flex-wrap gap-2">{canManage && <><Link className="text-sm font-medium text-primary hover:underline" href={route('sites.edit', site.id)}>Edit</Link><DangerButton onClick={() => destroy(site)}>Delete</DangerButton></>}</div></TableCell>
+                    </TableRow>)}</TableBody>
+                </Table></div><PaginationLinks meta={sites.meta} /></CardContent></Card>
             </div></div>
         </AuthenticatedLayout>
     );

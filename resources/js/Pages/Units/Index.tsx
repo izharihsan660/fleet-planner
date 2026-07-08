@@ -1,11 +1,15 @@
 import DangerButton from '@/Components/DangerButton';
+import PaginationLinks from '@/Components/PaginationLinks';
 import PrimaryButton from '@/Components/PrimaryButton';
+import StatusBadge from '@/Components/StatusBadge';
+import { Card, CardContent } from '@/Components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, Unit } from '@/types';
+import { PageProps, PaginatedCollection, Unit } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 
-export default function Index({ auth, units }: PageProps<{ units: Unit[] }>) {
-    const canManage = auth.user.role === 'superadmin' || auth.user.role === 'planner_ho';
+export default function Index({ auth, units }: PageProps<{ units: PaginatedCollection<Unit> }>) {
+    const canManage = auth.user.role === 'superadmin' || auth.user.role === 'spv_ho';
 
     const destroy = (unit: Unit) => {
         if (confirm(`Delete unit ${unit.current_plate}?`)) {
@@ -14,10 +18,10 @@ export default function Index({ auth, units }: PageProps<{ units: Unit[] }>) {
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Units</h2>}>
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Units</h2>}>
             <Head title="Units" />
 
-            <div className="py-12">
+            <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                     {canManage && (
                         <Link href={route('units.create')}>
@@ -25,54 +29,54 @@ export default function Index({ auth, units }: PageProps<{ units: Unit[] }>) {
                         </Link>
                     )}
 
-                    <div className="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
+                    <Card><CardContent><div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
                                     {['Plate', 'Site', 'Customer', 'Type', 'Brand', 'Year', 'ODO', 'Status', 'Plate History', 'Actions'].map((head) => (
-                                        <th key={head} className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                                        <TableHead key={head}>
                                             {head}
-                                        </th>
+                                        </TableHead>
                                     ))}
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 bg-white">
-                                {units.map((unit) => (
-                                    <tr key={unit.id}>
-                                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {units.data.map((unit) => (
+                                    <TableRow key={unit.id}>
+                                        <TableCell className="font-medium text-foreground">
                                             {unit.current_plate}
                                             <div className="mt-1 flex gap-1">
-                                                {unit.is_warranty && <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800">Warranty</span>}
-                                                {unit.status === 'breakdown' && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-800">Breakdown</span>}
+                                                {unit.is_warranty && <StatusBadge tone="warranty">Warranty</StatusBadge>}
+                                                {unit.status === 'breakdown' && <StatusBadge tone="danger">Breakdown</StatusBadge>}
                                             </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.site?.name}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.customer}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.type}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.brand}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.year}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.current_odo.toLocaleString()}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{unit.status}</td>
-                                        <td className="px-6 py-4 text-sm">
-                                            <Link className="inline-flex items-center rounded-md border border-indigo-200 px-3 py-1.5 font-medium text-indigo-700 hover:bg-indigo-50" href={route('units.history', unit.id)}>
+                                        </TableCell>
+                                        <TableCell>{unit.site?.name}</TableCell>
+                                        <TableCell>{unit.customer}</TableCell>
+                                        <TableCell>{unit.type}</TableCell>
+                                        <TableCell>{unit.brand}</TableCell>
+                                        <TableCell>{unit.year}</TableCell>
+                                        <TableCell>{unit.current_odo.toLocaleString('id-ID')}</TableCell>
+                                        <TableCell>{unit.status}</TableCell>
+                                        <TableCell>
+                                            <Link className="text-sm font-medium text-primary hover:underline" href={route('units.history', unit.id)}>
                                                 Show History
                                             </Link>
-                                        </td>
-                                        <td className="space-x-3 px-6 py-4 text-sm">
+                                        </TableCell>
+                                        <TableCell>
                                             {canManage && (
-                                                <>
-                                                    <Link className="text-indigo-600 hover:text-indigo-900" href={route('units.edit', unit.id)}>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <Link className="text-sm font-medium text-primary hover:underline" href={route('units.edit', unit.id)}>
                                                         Edit
                                                     </Link>
                                                     <DangerButton onClick={() => destroy(unit)}>Delete</DangerButton>
-                                                </>
+                                                </div>
                                             )}
-                                        </td>
-                                    </tr>
+                                        </TableCell>
+                                    </TableRow>
                                 ))}
-                            </tbody>
-                        </table>
-                    </div>
+                            </TableBody>
+                        </Table>
+                    </div><PaginationLinks meta={units.meta} /></CardContent></Card>
                 </div>
             </div>
         </AuthenticatedLayout>

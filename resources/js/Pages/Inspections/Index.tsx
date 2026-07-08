@@ -1,7 +1,11 @@
 import PrimaryButton from '@/Components/PrimaryButton';
+import PaginationLinks from '@/Components/PaginationLinks';
 import TextInput from '@/Components/TextInput';
+import { Card, CardContent } from '@/Components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { InspectionLog, PageProps, Unit } from '@/types';
+import { InspectionLog, PageProps, PaginatedCollection, Unit } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { FormEvent, useState } from 'react';
 
@@ -9,13 +13,13 @@ type ResourceCollection<T> = T[] | { data: T[] };
 
 const collectionData = <T,>(collection: ResourceCollection<T>): T[] => (Array.isArray(collection) ? collection : collection.data);
 
-export default function Index({ auth, inspectionLogs, units, filters }: PageProps<{ inspectionLogs: ResourceCollection<InspectionLog>; units: ResourceCollection<Unit>; filters: { unit_id?: string; inspection_date?: string } }>) {
+export default function Index({ auth, inspectionLogs, units, filters }: PageProps<{ inspectionLogs: PaginatedCollection<InspectionLog>; units: ResourceCollection<Unit>; filters: { unit_id?: string; inspection_date?: string } }>) {
     const unitData = collectionData(units);
     const inspectionLogData = collectionData(inspectionLogs);
-    const canCreate = ['superadmin', 'admin_site', 'mekanik'].includes(auth.user.role);
+    const canCreate = ['superadmin', 'planner_area', 'mekanik'].includes(auth.user.role);
     const [unitId, setUnitId] = useState(filters.unit_id ?? '');
     const [inspectionDate, setInspectionDate] = useState(filters.inspection_date ?? '');
     const filter = (event: FormEvent) => { event.preventDefault(); router.get(route('inspections.index'), { unit_id: unitId || undefined, inspection_date: inspectionDate || undefined }, { preserveState: true }); };
 
-    return <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Log Inspeksi KM</h2>}><Head title="Log Inspeksi KM" /><div className="py-12"><div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8"><div className="flex items-center justify-between">{canCreate && <Link href={route('inspections.create')}><PrimaryButton>Input KM Harian</PrimaryButton></Link>}</div><form onSubmit={filter} className="grid gap-4 bg-white p-4 shadow-sm sm:rounded-lg md:grid-cols-3"><select className="rounded-md border-gray-300 shadow-sm" value={unitId} onChange={(event) => setUnitId(event.target.value)}><option value="">Semua Unit</option>{unitData.map((unit) => <option key={unit.id} value={unit.id}>{unit.current_plate}</option>)}</select><TextInput type="date" value={inspectionDate} onChange={(event) => setInspectionDate(event.target.value)} /><PrimaryButton>Filter</PrimaryButton></form><div className="overflow-hidden bg-white shadow-sm sm:rounded-lg"><table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr>{['Tanggal','Unit','Odometer','Mekanik','Site'].map((head) => <th key={head} className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">{head}</th>)}</tr></thead><tbody className="divide-y divide-gray-200 bg-white">{inspectionLogData.map((log) => <tr key={log.id}><td className="px-6 py-4 text-sm text-gray-900">{log.inspection_date}</td><td className="px-6 py-4 text-sm font-medium text-gray-900">{log.unit?.current_plate}</td><td className="px-6 py-4 text-sm text-gray-500">{log.odometer.toLocaleString()}</td><td className="px-6 py-4 text-sm text-gray-500">{log.mechanic?.name}</td><td className="px-6 py-4 text-sm text-gray-500">{log.unit?.site?.name}</td></tr>)}{inspectionLogData.length === 0 && <tr><td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">Belum ada log inspeksi.</td></tr>}</tbody></table></div></div></div></AuthenticatedLayout>;
+    return <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Log Inspeksi KM</h2>}><Head title="Log Inspeksi KM" /><div className="py-10"><div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8"><div className="flex items-center justify-between">{canCreate && <Link href={route('inspections.create')}><PrimaryButton>Input KM Harian</PrimaryButton></Link>}</div><Card><CardContent><form onSubmit={filter} className="grid gap-4 md:grid-cols-3"><Select value={unitId || 'all'} onValueChange={(value) => setUnitId(value === 'all' ? '' : value)}><SelectTrigger><SelectValue placeholder="Semua Unit" /></SelectTrigger><SelectContent><SelectItem value="all">Semua Unit</SelectItem>{unitData.map((unit) => <SelectItem key={unit.id} value={String(unit.id)}>{unit.current_plate}</SelectItem>)}</SelectContent></Select><TextInput type="date" value={inspectionDate} onChange={(event) => setInspectionDate(event.target.value)} /><PrimaryButton>Filter</PrimaryButton></form></CardContent></Card><Card><CardContent className="space-y-4"><div className="overflow-x-auto"><Table><TableHeader><TableRow>{['Tanggal','Unit','Odometer','Mekanik','Site'].map((head) => <TableHead key={head}>{head}</TableHead>)}</TableRow></TableHeader><TableBody>{inspectionLogData.map((log) => <TableRow key={log.id}><TableCell>{log.inspection_date}</TableCell><TableCell className="font-medium text-foreground">{log.unit?.current_plate}</TableCell><TableCell>{log.odometer.toLocaleString('id-ID')}</TableCell><TableCell>{log.mechanic?.name}</TableCell><TableCell>{log.unit?.site?.name}</TableCell></TableRow>)}{inspectionLogData.length === 0 && <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Belum ada log inspeksi.</TableCell></TableRow>}</TableBody></Table></div><PaginationLinks meta={inspectionLogs.meta} /></CardContent></Card></div></div></AuthenticatedLayout>;
 }

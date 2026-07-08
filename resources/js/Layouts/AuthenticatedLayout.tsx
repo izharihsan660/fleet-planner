@@ -38,12 +38,12 @@ export default function Authenticated({
             },
             { label: 'Riwayat Inspeksi', href: route('inspections.index'), active: route().current('inspections.index') },
             { label: 'Work Orders', href: route('work-orders.index'), active: route().current('work-orders.*') },
-            canAccess(user.role, ['superadmin', 'planner_ho', 'admin_site', 'spv_ops']) && {
+            canAccess(user.role, ['superadmin', 'spv_ho', 'planner_area']) && {
                 label: 'High Usage',
                 href: route('high-usage.index'),
                 active: route().current('high-usage.*'),
             },
-            canAccess(user.role, ['superadmin', 'planner_ho', 'admin_site', 'spv_ops', 'logistik']) && {
+            canAccess(user.role, ['superadmin', 'spv_ho', 'planner_area']) && {
                 label: 'Projections',
                 href: route('projections.index'),
                 active: route().current('projections.*'),
@@ -55,7 +55,7 @@ export default function Authenticated({
     }, [user.role]);
 
     const masterDataNavigation = useMemo<NavigationItem[]>(() => {
-        if (!canAccess(user.role, ['superadmin', 'planner_ho'])) {
+        if (!canAccess(user.role, ['superadmin', 'spv_ho'])) {
             return [];
         }
 
@@ -63,6 +63,8 @@ export default function Authenticated({
             { label: 'Sites', href: route('sites.index'), active: route().current('sites.*') },
             { label: 'Units', href: route('units.index'), active: route().current('units.*') && !route().current('units.history') },
             { label: 'Planning Items', href: route('planning-items.index'), active: route().current('planning-items.*') },
+            { label: 'Interval Override', href: route('planning-item-overrides.index'), active: route().current('planning-item-overrides.*') },
+            { label: 'Import Data', href: route('maintenance-imports.index'), active: route().current('maintenance-imports.*') },
             { label: 'System Thresholds', href: route('system-thresholds.index'), active: route().current('system-thresholds.*') },
         ];
     }, [user.role]);
@@ -159,7 +161,7 @@ export default function Authenticated({
                 </div>
             )}
 
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 lg:ml-0">
                 <header className="sticky top-0 z-30 border-b border-gray-100 bg-white">
                     <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
                         <div className="flex min-w-0 items-center gap-3">
@@ -203,6 +205,9 @@ export default function Authenticated({
                                             <p className="mt-1 line-clamp-2 text-xs text-gray-500">{notification.message}</p>
                                         </button>
                                     ))}
+                                    <Link href={route('notifications.index')} className="block border-t px-4 py-3 text-center text-sm font-medium text-primary hover:bg-gray-50">
+                                        Lihat semua notifikasi
+                                    </Link>
                                 </Dropdown.Content>
                             </Dropdown>
 

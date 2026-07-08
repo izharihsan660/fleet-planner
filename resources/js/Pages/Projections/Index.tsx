@@ -1,6 +1,13 @@
+import PaginationLinks from '@/Components/PaginationLinks';
+import StatusBadge from '@/Components/StatusBadge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Label } from '@/Components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, ProjectionItem, ProjectionLine, ProjectionPart, ProjectionResult, Site } from '@/types';
-import { Head, Link } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 
 type TabKey = 'unit' | 'item' | 'part';
@@ -42,7 +49,41 @@ const projectionUrl = (months: number, siteId: number | null): string => {
 };
 
 function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem?: boolean }) {
-    return <tbody className="divide-y divide-gray-200 bg-white">{items.map((item) => <tr key={`${item.unit_planning_id}-${item.planning_item_id}`}><td className="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">{item.plate_number}{item.insufficient_data && <span className="ml-2 text-amber-500" title="Data inspeksi belum cukup">⚠</span>}</td><td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{item.site_name}</td>{showItem && <td className="px-4 py-3 text-sm text-gray-700">{item.planning_item_name}</td>}<td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{formatDate(item.estimated_due_date)}</td><td className="whitespace-nowrap px-4 py-3 text-sm text-gray-600">{formatKm(item.estimated_due_km)}</td></tr>)}</tbody>;
+    return (
+        <TableBody>
+            {items.map((item) => (
+                <TableRow key={`${item.unit_planning_id}-${item.planning_item_id}`}>
+                    <TableCell className="font-medium text-foreground">
+                        {item.plate_number}
+                        {item.insufficient_data && <span className="ml-2 text-amber-500" title="Data inspeksi belum cukup">⚠</span>}
+                    </TableCell>
+                    <TableCell>{item.site_name}</TableCell>
+                    {showItem && <TableCell>{item.planning_item_name}</TableCell>}
+                    <TableCell>{formatDate(item.estimated_due_date)}</TableCell>
+                    <TableCell>{formatKm(item.estimated_due_km)}</TableCell>
+                </TableRow>
+            ))}
+        </TableBody>
+    );
+}
+
+function DueTable({ items, showItem = true }: { items: ProjectionLine[]; showItem?: boolean }) {
+    return (
+        <div className="overflow-x-auto">
+            <Table>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>Plat Nomor</TableHead>
+                        <TableHead>Site</TableHead>
+                        {showItem && <TableHead>Item</TableHead>}
+                        <TableHead>Est. Due Date</TableHead>
+                        <TableHead>Est. Due KM</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <DueRows items={items} showItem={showItem} />
+            </Table>
+        </div>
+    );
 }
 
 export default function Index({ projection, sites, filters, permissions }: ProjectionIndexProps) {
@@ -53,5 +94,109 @@ export default function Index({ projection, sites, filters, permissions }: Proje
         permissions.can_view_part ? { key: 'part' as const, label: 'Per Part' } : null,
     ].filter(Boolean) as { key: TabKey; label: string }[], [permissions]);
 
-    return <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-gray-800">Proyeksi Maintenance</h2>}><Head title="Proyeksi Maintenance" /><div className="py-12"><div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8"><div className="rounded-lg bg-white p-6 shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><h3 className="text-lg font-semibold text-gray-900">Kebutuhan 1-3 Bulan Ke Depan</h3><p className="mt-1 text-sm text-gray-600">Periode berakhir pada {formatDate(projection.period_end)}.</p></div><div className="flex flex-wrap gap-2">{[1, 2, 3].map((month) => <Link key={month} href={projectionUrl(month, filters.site_id)} preserveScroll aria-pressed={filters.months === month} className={`rounded-md px-4 py-2 text-sm font-medium ${filters.months === month ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>{month} Bulan</Link>)}</div></div>{permissions.can_filter_site && <div className="mt-5 max-w-sm"><label htmlFor="site_id" className="block text-sm font-medium text-gray-700">Filter Site</label><select id="site_id" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" value={filters.site_id ?? ''} onChange={(event) => window.location.assign(projectionUrl(filters.months, event.target.value ? Number(event.target.value) : null))}><option value="">Semua Site</option>{sites.data.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}</select></div>}</div>{projection.warnings.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800"><strong>Perhatian:</strong> {projection.warnings.length} unit memiliki data inspeksi belum cukup untuk rata-rata KM yang kuat: {projection.warnings.map((warning) => warning.plate_number).join(', ')}.</div>}<div className="rounded-lg bg-white shadow-sm"><div className="border-b border-gray-200 px-6 pt-4"><nav className="flex gap-4" role="tablist" aria-label="Tampilan proyeksi">{tabs.map((tab) => <button key={tab.key} type="button" role="tab" aria-selected={activeTab === tab.key} onClick={() => setActiveTab(tab.key)} className={`border-b-2 px-1 py-3 text-sm font-medium ${activeTab === tab.key ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}`}>{tab.label}</button>)}</nav></div><div className="p-6">{activeTab === 'unit' && <div className="space-y-5">{projection.by_unit.length === 0 && <p className="text-sm text-gray-500">Tidak ada item due pada periode ini.</p>}{projection.by_unit.map((unit) => <div key={unit.unit_id} className="overflow-hidden rounded-lg border border-gray-200"><div className="flex flex-col gap-1 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div className="font-semibold text-gray-900">{unit.plate_number}{unit.insufficient_data && <span className="ml-2 text-amber-500">⚠</span>}</div><div className="text-sm text-gray-600">{unit.site_name} · Avg {unit.avg_km_per_day} KM/hari · Est. odo {formatKm(unit.estimated_period_odo)}</div></div><div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-200"><thead className="bg-white"><tr><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Plat Nomor</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Site</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Item</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Est. Due Date</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Est. Due KM</th></tr></thead><DueRows items={unit.items} /></table></div></div>)}</div>}{activeTab === 'item' && <div className="space-y-6">{projection.by_item.map((item: ProjectionItem) => <div key={item.planning_item_id} className="overflow-hidden rounded-lg border border-gray-200"><div className="bg-gray-50 px-4 py-3 font-semibold text-gray-900">{item.planning_item_name}</div><div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-200"><thead className="bg-white"><tr><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Plat Nomor</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Site</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Est. Due Date</th><th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Est. Due KM</th></tr></thead><DueRows items={item.items} showItem={false} /></table></div></div>)}{projection.by_item.length === 0 && <p className="text-sm text-gray-500">Tidak ada item due pada periode ini.</p>}</div>}{activeTab === 'part' && <div className="space-y-6"><p className="rounded-md bg-blue-50 p-3 text-sm text-blue-700">Quantity adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>{projection.by_part.map((part: ProjectionPart) => <div key={part.planning_item_id} className="rounded-lg border border-gray-200 p-4"><h4 className="font-semibold text-gray-900">{part.planning_item_name}</h4><div className="mt-3 space-y-2">{part.items.map((item) => <div key={item.unit_planning_id} className="flex flex-col gap-1 rounded-md bg-gray-50 px-3 py-2 text-sm text-gray-700 sm:flex-row sm:items-center sm:gap-3"><span className="font-medium text-gray-900">{item.plate_number}</span><span className="hidden text-gray-300 sm:inline">│</span><span>{item.site_name}</span><span className="hidden text-gray-300 sm:inline">│</span><span>Due: {formatDate(item.estimated_due_date)}</span><span className="hidden text-gray-300 sm:inline">│</span><span>Est. qty: {item.estimated_quantity}</span></div>)}</div><p className="mt-3 text-sm font-semibold text-gray-800">Total estimasi: {part.total_estimated_quantity} unit</p></div>)}{projection.by_part.length === 0 && <p className="text-sm text-gray-500">Tidak ada part due pada periode ini.</p>}</div>}</div></div></div></div></AuthenticatedLayout>;
+    return (
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Proyeksi Maintenance</h2>}>
+            <Head title="Proyeksi Maintenance" />
+            <div className="py-10">
+                <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
+                    <Card>
+                        <CardHeader className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+                            <div>
+                                <CardTitle>Kebutuhan 1-3 Bulan Ke Depan</CardTitle>
+                                <CardDescription>Periode berakhir pada {formatDate(projection.period_end)}.</CardDescription>
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>Periode</Label>
+                                    <Select value={String(filters.months)} onValueChange={(value) => window.location.assign(projectionUrl(Number(value), filters.site_id))}>
+                                        <SelectTrigger className="min-w-40"><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            {[1, 2, 3].map((month) => <SelectItem key={month} value={String(month)}>{month} Bulan</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                {permissions.can_filter_site && (
+                                    <div className="space-y-2">
+                                        <Label>Filter Site</Label>
+                                        <Select value={filters.site_id ? String(filters.site_id) : 'all'} onValueChange={(value) => window.location.assign(projectionUrl(filters.months, value === 'all' ? null : Number(value)))}>
+                                            <SelectTrigger className="min-w-48"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">Semua Site</SelectItem>
+                                                {sites.data.map((site) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+                            </div>
+                        </CardHeader>
+                    </Card>
+
+                    {projection.warnings.length > 0 && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                            <strong>Perhatian:</strong> {projection.warnings.length} unit memiliki data inspeksi belum cukup untuk rata-rata KM yang kuat: {projection.warnings.map((warning) => warning.plate_number).join(', ')}.
+                        </div>
+                    )}
+
+                    <Card>
+                        <CardContent>
+                            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
+                                <TabsList>
+                                    {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
+                                </TabsList>
+                                <TabsContent value="unit" className="space-y-5">
+                                    {projection.by_unit.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item due pada periode ini.</p>}
+                                    {projection.by_unit.data.map((unit) => (
+                                        <Card key={unit.unit_id} className="shadow-xs">
+                                            <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 bg-muted/30">
+                                                <div>
+                                                    <CardTitle className="text-base">{unit.plate_number}{unit.insufficient_data && <span className="ml-2 text-amber-500">⚠</span>}</CardTitle>
+                                                    <CardDescription>{unit.site_name} · Avg {unit.avg_km_per_day} KM/hari · Est. odo {formatKm(unit.estimated_period_odo)}</CardDescription>
+                                                </div>
+                                                <StatusBadge>{unit.items.length} item</StatusBadge>
+                                            </CardHeader>
+                                            <CardContent><DueTable items={unit.items} /></CardContent>
+                                        </Card>
+                                    ))}
+                                    <PaginationLinks meta={projection.by_unit.meta} />
+                                </TabsContent>
+                                <TabsContent value="item" className="space-y-5">
+                                    {projection.by_item.data.map((item: ProjectionItem) => (
+                                        <Card key={item.planning_item_id} className="shadow-xs">
+                                            <CardHeader className="bg-muted/30"><CardTitle className="text-base">{item.planning_item_name}</CardTitle></CardHeader>
+                                            <CardContent><DueTable items={item.items} showItem={false} /></CardContent>
+                                        </Card>
+                                    ))}
+                                    {projection.by_item.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item due pada periode ini.</p>}
+                                    <PaginationLinks meta={projection.by_item.meta} />
+                                </TabsContent>
+                                <TabsContent value="part" className="space-y-5">
+                                    <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">Quantity adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>
+                                    {projection.by_part.data.map((part: ProjectionPart) => (
+                                        <Card key={part.planning_item_id} className="shadow-xs">
+                                            <CardHeader>
+                                                <CardTitle className="text-base">{part.planning_item_name}</CardTitle>
+                                                <CardDescription>Total estimasi: {part.total_estimated_quantity} unit</CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="space-y-2">
+                                                {part.items.map((item) => (
+                                                    <div key={item.unit_planning_id} className="grid gap-1 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground sm:grid-cols-4 sm:items-center">
+                                                        <span className="font-medium text-foreground">{item.plate_number}</span>
+                                                        <span>{item.site_name}</span>
+                                                        <span>Due: {formatDate(item.estimated_due_date)}</span>
+                                                        <span>Est. qty: {item.estimated_quantity}</span>
+                                                    </div>
+                                                ))}
+                                            </CardContent>
+                                        </Card>
+                                    ))}
+                                    {projection.by_part.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada part due pada periode ini.</p>}
+                                    <PaginationLinks meta={projection.by_part.meta} />
+                                </TabsContent>
+                            </Tabs>
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
+        </AuthenticatedLayout>
+    );
 }

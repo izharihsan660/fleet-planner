@@ -1,10 +1,15 @@
 export type UserRole =
     | 'superadmin'
-    | 'planner_ho'
-    | 'admin_site'
-    | 'spv_ops'
-    | 'logistik'
+    | 'planner_area'
+    | 'spv_ho'
     | 'mekanik';
+
+export type VehicleCategory = 'pickup_suv' | 'truk_ringan' | 'bus';
+
+export interface VehicleCategoryOption {
+    value: VehicleCategory;
+    label: string;
+}
 
 export interface Site {
     id: number;
@@ -39,6 +44,7 @@ export interface Unit {
     current_plate: string;
     type: string;
     brand: string;
+    vehicle_category: VehicleCategory;
     year: number;
     current_odo: number;
     avg_km_per_day?: number | null;
@@ -56,6 +62,15 @@ export interface PlanningItem {
     interval_days: number;
 }
 
+export interface PlanningItemOverride {
+    id: number;
+    planning_item_id: number;
+    vehicle_category: VehicleCategory;
+    interval_km: number | null;
+    interval_days: number | null;
+    planning_item?: PlanningItem;
+}
+
 export interface UnitPlanning {
     id: number;
     unit_id: number;
@@ -64,6 +79,7 @@ export interface UnitPlanning {
     last_done_date: string | null;
     next_due_km: number | null;
     next_due_date: string | null;
+    is_estimated: boolean;
     freeze_start: string | null;
     unit?: Unit;
     planning_item?: PlanningItem;
@@ -93,6 +109,8 @@ export interface WorkOrderItem {
     notes: string | null;
     new_due_km: number | null;
     new_due_date: string | null;
+    effective_due_km: number | null;
+    effective_due_date: string | null;
     available_date: string | null;
     freeze_start: string | null;
     freeze_end: string | null;
@@ -145,7 +163,7 @@ export interface WorkOrderPreviewItem {
     next_due_km: number | null;
     next_due_date: string | null;
     due: DueMeta | null;
-    approval_status: 'rejected' | null;
+    approval_status: 'pending_create' | 'rejected' | null;
 }
 
 export interface HighUsageFlag {
@@ -218,9 +236,9 @@ export interface ProjectionWarning {
 export interface ProjectionResult {
     period_months: number;
     period_end: string;
-    by_unit: ProjectionUnit[];
-    by_item: ProjectionItem[];
-    by_part: ProjectionPart[];
+    by_unit: PaginatedCollection<ProjectionUnit>;
+    by_item: PaginatedCollection<ProjectionItem>;
+    by_part: PaginatedCollection<ProjectionPart>;
     warnings: ProjectionWarning[];
 }
 
@@ -233,6 +251,27 @@ export interface InspectionLog {
     insufficient_data: boolean;
     unit?: Unit;
     mechanic?: User;
+}
+
+export interface PaginationLink {
+    url: string | null;
+    label: string;
+    active: boolean;
+}
+
+export interface PaginationMeta {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    links: PaginationLink[];
+    per_page: number;
+    to: number | null;
+    total: number;
+}
+
+export interface PaginatedCollection<T> {
+    data: T[];
+    meta: PaginationMeta;
 }
 
 export interface SystemThreshold {
@@ -306,10 +345,10 @@ export interface UnitHistory {
         current_odo: number;
         status: string;
     };
-    replacements: UnitHistoryItem[];
-    plate_histories: UnitPlateHistory[];
-    blocked_breakdowns: UnitHistoryItem[];
-    postpones: UnitHistoryItem[];
+    replacements: PaginatedCollection<UnitHistoryItem>;
+    plate_histories: PaginatedCollection<UnitPlateHistory>;
+    blocked_breakdowns: PaginatedCollection<UnitHistoryItem>;
+    postpones: PaginatedCollection<UnitHistoryItem>;
 }
 
 export type PageProps<
