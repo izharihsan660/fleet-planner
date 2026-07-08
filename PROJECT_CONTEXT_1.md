@@ -54,11 +54,9 @@
 | Role | Deskripsi |
 |---|---|
 | Superadmin | Full access, manage user & role |
-| Admin Planner HO | Full access, master data, proyeksi global |
-| Admin Site | Unit di area sendiri, review & submit task |
-| Spv Ops | Approve/reject semua task |
-| Logistik | View proyeksi kebutuhan part |
 | Mekanik | Input KM harian, update task complete |
+| Planner Area | Unit di area sendiri, review task, input kondisi unit, submit task, report Breakdown, assign mekanik |
+| Spv HO | Approve/reject semua task dan action, master data, proyeksi global, notifikasi kebutuhan part |
 
 ## Konvensi Koding
 - Gunakan TypeScript untuk semua file React (.tsx)
@@ -81,7 +79,7 @@
 ## Development Phase
 ### Phase 1 (Current)
 1. Auth & Role (RBAC 6 role)
-2. Master Data (unit, 18 item, site, threshold, user)
+2. Master Data (unit, 20 item, 18 site operasional, threshold, user)
 3. Input KM Harian
 4. Trigger & Task Normal
 5. Lifecycle Task Normal (Replace → Approve → Complete → Reset)
@@ -92,3 +90,9 @@
 - Proyeksi 1-3 bulan
 - Laporan & history
 - Warranty flag
+
+## Real Data Update
+- Site operasional mengikuti 18 lokasi dari Excel existing: ADARO, BPN, GORONTALO, KENDARI, LOA KULU, LOAJANAN, LOREH, M. LAWA, MAKASSAR, MANADO, MKS, SANGA SANGA, SANGATTA, SMD, SOROAKO, TABANG, TGR, TJ. REDEB.
+- Planning item standar berjumlah 20; item Ban lama dipisah menjadi Ban Depan, Ban Belakang, dan Ban Serep.
+- Interval maintenance dapat dioverride per kategori kendaraan: pickup_suv, truk_ringan, bus.
+- Import data existing tersedia untuk Units dan Unit Plannings dari CSV; Unit Plannings diproses melalui queue job.

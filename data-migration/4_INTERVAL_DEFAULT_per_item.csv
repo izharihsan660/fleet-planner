@@ -1,0 +1,21 @@
+nama_item,interval_days_usulan,sumber
+PM Check / Reguler Services,,BELUM ADA DATA - perlu konfirmasi manual
+Service A,180,median dari 51 siklus histori
+Service B,180,median dari 42 siklus histori
+Brake Pad,180,median dari 19 siklus histori
+Brake Shoe,270,median dari 6 siklus histori
+Accu,365,median dari 3 siklus histori
+Kampas Kopling Set,,BELUM ADA DATA - perlu konfirmasi manual
+Wiper Blade,365,median dari 5 siklus histori
+Ban Depan,270,median dari 7 siklus histori
+Ban Belakang,270,median dari 5 siklus histori
+Ban Serep,270,median dari 1 siklus histori
+Greasing,92,median dari 3 siklus histori
+V-Belt,,BELUM ADA DATA - perlu konfirmasi manual
+Sarung Jok,365,median dari 3 siklus histori
+Karpet Karet,,BELUM ADA DATA - perlu konfirmasi manual
+Karpet Dasar,,BELUM ADA DATA - perlu konfirmasi manual
+Flushing Radiator,,BELUM ADA DATA - perlu konfirmasi manual
+Flushing Steering,,BELUM ADA DATA - perlu konfirmasi manual
+Flushing Injector,,BELUM ADA DATA - perlu konfirmasi manual
+Flushing Rem,,BELUM ADA DATA - perlu konfirmasi manual

@@ -5,6 +5,8 @@
 **Tanggal:** Juni 2026  
 **Status:** Draft  
 
+**Update 7 Juli 2026:** struktur role dikonsolidasi dari 6 menjadi 4 role (Superadmin, Mekanik, Planner Area, Spv HO).
+
 ---
 
 ## Daftar Isi
@@ -28,10 +30,10 @@
 ## 1. Overview
 
 ### Tujuan
-Aplikasi **Fleet Maintenance Planner** adalah sistem web untuk menggantikan Excel planner yang digunakan PT Nirwana Anugerah Jaya (PT NAJ) dalam mengelola maintenance 279 unit kendaraan di 15 lokasi.
+Aplikasi **Fleet Maintenance Planner** adalah sistem web untuk menggantikan Excel planner yang digunakan PT Nirwana Anugerah Jaya (PT NAJ) dalam mengelola maintenance kendaraan di 18 lokasi operasional.
 
 ### Ruang Lingkup
-- Tracking dan eksekusi 18 item maintenance standar per unit
+- Tracking dan eksekusi 20 item maintenance standar per unit
 - Planning berbasis KM dan waktu
 - Deteksi kondisi abnormal (High Usage, Blocked, Breakdown)
 - Proyeksi kebutuhan maintenance 1–3 bulan ke depan
@@ -52,27 +54,27 @@ Aplikasi **Fleet Maintenance Planner** adalah sistem web untuk menggantikan Exce
 | Role | Deskripsi |
 |---|---|
 | **Superadmin** | Full access sistem, manage semua user dan role |
-| **Admin Planner HO** | Full access semua area, kelola master data, lihat proyeksi global |
-| **Admin Site** | Akses unit di lokasi sendiri, review task, input kondisi unit |
-| **Spv Ops** | Approve/reject semua jenis task dan action |
-| **Logistik** | Lihat task approved dan proyeksi kebutuhan part |
 | **Mekanik** | Input KM harian, report kondisi unit, update task Complete |
+| **Planner Area** | Akses unit di lokasi sendiri, review task, input kondisi unit, submit Replace/Postpone/Blocked, report Breakdown, assign mekanik |
+| **Spv HO** | Approve/reject semua jenis task dan action, kelola master data, lihat proyeksi global, terima notifikasi kebutuhan part |
 
 ### Hak Akses per Role
 
-| Fitur | Superadmin | Planner HO | Admin Site | Spv Ops | Logistik | Mekanik |
-|---|---|---|---|---|---|---|
-| Master data | ✓ | ✓ | — | — | — | — |
-| Manage user | ✓ | — | — | — | — | — |
-| Input KM harian | ✓ | — | — | — | — | ✓ |
-| Review task | ✓ | ✓ | ✓ (area sendiri) | ✓ | — | — |
-| Submit Replace/Postpone/Blocked | ✓ | — | ✓ | — | — | — |
-| Report Breakdown | ✓ | — | ✓ | — | — | ✓ |
-| Approve/reject task | ✓ | — | — | ✓ | — | — |
-| Complete task + input KM | ✓ | — | ✓ | — | — | ✓ |
-| Lihat proyeksi global | ✓ | ✓ | — | ✓ | — | — |
-| Lihat proyeksi per area | ✓ | ✓ | ✓ (area sendiri) | ✓ | ✓ | — |
-| Lihat laporan | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Fitur | Superadmin | Planner Area | Spv HO | Mekanik |
+|---|---|---|---|---|
+| Master data | ✓ | — | ✓ | — |
+| Manage user | ✓ | — | — | — |
+| Input KM harian | ✓ | ✓ (area sendiri) | — | ✓ |
+| Review task | ✓ | ✓ (area sendiri) | ✓ | — |
+| Submit Replace/Postpone/Blocked | ✓ | ✓ (area sendiri) | — | — |
+| Report Breakdown | ✓ | ✓ (area sendiri) | — | ✓ |
+| Assign mekanik | ✓ | ✓ (area sendiri) | — | — |
+| Approve/reject task | ✓ | — | ✓ | — |
+| Complete task + input KM | ✓ | ✓ (area sendiri) | — | ✓ |
+| Lihat proyeksi global | ✓ | — | ✓ | — |
+| Lihat proyeksi per area | ✓ | ✓ (area sendiri) | ✓ | — |
+| Lihat kebutuhan part | ✓ | — | ✓ | — |
+| Lihat laporan | ✓ | ✓ (area sendiri) | ✓ | ✓ (terbatas) |
 
 ---
 
@@ -90,12 +92,12 @@ Setiap unit kendaraan memiliki data:
 - Odometer terakhir
 
 **Aturan:**
-- Hanya Superadmin dan Admin Planner HO yang dapat tambah/edit/nonaktifkan unit
+- Hanya Superadmin dan Spv HO yang dapat tambah/edit/nonaktifkan unit
 - Perubahan nomor polisi menyimpan history plat lama beserta tanggal perubahan
 - Unit dengan KM < 50.000 otomatis diberi flag **Warranty**
 
-### 3.2 18 Item Maintenance Standar
-Berlaku sama untuk semua unit tanpa pengecualian.
+### 3.2 20 Item Maintenance Standar
+Update real-data: item **Ban** dipecah menjadi **Ban Depan**, **Ban Belakang**, dan **Ban Serep** karena pola pemakaian berbeda signifikan. Interval default berlaku sebagai fallback; beberapa item dapat memiliki override interval per kategori kendaraan.
 
 | No | Item |
 |---|---|
@@ -107,30 +109,37 @@ Berlaku sama untuk semua unit tanpa pengecualian.
 | 6 | Accu |
 | 7 | Kampas Kopling Set |
 | 8 | Wiper Blade |
-| 9 | Ban |
-| 10 | Greasing |
-| 11 | V-Belt |
-| 12 | Sarung Jok |
-| 13 | Karpet Karet |
-| 14 | Karpet Dasar |
-| 15 | Flushing Radiator |
-| 16 | Flushing Steering |
-| 17 | Flushing Injector |
-| 18 | Flushing Rem |
+| 9 | Ban Depan |
+| 10 | Ban Belakang |
+| 11 | Ban Serep |
+| 12 | Greasing |
+| 13 | V-Belt |
+| 14 | Sarung Jok |
+| 15 | Karpet Karet |
+| 16 | Karpet Dasar |
+| 17 | Flushing Radiator |
+| 18 | Flushing Steering |
+| 19 | Flushing Injector |
+| 20 | Flushing Rem |
 
 Setiap item memiliki:
 - `interval_km` — jarak KM antar penggantian
 - `interval_days` — jarak hari antar penggantian
 
+Nilai `interval_days` awal mengikuti data histori Excel existing. Item yang belum memiliki bukti histori memakai nilai sementara yang perlu dikonfirmasi PT NAJ. Nilai `interval_km` adalah estimasi awal bengkel dan juga perlu konfirmasi.
+
+### 3.3 Lokasi Operasional
+Lokasi/site operasional mengikuti 18 site asli dari data existing: ADARO, BPN, GORONTALO, KENDARI, LOA KULU, LOAJANAN, LOREH, M. LAWA, MAKASSAR, MANADO, MKS, SANGA SANGA, SANGATTA, SMD, SOROAKO, TABANG, TGR, TJ. REDEB.
+
 ### 3.3 Threshold (Dapat Dikonfigurasi)
-Disimpan di master data, dapat diubah oleh Superadmin dan Admin Planner HO:
+Disimpan di master data, dapat diubah oleh Superadmin dan Spv HO:
 - **Warning KM** — berapa KM sebelum due_km task mulai muncul
 - **Warning hari** — berapa hari sebelum due_date task mulai muncul
 - **Threshold High Usage** — persentase perubahan avg KM/hari yang dianggap signifikan
 - **Minimum data inspeksi** — jumlah minimum inspeksi untuk kalkulasi avg KM/hari yang valid (default: 3)
 
 ### 3.4 Setup Awal Per Unit
-Setelah unit ditambahkan, Admin Planner HO atau Admin Site wajib input:
+Setelah unit ditambahkan, Spv HO atau Planner Area wajib input:
 - `last_done_km` per item
 - `last_done_date` per item
 
@@ -160,7 +169,7 @@ Setiap hari, Mekanik input:
 ### 4.2 Trigger Kalkulasi
 Setiap ada input KM baru → sistem otomatis:
 1. Update odometer unit
-2. Hitung progress 18 item
+2. Hitung progress 20 item
 3. Cek kondisi trigger (Normal, High Usage)
 4. Generate task jika threshold tercapai
 5. Deteksi status Breakdown berakhir (jika unit sebelumnya Breakdown)
@@ -200,27 +209,27 @@ Jika `estimasi_due` jauh lebih pendek dari sisa hari normal → flag High Usage.
 **Flow High Usage:**
 
 - **5 hari pertama sejak flag:**
-  - Notifikasi ke Admin Site
-  - Admin Site putuskan: jadikan task sekarang atau tunggu trigger normal
-  - Jika Ya → task dibuat, butuh Spv approve
+  - Notifikasi ke Planner Area
+  - Planner Area putuskan: jadikan task sekarang atau tunggu trigger normal
+  - Jika Ya → task dibuat, butuh Spv HO approve
   - Jika Tidak → sistem monitor terus
 
 - **5 hari kedua (setelah 5 hari pertama tidak ada tindakan):**
-  - Admin Site wajib set: kapan unit bisa dipegang, due KM baru, due date baru
-  - Diajukan ke Spv untuk approve
+  - Planner Area wajib set: kapan unit bisa dipegang, due KM baru, due date baru
+  - Diajukan ke Spv HO untuk approve
   - Setelah approve → task dibuat
 
-High Usage berlaku untuk semua 18 item.
+High Usage berlaku untuk semua 20 item.
 
 ### 5.3 Kondisi Blocked
-- Input manual oleh Admin Site atau Mekanik
+- Input manual oleh Planner Area atau Mekanik
 - Alasan: unit tidak bisa dipegang customer
 - Due date dan KM **tetap berjalan** — tidak ada freeze
 - Status Blocked hanya sebagai label informasi pada task
 - Task tetap bisa menjadi overdue
 
 ### 5.4 Kondisi Breakdown
-- Input manual oleh Admin Site atau Mekanik
+- Input manual oleh Planner Area atau Mekanik
 - Alasan: unit rusak/mogok, tidak beroperasi
 - Due date (waktu) **freeze** karena unit tidak jalan
 - KM juga freeze karena unit tidak bergerak
@@ -228,16 +237,16 @@ High Usage berlaku untuk semua 18 item.
 - Hari freeze ditambahkan ke `next_due_date`
 
 **Inspeksi wajib setelah Breakdown:**  
-Setelah unit aktif kembali, Admin Site atau Mekanik wajib input:
+Setelah unit aktif kembali, Planner Area atau Mekanik wajib input:
 - Part apa yang diganti saat breakdown
 - Sistem update `last_done_km` dan `last_done_date` untuk item tersebut
 - Baru cycle lanjut normal
 
 ### 5.5 Warranty (KM < 50.000)
 - Task muncul dengan label/flag **"Warranty"**
-- Flow: Admin Site → Spv approve → Admin Site koordinasi ke dealer
-- Logistik tidak mendapat notifikasi (part dari dealer)
-- Selesai di dealer → Admin Site input Complete + KM → cycle reset normal
+- Flow: Planner Area → Spv HO approve → Planner Area koordinasi ke dealer
+- Tidak ada notifikasi kebutuhan part ke Spv HO (part dari dealer)
+- Selesai di dealer → Planner Area input Complete + KM → cycle reset normal
 - Saat KM ≥ 50.000 → flag Warranty hilang otomatis, flow normal
 
 ---
@@ -248,12 +257,12 @@ Setelah unit aktif kembali, Admin Site atau Mekanik wajib input:
 
 | Status | Definisi |
 |---|---|
-| **On Hold** | Task muncul, belum diaction Admin Site |
+| **On Hold** | Task muncul, belum diaction Planner Area |
 | **Blocked** | Unit tidak bisa dipegang customer — due tetap berjalan |
 | **Breakdown** | Unit rusak — due di-freeze |
-| **Replace** | Diajukan untuk diganti, menunggu Spv approve |
-| **Postpone** | Diajukan untuk ditunda, menunggu Spv approve |
-| **In Progress** | Approved oleh Spv, sedang dikerjakan Mekanik |
+| **Replace** | Diajukan untuk diganti, menunggu Spv HO approve |
+| **Postpone** | Diajukan untuk ditunda, menunggu Spv HO approve |
+| **In Progress** | Approved oleh Spv HO, sedang dikerjakan Mekanik |
 | **Complete** | Selesai dikerjakan, KM penggantian sudah diinput |
 | **Overdue** | Melewati due date/KM tanpa action |
 
@@ -262,15 +271,15 @@ Setelah unit aktif kembali, Admin Site atau Mekanik wajib input:
 ```
 Task muncul (On Hold)
 ↓
-Admin Site review kondisi fisik unit
+Planner Area review kondisi fisik unit
 ↓
 Pilih action:
 
 [Replace]
-→ Diajukan ke Spv Ops
-→ Spv approve → status In Progress → Logistik notif (siapkan part)
+→ Diajukan ke Spv HO
+→ Spv HO approve → status In Progress → Spv HO notif (siapkan part)
 → Mekanik eksekusi
-→ Admin Site / Mekanik: Complete + input KM penggantian
+→ Planner Area / Mekanik: Complete + input KM penggantian
 → Sistem update:
     last_done_km   = KM saat complete
     last_done_date = tanggal complete
@@ -279,24 +288,24 @@ Pilih action:
 → Cycle ulang
 
 [Postpone]
-→ Admin Site input: alasan + next_due_km baru + next_due_date baru
-→ Diajukan ke Spv Ops
-→ Spv approve → next_due bergeser sesuai input Admin Site
+→ Planner Area input: alasan + next_due_km baru + next_due_date baru
+→ Diajukan ke Spv HO
+→ Spv HO approve → next_due bergeser sesuai input Planner Area
 → Task tertutup, muncul lagi saat next_due baru tercapai
 → History tercatat: alasan penundaan, due lama, due baru
 
 [Blocked]
-→ Admin Site / Mekanik input: alasan
+→ Planner Area / Mekanik input: alasan
 → Status task berubah ke Blocked
 → Due date tetap berjalan
 → Task bisa overdue
-→ Saat unit bisa dipegang → Admin Site update status → flow Replace/Postpone
+→ Saat unit bisa dipegang → Planner Area update status → flow Replace/Postpone
 
 [Breakdown]
-→ Admin Site / Mekanik input: unit Breakdown
+→ Planner Area / Mekanik input: unit Breakdown
 → Due date freeze
 → Input KM baru → sistem deteksi unit aktif kembali → freeze selesai
-→ Admin Site / Mekanik input inspeksi: part yang diganti saat breakdown
+→ Planner Area / Mekanik input inspeksi: part yang diganti saat breakdown
 → Sistem update last_done item tersebut
 → Cycle lanjut normal
 ```
@@ -312,7 +321,7 @@ Pilih action:
 
 ### 7.1 Pembuatan WO
 - WO otomatis terbuat saat satu atau lebih item pada satu unit mencapai threshold
-- WO juga bisa dibuat manual oleh Admin Site untuk: breakdown mendadak, temuan mekanik, kondisi darurat
+- WO juga bisa dibuat manual oleh Planner Area untuk: breakdown mendadak, temuan mekanik, kondisi darurat
 - Satu WO = satu unit = satu kunjungan = bisa banyak item
 
 ### 7.2 Kanban Board
@@ -363,7 +372,7 @@ Semua item yang akan due untuk satu unit dalam periode yang dipilih.
 **View per Item:**
 Semua unit yang akan due untuk satu item tertentu.
 
-**View Part / Logistik:**
+**View Part:**
 Dikelompokkan per part, dengan estimasi quantity:
 ```
 Ban 265/70 R17
@@ -375,10 +384,9 @@ Total estimasi: 10 pcs
 Quantity adalah **estimasi dasar** — bukan angka pasti. Quantity aktual diketahui saat mekanik eksekusi.
 
 ### 8.4 Akses Proyeksi
-- **Admin Planner HO** → proyeksi global, bisa drill down per site
-- **Admin Site** → proyeksi area sendiri
-- **Spv Ops** → semua area
-- **Logistik** → view Part saja
+- **Superadmin** → semua area dan view part
+- **Spv HO** → proyeksi global, semua area, drill down per site, dan view part
+- **Planner Area** → proyeksi area sendiri
 
 ### 8.5 Sifat
 - Real-time — update otomatis saat ada: task complete, postpone, inspeksi baru, blocked/unblocked
@@ -392,20 +400,20 @@ Notifikasi bersifat **in-app** — ditampilkan saat halaman di-refresh. Tidak ad
 
 | Event | Notifikasi ke |
 |---|---|
-| Task auto-generated (On Hold) | Admin Site |
-| High Usage terdeteksi | Admin Site |
-| Task diajukan (Replace/Postpone/Blocked) | Spv Ops |
-| Task approved (Replace) | Logistik |
-| Task overdue | Spv Ops + Admin Planner HO |
-| Unit Breakdown diinput | Spv Ops |
-| High Usage 5 hari kedua (belum ada tindakan) | Admin Site + Spv Ops |
+| Task auto-generated (On Hold) | Planner Area |
+| High Usage terdeteksi | Planner Area |
+| Task diajukan (Replace/Postpone/Blocked) | Spv HO |
+| Task approved (Replace) | Spv HO |
+| Task overdue | Spv HO |
+| Unit Breakdown diinput | Spv HO |
+| High Usage 5 hari kedua (belum ada tindakan) | Planner Area + Spv HO |
 
 ---
 
 ## 10. Laporan & History
 
 ### 10.1 History per Unit
-- Riwayat penggantian seluruh 18 item
+- Riwayat penggantian seluruh 20 item
 - Riwayat nomor polisi (plat lama dan baru beserta tanggal)
 - Riwayat status (Blocked, Breakdown)
 - Riwayat penundaan (Postpone) beserta alasan
@@ -419,9 +427,9 @@ Notifikasi bersifat **in-app** — ditampilkan saat halaman di-refresh. Tidak ad
 ### 10.3 Akses Laporan
 Semua role dapat mengakses laporan dengan level detail yang berbeda:
 - Mekanik → hanya unit yang pernah mereka tangani
-- Admin Site → hanya area mereka
-- Logistik → fokus pada part dan kebutuhan
-- Spv Ops, Planner HO, Superadmin → semua area
+- Planner Area → hanya area mereka
+- Spv HO → semua area, termasuk fokus part dan kebutuhan
+- Superadmin → semua area
 
 ---
 
@@ -435,7 +443,7 @@ Semua role dapat mengakses laporan dengan level detail yang berbeda:
 ### 11.2 Breakdown Detection
 - Breakdown berakhir otomatis saat ada input KM baru untuk unit yang berstatus Breakdown
 - Sistem tambahkan jumlah hari freeze ke `next_due_date` semua item yang freeze
-- Admin Site / Mekanik wajib input inspeksi breakdown sebelum task lanjut normal
+- Planner Area / Mekanik wajib input inspeksi breakdown sebelum task lanjut normal
 
 ### 11.3 High Usage
 - Dihitung dari histori inspeksi — minimum sesuai threshold master data
@@ -487,7 +495,7 @@ sites
 -- Master unit kendaraan
 units
   id, site_id, customer,
-  current_plate, type, brand, year,
+  current_plate, type, brand, vehicle_category, year,
   current_odo, status (active/breakdown),
   created_at, updated_at
 
@@ -496,9 +504,15 @@ unit_plate_histories
   id, unit_id, plate_number, active_from, active_until,
   created_at
 
--- 18 item standar
+-- 20 item standar
 planning_items
   id, name, interval_km, interval_days,
+  created_at, updated_at
+
+-- Override interval per kategori kendaraan
+planning_item_overrides
+  id, planning_item_id, vehicle_category,
+  interval_km nullable, interval_days nullable,
   created_at, updated_at
 
 -- Threshold sistem (master data)
@@ -510,7 +524,7 @@ system_thresholds
 unit_plannings
   id, unit_id, planning_item_id,
   last_done_km, last_done_date,
-  next_due_km, next_due_date,
+  next_due_km, next_due_date, is_estimated,
   created_at, updated_at
 
 -- Work Order

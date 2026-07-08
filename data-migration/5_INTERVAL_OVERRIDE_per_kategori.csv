@@ -1,0 +1,13 @@
+nama_item,kategori_kendaraan,interval_days_usulan,jumlah_sample
+Service A,pickup_suv,180,39
+Service A,truk_ringan,96,12
+Accu,pickup_suv,365,2
+Brake Pad,pickup_suv,180,19
+Service B,truk_ringan,182,6
+Service B,pickup_suv,180,36
+Brake Shoe,pickup_suv,270,5
+Ban Belakang,pickup_suv,270,4
+Greasing,pickup_suv,92,3
+Sarung Jok,pickup_suv,365,3
+Ban Depan,pickup_suv,270,6
+Wiper Blade,pickup_suv,365,5
