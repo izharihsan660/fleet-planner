@@ -19,12 +19,12 @@ class WorkOrderActionWorkflowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_admin_site_submits_replace_spv_approves_and_logistik_is_notified(): void
+    public function test_planner_area_submits_replace_spv_approves_and_spv_ho_is_notified(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
-        $logistik = User::factory()->create(['role' => UserRole::Logistik]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $spv_ho = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin);
 
         $this->actingAs($admin)
@@ -41,45 +41,55 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('in_progress', $workOrder->refresh()->status);
         $this->assertSame('in_progress', $item->refresh()->status);
         $this->assertDatabaseHas(Notification::class, [
-            'user_id' => $logistik->id,
+            'user_id' => $spv_ho->id,
             'type' => 'work_order_approved',
         ]);
     }
 
-    public function test_warranty_replace_approval_does_not_notify_logistik(): void
+    public function test_warranty_replace_approval_does_not_notify_spv_ho(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(40000);
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
-        $logistik = User::factory()->create(['role' => UserRole::Logistik]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $spv_ho = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin);
 
         $this->actingAs($admin)->post(route('work-orders.items.replace', [$workOrder, $item]));
         $this->actingAs($spv)->post(route('work-orders.approve', $workOrder));
 
         $this->assertDatabaseMissing(Notification::class, [
-            'user_id' => $logistik->id,
+            'user_id' => $spv_ho->id,
             'type' => 'work_order_approved',
         ]);
     }
 
-    public function test_admin_site_submits_postpone_and_spv_approval_moves_due_schedule(): void
+    public function test_planner_area_submits_postpone_and_spv_approval_moves_due_schedule(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin);
+        $requestedDueDate = '2026-08-15';
 
         $this->actingAs($admin)
             ->post(route('work-orders.items.postpone', [$workOrder, $item]), [
                 'reason' => 'Unit belum bisa masuk workshop',
                 'new_due_km' => 88000,
-                'new_due_date' => today()->addDays(14)->toDateString(),
+                'new_due_date' => $requestedDueDate,
             ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->assertSame('postpone', $item->refresh()->status);
         $this->assertSame(88000, $item->new_due_km);
+        $this->assertSame($requestedDueDate, $item->new_due_date->toDateString());
+
+        $this->actingAs($admin)
+            ->get(route('work-orders.show', $workOrder))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('workOrder.data.items.0.new_due_date', $requestedDueDate)
+                ->where('workOrder.data.items.0.effective_due_date', $requestedDueDate)
+            );
 
         $this->actingAs($spv)
             ->post(route('work-orders.approve', $workOrder))
@@ -88,14 +98,21 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('complete', $workOrder->refresh()->status);
         $this->assertSame('postponed', $item->refresh()->status);
         $this->assertSame(88000, $planning->refresh()->next_due_km);
-        $this->assertSame(today()->addDays(14)->toDateString(), $planning->next_due_date->toDateString());
+        $this->assertSame($requestedDueDate, $planning->next_due_date->toDateString());
+
+        $this->actingAs($admin)
+            ->get(route('units.history', $unit))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('history.postpones.data.0.new_due_date', $requestedDueDate)
+            );
     }
 
     public function test_spv_cannot_approve_work_order_without_submitted_action(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin);
 
         $this->actingAs($spv)
@@ -109,7 +126,7 @@ class WorkOrderActionWorkflowTest extends TestCase
     public function test_blocked_item_can_be_resolved_to_on_hold(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin, 'blocked');
 
         $this->actingAs($admin)
@@ -120,10 +137,10 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('open', $workOrder->refresh()->status);
     }
 
-    public function test_admin_site_cannot_open_or_store_daily_km_input(): void
+    public function test_planner_area_cannot_open_or_store_daily_km_input(): void
     {
         [$site, $unit] = $this->makePlanningContext(75000);
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
 
         $this->actingAs($admin)->get(route('inspections.create'))->assertForbidden();
         $this->actingAs($admin)->post(route('inspections.store'), [

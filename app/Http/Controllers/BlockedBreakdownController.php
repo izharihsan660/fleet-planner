@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\BlockedBreakdownService;
+use App\Services\PlanningIntervalResolver;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
@@ -23,6 +24,10 @@ class BlockedBreakdownController extends Controller
 
         $item->load('workOrder');
         $this->abortIfCannotAccessSite($request->user(), $item->workOrder->site_id);
+
+        if (! in_array($item->status, ['on_hold', 'in_progress', 'overdue'], true)) {
+            return back()->withErrors(['action' => 'Hanya item On Hold, In Progress, atau Overdue yang bisa ditandai Blocked.']);
+        }
 
         $service->markBlocked($item, $request->user(), $request->string('reason')->toString());
 
@@ -55,7 +60,7 @@ class BlockedBreakdownController extends Controller
         return back()->with('status', 'Unit berhasil ditandai Breakdown.');
     }
 
-    public function storeInspection(StoreBreakdownInspectionRequest $request, Unit $unit): RedirectResponse
+    public function storeInspection(StoreBreakdownInspectionRequest $request, Unit $unit, PlanningIntervalResolver $intervalResolver): RedirectResponse
     {
         Gate::authorize('markBreakdown', WorkOrder::class);
         $this->abortIfCannotAccessSite($request->user(), $unit->site_id);
@@ -64,14 +69,15 @@ class BlockedBreakdownController extends Controller
             ->where('unit_id', $unit->id)
             ->findOrFail($request->integer('unit_planning_id'));
 
-        $unitPlanning->load('planningItem');
+        $unitPlanning->load(['planningItem', 'unit']);
         $completedOdo = $request->integer('completed_odo');
+        $interval = $intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
 
         $unitPlanning->update([
             'last_done_km' => $completedOdo,
             'last_done_date' => Carbon::today()->toDateString(),
-            'next_due_km' => $completedOdo + $unitPlanning->planningItem->interval_km,
-            'next_due_date' => Carbon::today()->addDays($unitPlanning->planningItem->interval_days)->toDateString(),
+            'next_due_km' => $completedOdo + $interval['interval_km'],
+            'next_due_date' => Carbon::today()->addDays($interval['interval_days'])->toDateString(),
             'freeze_start' => null,
         ]);
 
@@ -95,7 +101,7 @@ class BlockedBreakdownController extends Controller
 
     private function abortIfCannotAccessSite(User $user, int $siteId): void
     {
-        if ($user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo])) {
+        if ($user->isOneOf([UserRole::Superadmin, UserRole::SpvHo])) {
             return;
         }
 

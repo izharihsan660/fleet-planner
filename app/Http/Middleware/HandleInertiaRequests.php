@@ -38,7 +38,7 @@ class HandleInertiaRequests extends Middleware
             'notifications' => fn () => $request->user() ? [
                 'unread_count' => $request->user()->appNotifications()->whereNull('read_at')->count(),
                 'latest' => NotificationResource::collection(
-                    $request->user()->appNotifications()->latest()->limit(5)->get()
+                    $request->user()->appNotifications()->latest()->limit(10)->get()
                 )->resolve(),
             ] : [
                 'unread_count' => 0,

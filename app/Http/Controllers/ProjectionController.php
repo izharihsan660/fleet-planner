@@ -22,14 +22,14 @@ class ProjectionController extends Controller
         $user = $request->user();
         $months = (int) ($request->validated('months') ?? 1);
         $requestedSiteId = $request->validated('site_id');
-        $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::SpvOps]);
-        $siteId = $user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
+        $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]);
+        $siteId = $user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
         $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null);
 
         return Inertia::render('Projections/Index', [
             'projection' => ProjectionResultResource::make($result)->resolve(),
             'sites' => SiteResource::collection(Site::query()
-                ->when($user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]), fn (Builder $query) => $query->whereKey($user->site_id))
+                ->when($user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]), fn (Builder $query) => $query->whereKey($user->site_id))
                 ->orderBy('name')
                 ->get()),
             'filters' => [
@@ -38,10 +38,10 @@ class ProjectionController extends Controller
             ],
             'permissions' => [
                 'can_filter_site' => $canFilterSite,
-                'can_view_unit' => ! $user->hasRole(UserRole::Logistik),
-                'can_view_item' => ! $user->hasRole(UserRole::Logistik),
-                'can_view_part' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::Logistik]),
-                'default_tab' => $user->hasRole(UserRole::Logistik) ? 'part' : 'unit',
+                'can_view_unit' => true,
+                'can_view_item' => true,
+                'can_view_part' => $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
+                'default_tab' => 'unit',
             ],
         ]);
     }

@@ -25,13 +25,14 @@ class HighUsageController extends Controller
         $flags = HighUsageFlag::query()
             ->with(['unit.site', 'planningItem', 'unitPlanning', 'actionTakenBy'])
             ->whereNull('resolved_at')
-            ->when(! $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo]), fn ($query) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('site_id', $user->site_id)))
+            ->when(! $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]), fn ($query) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('site_id', $user->site_id)))
             ->latest('flagged_at')
-            ->get();
+            ->paginate(25)
+            ->withQueryString();
 
         return Inertia::render('HighUsage/Index', [
             'flags' => HighUsageFlagResource::collection($flags),
-            'canTakeAction' => $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]),
+            'canTakeAction' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
         ]);
     }
 

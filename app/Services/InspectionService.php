@@ -16,6 +16,7 @@ class InspectionService
         private MaintenanceTriggerService $maintenanceTriggerService,
         private BlockedBreakdownService $blockedBreakdownService,
         private HighUsageService $highUsageService,
+        private PlanningIntervalResolver $intervalResolver,
     ) {}
 
     public function record(Unit $unit, int $odometer, User $mechanic, Carbon $date): InspectionLog
@@ -74,11 +75,13 @@ class InspectionService
 
             $unit->forceFill(['avg_km_per_day' => $averageKmPerDay])->save();
             $unit->unitPlannings()
-                ->with('planningItem:id,interval_km')
+                ->with(['planningItem:id,interval_km,interval_days', 'unit'])
                 ->get()
                 ->each(function ($unitPlanning): void {
+                    $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
+
                     $unitPlanning->update([
-                        'next_due_km' => $unitPlanning->last_done_km + $unitPlanning->planningItem->interval_km,
+                        'next_due_km' => $unitPlanning->last_done_km + $interval['interval_km'],
                     ]);
                 });
 

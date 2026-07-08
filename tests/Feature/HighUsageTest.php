@@ -36,11 +36,11 @@ class HighUsageTest extends TestCase
         ]);
     }
 
-    public function test_admin_site_can_trigger_high_usage_work_order_item(): void
+    public function test_planner_area_can_trigger_high_usage_work_order_item(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
         $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $unit->site_id]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
 
         $this->actingAs($admin)->post(route('high-usage.action', $flag), [
             'action' => 'triggered',
@@ -57,12 +57,14 @@ class HighUsageTest extends TestCase
         $this->assertSame('triggered', $flag->action_taken);
     }
 
-    public function test_admin_site_can_defer_and_submit_new_schedule_in_second_window(): void
+    public function test_planner_area_can_defer_and_submit_new_schedule_in_second_window(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
         $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $unit->site_id]);
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $availableDate = '2026-08-10';
+        $newDueDate = '2026-08-20';
 
         $this->actingAs($admin)->post(route('high-usage.action', $flag), [
             'action' => 'deferred',
@@ -72,16 +74,16 @@ class HighUsageTest extends TestCase
         $this->assertNull($flag->resolved_at);
 
         $this->actingAs($admin)->post(route('high-usage.schedule', $flag), [
-            'available_date' => now()->addDays(3)->toDateString(),
+            'available_date' => $availableDate,
             'new_due_km' => 2400,
-            'new_due_date' => now()->addDays(8)->toDateString(),
+            'new_due_date' => $newDueDate,
         ])->assertRedirect();
 
         $item = WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->firstOrFail();
 
-        $this->assertSame(now()->addDays(3)->toDateString(), $item->available_date->toDateString());
+        $this->assertSame($availableDate, $item->available_date->toDateString());
         $this->assertSame(2400, $item->new_due_km);
-        $this->assertSame(now()->addDays(8)->toDateString(), $item->new_due_date->toDateString());
+        $this->assertSame($newDueDate, $item->new_due_date->toDateString());
         $this->assertSame('postpone', $item->status);
         $this->assertTrue($item->triggered_by_high_usage);
         $this->assertNotNull($flag->refresh()->resolved_at);
@@ -93,16 +95,34 @@ class HighUsageTest extends TestCase
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->assertSame(2400, $unitPlanning->refresh()->next_due_km);
-        $this->assertSame(now()->addDays(8)->toDateString(), $unitPlanning->next_due_date->toDateString());
+        $this->assertSame($newDueDate, $unitPlanning->next_due_date->toDateString());
+        $this->assertSame($availableDate, $unitPlanning->last_done_date->toDateString());
     }
 
-    public function test_admin_site_only_sees_flags_for_own_site(): void
+    public function test_high_usage_second_window_schedule_requires_clear_date_and_km_values(): void
+    {
+        [$unit] = $this->createHighUsageScenario();
+        $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
+
+        $this->actingAs($admin)
+            ->post(route('high-usage.schedule', $flag), [
+                'available_date' => '',
+                'new_due_km' => '',
+                'new_due_date' => '',
+            ])
+            ->assertSessionHasErrors(['available_date', 'new_due_km', 'new_due_date']);
+
+        $this->assertSame(0, WorkOrderItem::query()->count());
+    }
+
+    public function test_planner_area_only_sees_flags_for_own_site(): void
     {
         [$unit] = $this->createHighUsageScenario();
         $ownFlag = app(HighUsageService::class)->detect($unit->refresh())[0];
         [$otherUnit] = $this->createHighUsageScenario('Other Site');
         $otherFlag = app(HighUsageService::class)->detect($otherUnit->refresh())[0];
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $unit->site_id]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
 
         $this->withoutVite();
 

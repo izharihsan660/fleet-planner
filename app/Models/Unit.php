@@ -15,6 +15,7 @@ class Unit extends Model
         'current_plate',
         'type',
         'brand',
+        'vehicle_category',
         'year',
         'current_odo',
         'avg_km_per_day',

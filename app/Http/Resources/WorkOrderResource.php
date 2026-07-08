@@ -30,7 +30,7 @@ class WorkOrderResource extends JsonResource
             'unit' => UnitResource::make($this->whenLoaded('unit')),
             'site' => SiteResource::make($this->whenLoaded('site')),
             'items' => WorkOrderItemResource::collection($this->whenLoaded('items')),
-            'items_count' => $this->whenCounted('items'),
+            'items_count' => $this->when(isset($this->items_count), (int) $this->items_count),
             'has_blocked_items' => $this->when(isset($this->has_blocked_items), (bool) $this->has_blocked_items),
             'has_high_usage_items' => $this->when(isset($this->has_high_usage_items), (bool) $this->has_high_usage_items),
             'has_overdue_items' => $this->when($this->has_overdue_items !== null, (bool) $this->has_overdue_items),

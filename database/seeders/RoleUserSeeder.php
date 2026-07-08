@@ -15,19 +15,26 @@ class RoleUserSeeder extends Seeder
      */
     public function run(): void
     {
-        $site = Site::query()->firstOrCreate(
-            ['name' => 'Site Balikpapan'],
-            ['region' => 'Kalimantan Timur'],
-        );
+        $sites = Site::query()->orderBy('name')->get();
+
+        if ($sites->isEmpty()) {
+            $sites = collect([
+                Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']),
+            ]);
+        }
 
         $users = [
             ['name' => 'Superadmin', 'email' => 'superadmin@example.com', 'role' => UserRole::Superadmin, 'site_id' => null],
-            ['name' => 'Planner HO', 'email' => 'planner.ho@example.com', 'role' => UserRole::PlannerHo, 'site_id' => null],
-            ['name' => 'Admin Site', 'email' => 'admin.site@example.com', 'role' => UserRole::AdminSite, 'site_id' => $site->id],
-            ['name' => 'SPV Ops', 'email' => 'spv.ops@example.com', 'role' => UserRole::SpvOps, 'site_id' => null],
-            ['name' => 'Logistik', 'email' => 'logistik@example.com', 'role' => UserRole::Logistik, 'site_id' => null],
-            ['name' => 'Mekanik', 'email' => 'mekanik@example.com', 'role' => UserRole::Mekanik, 'site_id' => $site->id],
+            ['name' => 'Spv HO', 'email' => 'spv_ho@example.com', 'role' => UserRole::SpvHo, 'site_id' => null],
         ];
+
+        foreach ($sites as $site) {
+            $slug = str($site->name)->slug()->toString();
+            $label = str($slug)->replace('-', ' ')->headline()->toString();
+
+            $users[] = ['name' => "Planner {$label}", 'email' => "planner.{$slug}@example.com", 'role' => UserRole::PlannerArea, 'site_id' => $site->id];
+            $users[] = ['name' => "Mekanik {$label}", 'email' => "mekanik.{$slug}@example.com", 'role' => UserRole::Mekanik, 'site_id' => $site->id];
+        }
 
         foreach ($users as $user) {
             User::query()->updateOrCreate(

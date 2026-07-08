@@ -16,7 +16,7 @@ class SystemThresholdController extends Controller
     {
         Gate::authorize('viewAny', SystemThreshold::class);
 
-        return Inertia::render('SystemThresholds/Index', ['systemThresholds' => SystemThreshold::query()->with('updatedBy:id,name')->orderBy('key')->get()]);
+        return Inertia::render('SystemThresholds/Index', ['systemThresholds' => SystemThreshold::query()->with('updatedBy:id,name')->orderBy('key')->paginate(25)->withQueryString()]);
     }
 
     public function create(): Response

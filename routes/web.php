@@ -3,8 +3,10 @@
 use App\Http\Controllers\BlockedBreakdownController;
 use App\Http\Controllers\HighUsageController;
 use App\Http\Controllers\InspectionController;
+use App\Http\Controllers\MaintenanceImportController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PlanningItemController;
+use App\Http\Controllers\PlanningItemOverrideController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectionController;
 use App\Http\Controllers\ReportController;
@@ -14,13 +16,19 @@ use App\Http\Controllers\UnitController;
 use App\Http\Controllers\UnitHistoryController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkOrderController;
+use App\Models\WorkOrderItem;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::redirect('/', '/login');
 
 Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
+    return Inertia::render('Dashboard', [
+        'overdueBanner' => [
+            'threshold' => 20,
+            'count' => WorkOrderItem::query()->where('status', 'overdue')->count(),
+        ],
+    ]);
 })->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
@@ -40,6 +48,7 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/by-unit', [ReportController::class, 'byUnit'])->name('reports.by-unit');
     Route::get('reports/overdue', [ReportController::class, 'overdueByArea'])->name('reports.overdue');
     Route::get('units/{unit}/history', [UnitHistoryController::class, 'show'])->name('units.history');
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('notifications/{notification}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::post('high-usage/{flag}/action', [HighUsageController::class, 'takeAction'])->name('high-usage.action');
     Route::post('high-usage/{flag}/schedule', [HighUsageController::class, 'submitSchedule'])->name('high-usage.schedule');
@@ -56,10 +65,14 @@ Route::middleware('auth')->group(function () {
     Route::post('units/{unit}/breakdown', [BlockedBreakdownController::class, 'markBreakdown'])->name('units.breakdown');
     Route::post('units/{unit}/breakdown-inspection', [BlockedBreakdownController::class, 'storeInspection'])->name('units.breakdown-inspection');
 
-    Route::middleware('role:superadmin,planner_ho')->group(function () {
+    Route::middleware('role:superadmin,spv_ho')->group(function () {
         Route::resource('sites', SiteController::class)->except('show');
         Route::resource('units', UnitController::class)->except('show');
         Route::resource('planning-items', PlanningItemController::class)->except('show');
+        Route::resource('planning-item-overrides', PlanningItemOverrideController::class)->except('show');
+        Route::get('maintenance-imports', [MaintenanceImportController::class, 'index'])->name('maintenance-imports.index');
+        Route::post('maintenance-imports/preview', [MaintenanceImportController::class, 'preview'])->name('maintenance-imports.preview');
+        Route::post('maintenance-imports/commit', [MaintenanceImportController::class, 'commit'])->name('maintenance-imports.commit');
         Route::resource('system-thresholds', SystemThresholdController::class)->except('show');
     });
 

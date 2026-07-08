@@ -13,7 +13,7 @@ class HighUsagePolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::AdminSite, UserRole::SpvOps]);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]);
     }
 
     /**
@@ -21,16 +21,16 @@ class HighUsagePolicy
      */
     public function view(User $user, HighUsageFlag $highUsageFlag): bool
     {
-        if ($user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::SpvOps])) {
+        if ($user->isOneOf([UserRole::Superadmin, UserRole::SpvHo])) {
             return true;
         }
 
-        return $user->hasRole(UserRole::AdminSite) && $user->site_id === $highUsageFlag->unit?->site_id;
+        return $user->hasRole(UserRole::PlannerArea) && $user->site_id === $highUsageFlag->unit?->site_id;
     }
 
     public function takeAction(User $user, HighUsageFlag $highUsageFlag): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite])
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea])
             && $this->view($user, $highUsageFlag);
     }
 

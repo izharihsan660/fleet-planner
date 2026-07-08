@@ -44,17 +44,18 @@ class ProjectionTest extends TestCase
     {
         [$unit] = $this->createProjectionScenario();
 
-        foreach ([UserRole::Superadmin, UserRole::PlannerHo, UserRole::AdminSite, UserRole::SpvOps, UserRole::Logistik] as $role) {
+        foreach ([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea] as $role) {
             $user = User::factory()->create([
                 'role' => $role,
-                'site_id' => $role === UserRole::AdminSite ? $unit->site_id : null,
+                'site_id' => $role === UserRole::PlannerArea ? $unit->site_id : null,
             ]);
 
             $this->actingAs($user)->get(route('projections.index'))
                 ->assertOk()
                 ->assertInertia(fn ($page) => $page
                     ->component('Projections/Index')
-                    ->has('projection.by_unit')
+                    ->has('projection.by_unit.data')
+                    ->where('projection.by_unit.meta.per_page', 25)
                     ->where('filters.months', 1)
                 );
         }
@@ -67,17 +68,17 @@ class ProjectionTest extends TestCase
         $this->actingAs($user)->get(route('projections.index'))->assertForbidden();
     }
 
-    public function test_admin_site_is_forced_to_own_site_filter(): void
+    public function test_planner_area_is_forced_to_own_site_filter(): void
     {
         [$ownUnit] = $this->createProjectionScenario('Own Site', 'KT 8404 YR');
         [$otherUnit] = $this->createProjectionScenario('Other Site', 'KT 8620 YR');
-        $admin = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $ownUnit->site_id]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $ownUnit->site_id]);
 
         $this->actingAs($admin)->get(route('projections.index', ['site_id' => $otherUnit->site_id]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('filters.site_id', $ownUnit->site_id)
-                ->where('projection.by_unit.0.unit_id', $ownUnit->id)
+                ->where('projection.by_unit.data.0.unit_id', $ownUnit->id)
             );
     }
 

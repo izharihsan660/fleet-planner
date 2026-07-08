@@ -33,22 +33,74 @@ class WorkOrderBoardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('WorkOrders/Index')
-                ->has('upcomingItems', 1)
-                ->where('upcomingItems.0.id', $upcomingPlanning->id)
-                ->has('preparationItems', 1)
-                ->where('preparationItems.0.id', $preparationPlanning->id)
+                ->has('boardColumns.upcoming.data', 1)
+                ->where('boardColumns.upcoming.data.0.id', $upcomingPlanning->id)
+                ->where('boardColumns.upcoming.meta.per_page', 20)
+                ->has('boardColumns.preparation.data', 1)
+                ->where('boardColumns.preparation.data.0.id', $preparationPlanning->id)
+                ->where('boardColumns.preparation.meta.per_page', 20)
             );
 
         $this->assertDatabaseMissing('work_order_items', ['unit_planning_id' => $onHoldThresholdPlanning->id]);
         $this->assertDatabaseMissing('work_order_items', ['unit_planning_id' => $outsidePlanning->id]);
     }
 
-    public function test_admin_site_request_from_preview_card_waits_for_spv_approval(): void
+    public function test_work_order_board_paginates_each_status_column_to_twenty_items(): void
     {
         $admin = $this->adminSite();
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
+
+        for ($index = 1; $index <= 25; $index++) {
+            $unit = $this->unit($admin->site_id, 10000 + $index, 100);
+            $planning = $this->planning($unit, 'Open Item '.$index, 12000 + $index, today()->addDays(5)->toDateString());
+            $workOrder = WorkOrder::query()->create([
+                'unit_id' => $unit->id,
+                'site_id' => $unit->site_id,
+                'status' => 'open',
+                'trigger_type' => 'manual',
+                'submitted_by' => $admin->id,
+            ]);
+
+            WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => 'on_hold',
+                'action' => 'replace',
+            ]);
+        }
+
+        $firstPage = $this->actingAs($admin)
+            ->get(route('work-orders.index'))
+            ->assertOk();
+
+        $firstPage->assertInertia(fn (Assert $page) => $page
+            ->has('boardColumns.open.data', 20)
+            ->where('boardColumns.open.meta.per_page', 20)
+            ->where('boardColumns.open.meta.total', 25)
+            ->where('boardColumns.open.meta.current_page', 1)
+        );
+
+        $secondPage = $this->actingAs($admin)
+            ->get(route('work-orders.index', ['open_page' => 2]))
+            ->assertOk();
+
+        $secondPage->assertInertia(fn (Assert $page) => $page
+            ->has('boardColumns.open.data', 5)
+            ->where('boardColumns.open.meta.current_page', 2)
+        );
+
+        $this->assertNotSame(
+            $firstPage->viewData('page')['props']['boardColumns']['open']['data'][0]['id'],
+            $secondPage->viewData('page')['props']['boardColumns']['open']['data'][0]['id']
+        );
+    }
+
+    public function test_planner_area_request_from_preview_card_waits_for_spv_approval(): void
+    {
+        $admin = $this->adminSite();
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         $unit = $this->unit($admin->site_id, 10000, 100);
-        $planning = $this->planning($unit, 'Engine Oil', 12000, today()->addDays(6)->toDateString());
+        $planning = $this->planning($unit, 'Engine Oil', 12000, today()->addDays(10)->toDateString());
 
         $this->actingAs($admin)
             ->post(route('unit-plannings.create-work-order', $planning))
@@ -74,9 +126,10 @@ class WorkOrderBoardTest extends TestCase
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->has('workOrders.data', 1)
-                ->where('workOrders.data.0.id', $workOrder->id)
-                ->where('workOrders.data.0.sub_status.label', 'Menunggu Approval')
+                ->has('boardColumns.open.data', 0)
+                ->has('boardColumns.preparation.data', 1)
+                ->where('boardColumns.preparation.data.0.id', $planning->id)
+                ->where('boardColumns.preparation.data.0.approval_status', 'pending_create')
             );
 
         $this->actingAs($spv)
@@ -94,7 +147,7 @@ class WorkOrderBoardTest extends TestCase
     public function test_spv_can_reject_preview_task_request_and_preview_returns(): void
     {
         $admin = $this->adminSite();
-        $spv = User::factory()->create(['role' => UserRole::SpvOps]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         $unit = $this->unit($admin->site_id, 10000, 100);
         $planning = $this->planning($unit, 'Air Filter', 12000, today()->addDays(10)->toDateString());
 
@@ -119,13 +172,13 @@ class WorkOrderBoardTest extends TestCase
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->has('preparationItems', 1)
-                ->where('preparationItems.0.id', $planning->id)
-                ->where('preparationItems.0.approval_status', 'rejected')
+                ->has('boardColumns.preparation.data', 1)
+                ->where('boardColumns.preparation.data.0.id', $planning->id)
+                ->where('boardColumns.preparation.data.0.approval_status', 'rejected')
             );
     }
 
-    public function test_admin_site_can_assign_same_site_mechanic_to_approved_in_progress_work_order(): void
+    public function test_planner_area_can_assign_same_site_mechanic_to_approved_in_progress_work_order(): void
     {
         $admin = $this->adminSite();
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
@@ -181,6 +234,78 @@ class WorkOrderBoardTest extends TestCase
             ->assertSessionHasErrors('scheduled_date');
     }
 
+    public function test_planner_can_submit_actions_for_overdue_items(): void
+    {
+        $planner = $this->adminSite();
+        $replaceItem = $this->overdueWorkOrderItem($planner, 'Replace Item');
+        $postponeItem = $this->overdueWorkOrderItem($planner, 'Postpone Item');
+        $blockedItem = $this->overdueWorkOrderItem($planner, 'Blocked Item');
+        $breakdownItem = $this->overdueWorkOrderItem($planner, 'Breakdown Item');
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$replaceItem->workOrder, $replaceItem]), ['reason' => 'Butuh replace'])
+            ->assertRedirect(route('work-orders.show', $replaceItem->workOrder));
+
+        $this->assertSame('replace', $replaceItem->refresh()->status);
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.postpone', [$postponeItem->workOrder, $postponeItem]), [
+                'reason' => 'Tunggu jadwal',
+                'new_due_km' => 25000,
+                'new_due_date' => today()->addWeek()->toDateString(),
+            ])
+            ->assertRedirect(route('work-orders.show', $postponeItem->workOrder));
+
+        $this->assertSame('postpone', $postponeItem->refresh()->status);
+
+        $this->actingAs($planner)
+            ->post(route('work-order-items.blocked', $blockedItem), ['reason' => 'Menunggu part'])
+            ->assertRedirect();
+
+        $this->assertSame('blocked', $blockedItem->refresh()->status);
+
+        $this->actingAs($planner)
+            ->post(route('units.breakdown', $breakdownItem->workOrder->unit), ['reason' => 'Unit breakdown'])
+            ->assertRedirect();
+
+        $this->assertSame('breakdown', $breakdownItem->refresh()->status);
+    }
+
+    public function test_work_order_card_count_excludes_completed_items(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 10000, 100);
+        $completePlanning = $this->planning($unit, 'Completed Service', 12000, today()->addDays(10)->toDateString());
+        $overduePlanning = $this->planning($unit, 'Remaining Service', 9000, today()->subDay()->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'open',
+            'trigger_type' => 'normal',
+        ]);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $completePlanning->id,
+            'planning_item_id' => $completePlanning->planning_item_id,
+            'status' => 'complete',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $overduePlanning->id,
+            'planning_item_id' => $overduePlanning->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.open.data.0.id', $workOrder->id)
+                ->where('boardColumns.open.data.0.items_count', 1)
+            );
+    }
+
     private function adminSite(): User
     {
         $site = Site::query()->create(['name' => 'Site A', 'region' => 'East']);
@@ -192,7 +317,7 @@ class WorkOrderBoardTest extends TestCase
         SystemThreshold::query()->updateOrCreate(['key' => 'upcoming_days'], ['value' => '28']);
         SystemThreshold::query()->updateOrCreate(['key' => 'upcoming_km'], ['value' => '4000']);
 
-        return User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
+        return User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
     }
 
     private function unit(int $siteId, int $currentOdo, int $avgKmPerDay): Unit
@@ -200,7 +325,7 @@ class WorkOrderBoardTest extends TestCase
         return Unit::query()->create([
             'site_id' => $siteId,
             'customer' => 'Customer',
-            'current_plate' => 'KT 1234 AA',
+            'current_plate' => 'KT '.$currentOdo.' AA',
             'type' => 'Truck',
             'brand' => 'Hino',
             'year' => 2024,
@@ -226,5 +351,24 @@ class WorkOrderBoardTest extends TestCase
             'next_due_km' => $nextDueKm,
             'next_due_date' => $nextDueDate,
         ]);
+    }
+
+    private function overdueWorkOrderItem(User $planner, string $name): WorkOrderItem
+    {
+        $unit = $this->unit($planner->site_id, fake()->unique()->numberBetween(10000, 90000), 100);
+        $planning = $this->planning($unit, $name, $unit->current_odo - 100, today()->subDay()->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'open',
+            'trigger_type' => 'normal',
+        ]);
+
+        return WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'overdue',
+        ])->load('workOrder.unit');
     }
 }

@@ -53,7 +53,7 @@ class AuthServiceProvider extends ServiceProvider
 
         Gate::define('manage-master-data', fn (User $user): bool => $user->isOneOf([
             UserRole::Superadmin,
-            UserRole::PlannerHo,
+            UserRole::SpvHo,
         ]));
     }
 }

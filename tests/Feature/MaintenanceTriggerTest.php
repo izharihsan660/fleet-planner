@@ -56,9 +56,9 @@ class MaintenanceTriggerTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('WorkOrders/Index')
-                ->where('workOrders.data.0.id', $workOrder->id)
-                ->where('workOrders.data.0.status', 'open')
-                ->where('workOrders.data.0.unit.current_plate', $unit->current_plate)
+                ->where('boardColumns.open.data.0.id', $workOrder->id)
+                ->where('boardColumns.open.data.0.status', 'open')
+                ->where('boardColumns.open.data.0.unit.current_plate', $unit->current_plate)
             );
     }
 
@@ -90,7 +90,7 @@ class MaintenanceTriggerTest extends TestCase
         $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $secondPlanning->id)->count());
     }
 
-    public function test_spv_ops_can_approve_work_order_and_complete_item_updates_planning(): void
+    public function test_spv_ho_can_approve_work_order_and_complete_item_updates_planning(): void
     {
         $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
         $unit = Unit::query()->create($this->unitPayload($site->id, 3000));
@@ -110,7 +110,7 @@ class MaintenanceTriggerTest extends TestCase
             'planning_item_id' => $planningItem->id,
             'status' => 'on_hold',
         ]);
-        $spvOps = User::factory()->create(['role' => UserRole::SpvOps, 'site_id' => null]);
+        $spvOps = User::factory()->create(['role' => UserRole::SpvHo, 'site_id' => null]);
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
 
         $this->actingAs($spvOps)->post(route('work-orders.approve', $workOrder))->assertRedirect(route('work-orders.show', $workOrder));

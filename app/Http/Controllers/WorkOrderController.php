@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
+use App\Services\PlanningIntervalResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,6 +31,8 @@ use Inertia\Response;
 
 class WorkOrderController extends Controller
 {
+    public function __construct(private PlanningIntervalResolver $intervalResolver) {}
+
     public function index(Request $request): Response
     {
         Gate::authorize('viewAny', WorkOrder::class);
@@ -38,31 +41,41 @@ class WorkOrderController extends Controller
         $user = $request->user();
         $thresholds = $this->maintenanceThresholds();
 
-        $workOrders = WorkOrder::query()
+        $workOrderQuery = WorkOrder::query()
             ->with(['unit.site', 'site', 'items.planningItem', 'items.unitPlanning', 'assignedMechanic:id,name'])
-            ->withCount('items')
+            ->withCount(['items as items_count' => fn ($query) => $query->where('status', '!=', 'complete')])
             ->withExists(['items as has_blocked_items' => fn ($query) => $query->where('status', 'blocked')])
             ->withExists(['items as has_high_usage_items' => fn ($query) => $query->where('triggered_by_high_usage', true)])
+            ->whereDoesntHave('items', fn ($query) => $query->where('status', 'pending_create'))
             ->when(! $this->canAccessAllSites($user), fn ($query) => $query->where('site_id', $user->site_id))
             ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->where('site_id', $siteId))
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
             ->when($filters['item_id'] ?? null, fn ($query, string $itemId) => $query->whereHas('items', fn ($items) => $items->where('planning_item_id', $itemId)))
-            ->when($filters['assignee_id'] ?? null, fn ($query, string $assigneeId) => $query->where('assigned_mechanic_id', $assigneeId))
-            ->latest()
-            ->get()
-            ->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
+            ->when($filters['assignee_id'] ?? null, fn ($query, string $assigneeId) => $query->where('assigned_mechanic_id', $assigneeId));
+
+        $openWorkOrders = (clone $workOrderQuery)->where('status', 'open')->latest()->paginate(20, ['*'], 'open_page')->withQueryString();
+        $inProgressWorkOrders = (clone $workOrderQuery)->where('status', 'in_progress')->latest()->paginate(20, ['*'], 'in_progress_page')->withQueryString();
+        $completeWorkOrders = (clone $workOrderQuery)->where('status', 'complete')->latest()->paginate(20, ['*'], 'complete_page')->withQueryString();
+
+        $openWorkOrders->getCollection()->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
+        $inProgressWorkOrders->getCollection()->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
+        $completeWorkOrders->getCollection()->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
 
         return Inertia::render('WorkOrders/Index', [
-            'workOrders' => WorkOrderResource::collection($workOrders),
-            'upcomingItems' => $this->previewItems($request, 'upcoming'),
-            'preparationItems' => $this->previewItems($request, 'preparation'),
+            'boardColumns' => [
+                'upcoming' => $this->previewItems($request, 'upcoming'),
+                'preparation' => $this->previewItems($request, 'preparation'),
+                'open' => WorkOrderResource::collection($openWorkOrders),
+                'in_progress' => WorkOrderResource::collection($inProgressWorkOrders),
+                'complete' => WorkOrderResource::collection($completeWorkOrders),
+            ],
             'sites' => SiteResource::collection($this->visibleSites($request)),
             'units' => UnitResource::collection($this->visibleUnits($request)),
             'mechanics' => $this->visibleMechanics($request),
             'planningItems' => PlanningItem::query()->orderBy('name')->get(['id', 'name']),
-            'canCreateUpcomingTask' => $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]),
-            'canAssignMechanic' => $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]),
+            'canCreateUpcomingTask' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
+            'canAssignMechanic' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
             'filters' => $filters,
         ]);
     }
@@ -177,6 +190,7 @@ class WorkOrderController extends Controller
                     $item->unitPlanning->update([
                         'next_due_km' => $item->new_due_km,
                         'next_due_date' => $item->new_due_date?->toDateString(),
+                        'last_done_date' => $item->available_date?->toDateString() ?? $item->unitPlanning->last_done_date?->toDateString(),
                     ]);
 
                     $item->update([
@@ -236,14 +250,16 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
 
-        if (! in_array($item->status, ['on_hold', 'blocked'], true)) {
-            return back()->withErrors(['action' => 'Hanya item On Hold atau Blocked yang bisa diajukan Replace.']);
+        if (! in_array($item->status, ['on_hold', 'blocked', 'overdue'], true)) {
+            return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, atau Blocked yang bisa diajukan Replace.']);
         }
 
         $item->update([
             'status' => 'replace',
             'action' => 'replace',
             'reason' => $request->string('reason')->toString() ?: null,
+            'previous_due_km' => $item->unitPlanning?->next_due_km,
+            'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
             'submitted_by' => $request->user()->id,
         ]);
 
@@ -257,8 +273,8 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
 
-        if (! in_array($item->status, ['on_hold', 'blocked'], true)) {
-            return back()->withErrors(['action' => 'Hanya item On Hold atau Blocked yang bisa diajukan Postpone.']);
+        if (! in_array($item->status, ['on_hold', 'blocked', 'overdue'], true)) {
+            return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, atau Blocked yang bisa diajukan Postpone.']);
         }
 
         $item->update([
@@ -290,7 +306,7 @@ class WorkOrderController extends Controller
         }
 
         DB::transaction(function () use ($request, $wo, $item): void {
-            $item->load('unitPlanning.planningItem');
+            $item->load('unitPlanning.planningItem', 'unitPlanning.unit');
 
             $completedDate = CarbonImmutable::parse($request->date('completed_date'));
             $completedOdo = $request->integer('completed_odo');
@@ -306,12 +322,13 @@ class WorkOrderController extends Controller
 
             $unitPlanning = $item->unitPlanning;
             $planningItem = $unitPlanning->planningItem;
+            $interval = $this->intervalResolver->resolve($planningItem, $unitPlanning->unit);
 
             $unitPlanning->update([
                 'last_done_km' => $completedOdo,
                 'last_done_date' => $completedDate->toDateString(),
-                'next_due_km' => $completedOdo + $planningItem->interval_km,
-                'next_due_date' => $completedDate->addDays($planningItem->interval_days)->toDateString(),
+                'next_due_km' => $completedOdo + $interval['interval_km'],
+                'next_due_date' => $completedDate->addDays($interval['interval_days'])->toDateString(),
             ]);
 
             if (! $wo->items()->where('status', '!=', 'complete')->exists()) {
@@ -415,22 +432,28 @@ class WorkOrderController extends Controller
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function previewItems(Request $request, string $zone): array
+    private function previewItems(Request $request, string $zone)
     {
         $filters = $request->only(['site_id', 'unit_id', 'item_id']);
         $user = $request->user();
         $thresholds = $this->maintenanceThresholds();
+        $pageName = $zone.'_page';
 
-        return UnitPlanning::query()
+        $items = UnitPlanning::query()
             ->with(['unit.site', 'planningItem'])
-            ->whereDoesntHave('workOrderItems', fn ($query) => $query->whereIn('status', ['on_hold', 'pending_create', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue']))
-            ->when(! $this->canAccessAllSites($user), fn ($query) => $query->whereHas('unit', fn ($unit) => $unit->where('site_id', $user->site_id)))
-            ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->whereHas('unit', fn ($unit) => $unit->where('site_id', $siteId)))
+            ->join('units', 'units.id', '=', 'unit_plannings.unit_id')
+            ->select('unit_plannings.*')
+            ->whereDoesntHave('workOrderItems', fn ($query) => $query->whereIn('status', ['on_hold', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue']))
+            ->when(! $this->canAccessAllSites($user), fn ($query) => $query->where('units.site_id', $user->site_id))
+            ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->where('units.site_id', $siteId))
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
             ->when($filters['item_id'] ?? null, fn ($query, string $itemId) => $query->where('planning_item_id', $itemId))
-            ->get()
-            ->filter(fn (UnitPlanning $planning): bool => $this->isInPreviewZone($planning, $zone, $thresholds))
-            ->map(fn (UnitPlanning $planning): array => [
+            ->where(fn ($query) => $this->applyPreviewZoneScope($query, $zone, $thresholds))
+            ->orderByRaw('COALESCE(unit_plannings.next_due_date, date(\'9999-12-31\'))')
+            ->orderBy('unit_plannings.next_due_km')
+            ->paginate(20, ['unit_plannings.*'], $pageName)
+            ->withQueryString()
+            ->through(fn (UnitPlanning $planning): array => [
                 'id' => $planning->id,
                 'unit_id' => $planning->unit_id,
                 'planning_item_id' => $planning->planning_item_id,
@@ -441,9 +464,54 @@ class WorkOrderController extends Controller
                 'next_due_date' => $planning->next_due_date?->toDateString(),
                 'due' => $this->dueMeta($planning->unit, $planning, $thresholds),
                 'approval_status' => $this->previewApprovalStatus($planning),
-            ])
-            ->values()
-            ->all();
+            ]);
+
+        return [
+            'data' => $items->items(),
+            'meta' => [
+                'current_page' => $items->currentPage(),
+                'from' => $items->firstItem(),
+                'last_page' => $items->lastPage(),
+                'per_page' => $items->perPage(),
+                'to' => $items->lastItem(),
+                'total' => $items->total(),
+            ],
+        ];
+    }
+
+    private function applyPreviewZoneScope($query, string $zone, array $thresholds): void
+    {
+        $today = CarbonImmutable::today();
+        $warningDate = $today->addDays($thresholds['warning_days'])->toDateString();
+        $preparationDate = $today->addDays($thresholds['ancang_ancang_days'])->toDateString();
+        $upcomingDate = $today->addDays($thresholds['upcoming_days'])->toDateString();
+
+        $warningKm = (int) $thresholds['warning_km'];
+        $preparationKm = (int) $thresholds['ancang_ancang_km'];
+        $upcomingKm = (int) $thresholds['upcoming_km'];
+
+        $query->whereNot(fn ($warning) => $this->applyDueThresholdScope($warning, $warningDate, $warningKm));
+
+        if ($zone === 'preparation') {
+            $query->where(fn ($preparation) => $this->applyDueThresholdScope($preparation, $preparationDate, $preparationKm));
+
+            return;
+        }
+
+        $query
+            ->whereNot(fn ($preparation) => $this->applyDueThresholdScope($preparation, $preparationDate, $preparationKm))
+            ->where(fn ($upcoming) => $this->applyDueThresholdScope($upcoming, $upcomingDate, $upcomingKm));
+    }
+
+    private function applyDueThresholdScope($query, string $cutoffDate, int $km): void
+    {
+        $query
+            ->where(fn ($date) => $date
+                ->whereNotNull('unit_plannings.next_due_date')
+                ->whereDate('unit_plannings.next_due_date', '<=', $cutoffDate))
+            ->orWhere(fn ($odo) => $odo
+                ->whereNotNull('unit_plannings.next_due_km')
+                ->whereRaw('units.current_odo >= unit_plannings.next_due_km - ?', [$km]));
     }
 
     private function isInPreviewZone(UnitPlanning $planning, string $zone, array $thresholds): bool
@@ -515,6 +583,10 @@ class WorkOrderController extends Controller
 
     private function previewApprovalStatus(UnitPlanning $planning): ?string
     {
+        if ($planning->workOrderItems()->where('status', 'pending_create')->exists()) {
+            return 'pending_create';
+        }
+
         return $planning->workOrderItems()
             ->where('status', 'rejected')
             ->latest('updated_at')
@@ -523,7 +595,7 @@ class WorkOrderController extends Controller
 
     private function canAccessAllSites(User $user): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo, UserRole::SpvOps]);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]);
     }
 
     private function abortIfCannotAccessSite(Request $request, WorkOrder $workOrder): void

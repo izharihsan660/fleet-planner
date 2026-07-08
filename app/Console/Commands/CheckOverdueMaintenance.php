@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class CheckOverdueMaintenance extends Command
@@ -37,8 +38,9 @@ class CheckOverdueMaintenance extends Command
             ->with(['workOrder.unit', 'workOrder.site', 'planningItem'])
             ->where('status', 'overdue')
             ->get()
-            ->each(function (WorkOrderItem $item) use ($notifications): void {
-                $notifications->maintenanceOverdue($item);
+            ->groupBy(fn (WorkOrderItem $item): string => $item->workOrder->unit_id.'-'.$item->planning_item_id)
+            ->each(function (Collection $items) use ($notifications): void {
+                $notifications->maintenanceOverdue($items);
             });
 
         $this->info("{$overdueItems->count()} work order item overdue diproses.");

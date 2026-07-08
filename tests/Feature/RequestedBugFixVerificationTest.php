@@ -17,7 +17,7 @@ class RequestedBugFixVerificationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_new_unit_generates_eighteen_unit_plannings(): void
+    public function test_new_unit_generates_twenty_unit_plannings(): void
     {
         $this->seed(PlanningItemSeeder::class);
 
@@ -34,16 +34,16 @@ class RequestedBugFixVerificationTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->assertSame(18, $unit->unitPlannings()->count());
-        $this->assertTrue(PlanningItem::query()->where('interval_km', '>', 0)->where('interval_days', '>', 0)->count() === 18);
+        $this->assertSame(20, $unit->unitPlannings()->count());
+        $this->assertTrue(PlanningItem::query()->where('interval_km', '>', 0)->where('interval_days', '>', 0)->count() === 20);
     }
 
-    public function test_admin_site_is_blocked_from_daily_km_input(): void
+    public function test_planner_area_is_blocked_from_daily_km_input(): void
     {
         $this->seed(PlanningItemSeeder::class);
 
         [$siteA, $siteB] = $this->makeSites();
-        $adminSite = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $siteA->id]);
+        $adminSite = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $siteA->id]);
         $unitA = $this->makeUnit($siteA, 'DD 1001 AA', 1000);
         $unitB = $this->makeUnit($siteB, 'DD 1002 BB', 2000);
 

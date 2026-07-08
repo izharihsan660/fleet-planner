@@ -21,7 +21,7 @@ class MasterDataAccessTest extends TestCase
     {
         $this->seed([PlanningItemSeeder::class, SystemThresholdSeeder::class]);
 
-        $this->assertSame(18, PlanningItem::query()->count());
+        $this->assertSame(20, PlanningItem::query()->count());
         $this->assertSame('500', SystemThreshold::query()->where('key', 'warning_km')->value('value'));
         $this->assertSame('14', SystemThreshold::query()->where('key', 'ancang_ancang_days')->value('value'));
         $this->assertSame('2000', SystemThreshold::query()->where('key', 'upcoming_km')->value('value'));
@@ -30,7 +30,7 @@ class MasterDataAccessTest extends TestCase
     public function test_preview_threshold_order_must_stay_above_warning_threshold(): void
     {
         $this->seed(SystemThresholdSeeder::class);
-        $plannerHo = User::factory()->create(['role' => UserRole::PlannerHo]);
+        $plannerHo = User::factory()->create(['role' => UserRole::SpvHo]);
         $threshold = SystemThreshold::query()->where('key', 'ancang_ancang_days')->firstOrFail();
 
         $this->actingAs($plannerHo)
@@ -71,7 +71,7 @@ class MasterDataAccessTest extends TestCase
     {
         $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
         $superadmin = User::factory()->create(['role' => UserRole::Superadmin]);
-        $plannerHo = User::factory()->create(['role' => UserRole::PlannerHo]);
+        $plannerHo = User::factory()->create(['role' => UserRole::SpvHo]);
         $mekanik = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
 
         foreach (['sites.index', 'units.index'] as $routeName) {

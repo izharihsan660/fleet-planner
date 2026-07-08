@@ -44,18 +44,18 @@ class ReportHistoryTest extends TestCase
             );
     }
 
-    public function test_logistik_only_sees_item_report(): void
+    public function test_spv_ho_can_view_all_report_sections(): void
     {
         $this->createReportScenario();
-        $user = User::factory()->create(['role' => UserRole::Logistik]);
+        $user = User::factory()->create(['role' => UserRole::SpvHo]);
 
         $this->actingAs($user)->get(route('reports.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('permissions.can_view_wo_summary', false)
+                ->where('permissions.can_view_wo_summary', true)
                 ->where('permissions.can_view_by_item', true)
-                ->where('permissions.can_view_by_unit', false)
-                ->where('permissions.default_tab', 'item')
+                ->where('permissions.can_view_by_unit', true)
+                ->where('permissions.default_tab', 'wo')
             );
     }
 
@@ -65,17 +65,15 @@ class ReportHistoryTest extends TestCase
 
         $expectations = [
             UserRole::Superadmin->value => [true, true, true, true],
-            UserRole::PlannerHo->value => [true, true, true, true],
-            UserRole::SpvOps->value => [true, true, true, true],
-            UserRole::AdminSite->value => [true, true, true, true],
+            UserRole::SpvHo->value => [true, true, true, true],
+            UserRole::PlannerArea->value => [true, true, true, true],
             UserRole::Mekanik->value => [true, true, true, true],
-            UserRole::Logistik->value => [false, true, false, false],
         ];
 
         foreach ($expectations as $role => [$woSummary, $byItem, $byUnit, $overdue]) {
             $user = User::factory()->create([
                 'role' => $role,
-                'site_id' => in_array($role, [UserRole::AdminSite->value, UserRole::Mekanik->value], true) ? $site->id : null,
+                'site_id' => in_array($role, [UserRole::PlannerArea->value, UserRole::Mekanik->value], true) ? $site->id : null,
             ]);
 
             $this->actingAs($user)->get(route('reports.index'))
@@ -89,6 +87,50 @@ class ReportHistoryTest extends TestCase
         }
     }
 
+    public function test_mechanic_reports_are_scoped_to_units_they_handled(): void
+    {
+        [$site, $handledUnit] = $this->createReportScenario();
+        $otherUnit = Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'Customer Test',
+            'current_plate' => 'KT 9999 ZZ',
+            'type' => 'Dump Truck',
+            'brand' => 'Hino',
+            'year' => 2023,
+            'current_odo' => 7000,
+            'status' => 'active',
+        ]);
+        $planningItem = PlanningItem::query()->firstOrFail();
+        $otherPlanning = UnitPlanning::query()->where('unit_id', $otherUnit->id)->where('planning_item_id', $planningItem->id)->firstOrFail();
+        $otherPlanning->update([
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => now()->subDays(90)->toDateString(),
+            'next_due_km' => 5000,
+            'next_due_date' => now()->addDays(10)->toDateString(),
+        ]);
+        $otherWorkOrder = WorkOrder::query()->create(['unit_id' => $otherUnit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'in_progress']);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $otherWorkOrder->id,
+            'unit_planning_id' => $otherPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'complete',
+            'submitted_by' => User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id])->id,
+        ]);
+
+        $mechanic = WorkOrderItem::query()->where('work_order_id', '!=', $otherWorkOrder->id)->whereNotNull('submitted_by')->firstOrFail()->submittedBy;
+
+        $this->actingAs($mechanic)->get(route('reports.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('summary.total_items', 1)
+                ->has('byUnit.data', 1)
+                ->where('byUnit.data.0.plat_nomor', $handledUnit->current_plate)
+                ->where('byUnit.meta.per_page', 25)
+            );
+    }
+
     public function test_unit_history_contains_replacements_plate_blocked_and_postpone(): void
     {
         [$site, $unit] = $this->createReportScenario();
@@ -96,25 +138,26 @@ class ReportHistoryTest extends TestCase
             'plate_number' => 'KT 1001 AA',
             'active_from' => now()->subYear()->toDateString(),
         ]);
-        $user = User::factory()->create(['role' => UserRole::AdminSite, 'site_id' => $site->id]);
+        $user = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
 
         $this->actingAs($user)->get(route('units.history', $unit))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Units/History')
                 ->where('history.unit.id', $unit->id)
-                ->has('history.replacements', 1)
-                ->has('history.plate_histories', 2)
-                ->has('history.blocked_breakdowns', 1)
-                ->has('history.postpones', 1)
+                ->has('history.replacements.data', 1)
+                ->where('history.replacements.meta.per_page', 25)
+                ->has('history.plate_histories.data', 2)
+                ->has('history.blocked_breakdowns.data', 1)
+                ->has('history.postpones.data', 1)
             );
     }
 
     public function test_check_overdue_command_marks_items_and_notifies_roles(): void
     {
         $this->createReportScenario();
-        User::factory()->create(['role' => UserRole::SpvOps]);
-        User::factory()->create(['role' => UserRole::PlannerHo]);
+        User::factory()->create(['role' => UserRole::SpvHo]);
+        User::factory()->create(['role' => UserRole::SpvHo]);
 
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
@@ -125,8 +168,8 @@ class ReportHistoryTest extends TestCase
     public function test_check_overdue_command_notifies_existing_overdue_items(): void
     {
         $this->createReportScenario();
-        User::factory()->create(['role' => UserRole::SpvOps]);
-        User::factory()->create(['role' => UserRole::PlannerHo]);
+        User::factory()->create(['role' => UserRole::SpvHo]);
+        User::factory()->create(['role' => UserRole::SpvHo]);
 
         $item = WorkOrderItem::query()->firstOrFail();
         $item->update(['status' => 'overdue']);
@@ -135,8 +178,43 @@ class ReportHistoryTest extends TestCase
 
         $this->assertSame(2, Notification::query()
             ->where('type', 'maintenance_overdue')
-            ->where('data->work_order_item_id', $item->id)
+            ->where('data->unit_id', $item->workOrder->unit_id)
+            ->where('data->planning_item_id', $item->planning_item_id)
             ->count());
+    }
+
+    public function test_check_overdue_command_groups_same_unit_and_item_notifications(): void
+    {
+        [$site] = $this->createReportScenario();
+        User::factory()->create(['role' => UserRole::SpvHo]);
+
+        $firstItem = WorkOrderItem::query()->where('status', 'on_hold')->firstOrFail();
+        $secondWorkOrder = WorkOrder::query()->create([
+            'unit_id' => $firstItem->workOrder->unit_id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'in_progress',
+        ]);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $secondWorkOrder->id,
+            'unit_planning_id' => $firstItem->unit_planning_id,
+            'planning_item_id' => $firstItem->planning_item_id,
+            'status' => 'in_progress',
+        ]);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame(2, WorkOrderItem::query()->where('status', 'overdue')->count());
+        $this->assertSame(1, Notification::query()->where('type', 'maintenance_overdue')->count());
+
+        Notification::query()
+            ->where('type', 'maintenance_overdue')
+            ->get()
+            ->each(function (Notification $notification): void {
+                $this->assertSame(2, $notification->data['overdue_count']);
+                $this->assertStringContainsString('2 WO menunggu tindakan', $notification->message);
+            });
     }
 
     /**

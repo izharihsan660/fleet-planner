@@ -19,7 +19,7 @@ trait AuthorizesMasterData
 
     public function create(User $user): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerHo]);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]);
     }
 
     public function update(User $user): bool

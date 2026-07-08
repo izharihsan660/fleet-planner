@@ -6,6 +6,7 @@ use App\Models\PlanningItem;
 use App\Models\Site;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
+use Database\Seeders\PlanningItemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -15,7 +16,7 @@ class UnitPlanningGenerationTest extends TestCase
 
     public function test_unit_plannings_are_generated_when_unit_is_created(): void
     {
-        $this->seed(\Database\Seeders\PlanningItemSeeder::class);
+        $this->seed(PlanningItemSeeder::class);
 
         $site = Site::query()->create(['name' => 'Site A', 'region' => 'Makassar']);
 
@@ -30,7 +31,7 @@ class UnitPlanningGenerationTest extends TestCase
             'status' => 'active',
         ]);
 
-        $this->assertSame(18, $unit->unitPlannings()->count());
+        $this->assertSame(20, $unit->unitPlannings()->count());
 
         $planningItem = PlanningItem::query()->where('name', 'PM Check / Reguler Services')->firstOrFail();
 
@@ -46,7 +47,7 @@ class UnitPlanningGenerationTest extends TestCase
 
     public function test_backfill_command_creates_only_missing_unit_plannings(): void
     {
-        $this->seed(\Database\Seeders\PlanningItemSeeder::class);
+        $this->seed(PlanningItemSeeder::class);
 
         $site = Site::query()->create(['name' => 'Site B', 'region' => 'Kendari']);
 
@@ -64,10 +65,10 @@ class UnitPlanningGenerationTest extends TestCase
         UnitPlanning::query()->where('unit_id', $unit->id)->delete();
 
         $this->artisan('maintenance:backfill-unit-plannings')
-            ->expectsOutput('Created 18 unit planning rows.')
+            ->expectsOutput('Created 20 unit planning rows.')
             ->assertSuccessful();
 
-        $this->assertSame(18, $unit->unitPlannings()->count());
+        $this->assertSame(20, $unit->unitPlannings()->count());
 
         $this->artisan('maintenance:backfill-unit-plannings')
             ->expectsOutput('Created 0 unit planning rows.')

@@ -20,32 +20,32 @@ class WorkOrderPolicy
 
     public function create(User $user): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]);
     }
 
     public function approve(User $user, WorkOrder $workOrder): bool
     {
-        return $user->isOneOf([UserRole::SpvOps, UserRole::Superadmin]) && $this->canAccessSite($user, $workOrder);
+        return $user->isOneOf([UserRole::SpvHo, UserRole::Superadmin]) && $this->canAccessSite($user, $workOrder);
     }
 
     public function complete(User $user, WorkOrder $workOrder): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite, UserRole::Mekanik]) && $this->canAccessSite($user, $workOrder);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::Mekanik]) && $this->canAccessSite($user, $workOrder);
     }
 
     public function assignMechanic(User $user, WorkOrder $workOrder): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]) && $this->canAccessSite($user, $workOrder);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]) && $this->canAccessSite($user, $workOrder);
     }
 
     public function markBlocked(User $user): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite, UserRole::Mekanik]);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::Mekanik]);
     }
 
     public function markBreakdown(User $user): bool
     {
-        return $user->isOneOf([UserRole::Superadmin, UserRole::AdminSite, UserRole::Mekanik]);
+        return $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::Mekanik]);
     }
 
     public function update(User $user, WorkOrder $workOrder): bool
@@ -70,7 +70,7 @@ class WorkOrderPolicy
 
     private function canAccessSite(User $user, WorkOrder $workOrder): bool
     {
-        if ($user->isOneOf([UserRole::AdminSite, UserRole::Mekanik])) {
+        if ($user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik])) {
             return $user->site_id === $workOrder->site_id;
         }
 

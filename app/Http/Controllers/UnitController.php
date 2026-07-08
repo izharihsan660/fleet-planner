@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
+use App\Enums\VehicleCategory;
 use App\Http\Requests\StoreUnitRequest;
 use App\Http\Requests\UpdateUnitRequest;
 use App\Models\Site;
@@ -25,7 +26,8 @@ class UnitController extends Controller
                 ->with(['site', 'plateHistories' => fn ($query) => $query->latest('active_from')])
                 ->when($this->isSiteScoped($request), fn (Builder $query) => $query->where('site_id', $request->user()->site_id))
                 ->latest()
-                ->get(),
+                ->paginate(25)
+                ->withQueryString(),
         ]);
     }
 
@@ -33,7 +35,7 @@ class UnitController extends Controller
     {
         Gate::authorize('create', Unit::class);
 
-        return Inertia::render('Units/Create', ['sites' => $this->visibleSites($request)]);
+        return Inertia::render('Units/Create', ['sites' => $this->visibleSites($request), 'vehicleCategories' => VehicleCategory::options()]);
     }
 
     public function store(StoreUnitRequest $request): RedirectResponse
@@ -47,7 +49,7 @@ class UnitController extends Controller
     {
         Gate::authorize('update', $unit);
 
-        return Inertia::render('Units/Edit', ['unit' => $unit->load('plateHistories'), 'sites' => $this->visibleSites($request)]);
+        return Inertia::render('Units/Edit', ['unit' => $unit->load('plateHistories'), 'sites' => $this->visibleSites($request), 'vehicleCategories' => VehicleCategory::options()]);
     }
 
     public function update(UpdateUnitRequest $request, Unit $unit): RedirectResponse
@@ -75,6 +77,6 @@ class UnitController extends Controller
 
     private function isSiteScoped(Request $request): bool
     {
-        return $request->user()->isOneOf([UserRole::AdminSite, UserRole::Mekanik]);
+        return $request->user()->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]);
     }
 }

@@ -24,19 +24,19 @@ class RbacAuthorizationTest extends TestCase
         ]);
 
         $user = User::factory()->create([
-            'role' => UserRole::AdminSite,
+            'role' => UserRole::PlannerArea,
             'site_id' => $site->id,
         ]);
 
-        $this->assertTrue($user->hasRole(UserRole::AdminSite));
-        $this->assertTrue($user->isOneOf([UserRole::Superadmin, UserRole::AdminSite]));
+        $this->assertTrue($user->hasRole(UserRole::PlannerArea));
+        $this->assertTrue($user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]));
         $this->assertTrue($user->site->is($site));
     }
 
     public function test_gates_match_expected_roles(): void
     {
         $superadmin = User::factory()->create(['role' => UserRole::Superadmin]);
-        $plannerHo = User::factory()->create(['role' => UserRole::PlannerHo]);
+        $plannerHo = User::factory()->create(['role' => UserRole::SpvHo]);
         $mekanik = User::factory()->create(['role' => UserRole::Mekanik]);
 
         $this->assertTrue(Gate::forUser($superadmin)->allows('manage-users'));
@@ -49,9 +49,9 @@ class RbacAuthorizationTest extends TestCase
 
     public function test_role_middleware_allows_matching_roles_only(): void
     {
-        Route::middleware(['web', 'auth', 'role:superadmin,planner_ho'])->get('/rbac-test-route', fn () => 'OK');
+        Route::middleware(['web', 'auth', 'role:superadmin,spv_ho'])->get('/rbac-test-route', fn () => 'OK');
 
-        $plannerHo = User::factory()->create(['role' => UserRole::PlannerHo]);
+        $plannerHo = User::factory()->create(['role' => UserRole::SpvHo]);
         $mekanik = User::factory()->create(['role' => UserRole::Mekanik]);
 
         $this->actingAs($plannerHo)->get('/rbac-test-route')->assertOk();
@@ -72,6 +72,32 @@ class RbacAuthorizationTest extends TestCase
                 ->where('auth.user.id', $user->id)
                 ->where('auth.user.role', UserRole::Superadmin->value)
                 ->where('auth.user.site_id', null)
+            );
+    }
+
+    public function test_dashboard_shares_overdue_banner_count(): void
+    {
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->actingAs($user)
+            ->get('/dashboard')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('overdueBanner.count', 0)
+                ->where('overdueBanner.threshold', 20)
+            );
+    }
+
+    public function test_reports_can_open_overdue_tab_from_query_string(): void
+    {
+        $user = User::factory()->create(['role' => UserRole::SpvHo]);
+
+        $this->actingAs($user)
+            ->get(route('reports.index', ['tab' => 'overdue']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('filters.tab', 'overdue')
+                ->where('permissions.default_tab', 'overdue')
             );
     }
 

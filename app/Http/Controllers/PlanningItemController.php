@@ -16,7 +16,7 @@ class PlanningItemController extends Controller
     {
         Gate::authorize('viewAny', PlanningItem::class);
 
-        return Inertia::render('PlanningItems/Index', ['planningItems' => PlanningItem::query()->orderBy('name')->get()]);
+        return Inertia::render('PlanningItems/Index', ['planningItems' => PlanningItem::query()->orderBy('name')->paginate(25)->withQueryString()]);
     }
 
     public function create(): Response

@@ -15,7 +15,7 @@ class SubmitPostponeWorkOrderItemRequest extends FormRequest
     {
         $user = $this->user();
 
-        return $user?->isOneOf([UserRole::Superadmin, UserRole::AdminSite]) ?? false;
+        return $user?->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]) ?? false;
     }
 
     /**

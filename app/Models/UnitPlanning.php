@@ -15,6 +15,7 @@ class UnitPlanning extends Model
         'last_done_date',
         'next_due_km',
         'next_due_date',
+        'is_estimated',
         'freeze_start',
     ];
 
@@ -23,6 +24,7 @@ class UnitPlanning extends Model
         return [
             'last_done_date' => 'date',
             'next_due_date' => 'date',
+            'is_estimated' => 'boolean',
             'freeze_start' => 'datetime',
         ];
     }

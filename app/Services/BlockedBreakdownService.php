@@ -32,7 +32,7 @@ class BlockedBreakdownService
             $unit->update(['status' => 'breakdown']);
 
             WorkOrderItem::query()
-                ->whereIn('status', ['on_hold', 'in_progress'])
+                ->whereIn('status', ['on_hold', 'in_progress', 'overdue'])
                 ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))
                 ->update([
                     'status' => 'breakdown',

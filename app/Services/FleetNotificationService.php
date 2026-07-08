@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 
 class FleetNotificationService
 {
@@ -17,7 +18,7 @@ class FleetNotificationService
     {
         $item->loadMissing(['workOrder.unit', 'planningItem']);
 
-        $this->notifyRoles([UserRole::AdminSite], 'task_auto_generated', 'Task maintenance baru', sprintf(
+        $this->notifyRoles([UserRole::PlannerArea], 'task_auto_generated', 'Task maintenance baru', sprintf(
             '%s - %s masuk On Hold dan perlu ditindaklanjuti.',
             $item->workOrder->unit?->current_plate ?? 'Unit',
             $item->planningItem?->name ?? 'Item'
@@ -28,7 +29,7 @@ class FleetNotificationService
     {
         $item->loadMissing(['workOrder.unit', 'planningItem']);
 
-        $this->notifyRoles([UserRole::SpvOps], 'task_submitted', 'Task menunggu approval', sprintf(
+        $this->notifyRoles([UserRole::SpvHo], 'task_submitted', 'Task menunggu approval', sprintf(
             '%s - %s diajukan untuk %s.',
             $item->workOrder->unit?->current_plate ?? 'Unit',
             $item->planningItem?->name ?? 'Item',
@@ -40,7 +41,7 @@ class FleetNotificationService
     {
         $item->loadMissing(['workOrder.unit', 'planningItem']);
 
-        $this->notifyRoles([UserRole::SpvOps], 'task_creation_requested', 'Task menunggu approval', sprintf(
+        $this->notifyRoles([UserRole::SpvHo], 'task_creation_requested', 'Task menunggu approval', sprintf(
             '%s - %s diajukan untuk dibuat sekarang.',
             $item->workOrder->unit?->current_plate ?? 'Unit',
             $item->planningItem?->name ?? 'Item'
@@ -57,7 +58,7 @@ class FleetNotificationService
 
         $item->loadMissing('planningItem');
 
-        $this->notifyRoles([UserRole::Logistik], 'work_order_approved', 'WO disetujui untuk Logistik', sprintf(
+        $this->notifyRoles([UserRole::SpvHo], 'work_order_approved', 'WO disetujui untuk Spv HO', sprintf(
             'WO #%d %s - %s sudah disetujui dan membutuhkan koordinasi part.',
             $workOrder->id,
             $workOrder->unit?->current_plate,
@@ -67,26 +68,42 @@ class FleetNotificationService
 
     public function unitBreakdown(Unit $unit): void
     {
-        $this->notifyRoles([UserRole::SpvOps], 'unit_breakdown', 'Unit Breakdown diinput', sprintf(
+        $this->notifyRoles([UserRole::SpvHo], 'unit_breakdown', 'Unit Breakdown diinput', sprintf(
             '%s ditandai Breakdown dan perlu dipantau.',
             $unit->current_plate
         ), ['unit_id' => $unit->id]);
     }
 
-    public function maintenanceOverdue(WorkOrderItem $item): void
+    /**
+     * @param  Collection<int, WorkOrderItem>  $items
+     */
+    public function maintenanceOverdue(Collection $items): void
     {
+        /** @var WorkOrderItem $item */
+        $item = $items->firstOrFail();
         $item->loadMissing(['workOrder.unit', 'workOrder.site', 'planningItem']);
+        $overdueCount = $items->count();
+        $message = $overdueCount > 1
+            ? sprintf(
+                '%s - %s sudah overdue (%d WO menunggu tindakan).',
+                $item->workOrder->unit?->current_plate ?? 'Unit',
+                $item->planningItem?->name ?? 'Item',
+                $overdueCount
+            )
+            : sprintf(
+                '%s - %s di %s sudah overdue.',
+                $item->workOrder->unit?->current_plate ?? 'Unit',
+                $item->planningItem?->name ?? 'Item',
+                $item->workOrder->site?->name ?? 'site'
+            );
 
-        $this->notifyRoles([UserRole::SpvOps, UserRole::PlannerHo], 'maintenance_overdue', 'Item maintenance overdue', sprintf(
-            '%s - %s di %s sudah overdue.',
-            $item->workOrder->unit?->current_plate ?? 'Unit',
-            $item->planningItem?->name ?? 'Item',
-            $item->workOrder->site?->name ?? 'site'
-        ), [
+        $this->notifyRoles([UserRole::SpvHo], 'maintenance_overdue', 'Item maintenance overdue', $message, [
             'url' => route('work-orders.show', $item->workOrder),
             'work_order_id' => $item->work_order_id,
-            'work_order_item_id' => $item->id,
+            'work_order_item_ids' => $items->pluck('id')->values()->all(),
             'unit_id' => $item->workOrder->unit_id,
+            'planning_item_id' => $item->planning_item_id,
+            'overdue_count' => $overdueCount,
         ]);
     }
 
@@ -94,7 +111,7 @@ class FleetNotificationService
     {
         $flag->loadMissing(['unit', 'planningItem']);
 
-        $this->notifyRoles([UserRole::AdminSite, UserRole::SpvOps], 'high_usage_window_2', 'High Usage Window 2', sprintf(
+        $this->notifyRoles([UserRole::PlannerArea, UserRole::SpvHo], 'high_usage_window_2', 'High Usage Window 2', sprintf(
             '%s - %s perlu input jadwal baru karena High Usage belum ditindaklanjuti.',
             $flag->unit?->current_plate ?? 'Unit',
             $flag->planningItem?->name ?? 'Item'
@@ -112,8 +129,10 @@ class FleetNotificationService
      */
     private function notifyRoles(array $roles, string $type, string $title, string $message, array $data, ?int $siteId = null): void
     {
+        $roleValues = collect($roles)->map(fn (UserRole $role): string => $role->value)->unique()->values()->all();
+
         User::query()
-            ->whereIn('role', array_map(fn (UserRole $role): string => $role->value, $roles))
+            ->whereIn('role', $roleValues)
             ->when($siteId !== null, fn (Builder $query) => $query->where(function (Builder $siteQuery) use ($siteId): void {
                 $siteQuery->whereNull('site_id')->orWhere('site_id', $siteId);
             }))
@@ -124,6 +143,7 @@ class FleetNotificationService
                     ->where('type', $type)
                     ->when(isset($data['work_order_item_id']), fn (Builder $query) => $query->where('data->work_order_item_id', $data['work_order_item_id']))
                     ->when(isset($data['unit_id']), fn (Builder $query) => $query->where('data->unit_id', $data['unit_id']))
+                    ->when(isset($data['planning_item_id']), fn (Builder $query) => $query->where('data->planning_item_id', $data['planning_item_id']))
                     ->whereNull('read_at')
                     ->exists();
 

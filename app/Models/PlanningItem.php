@@ -22,6 +22,14 @@ class PlanningItem extends Model
     }
 
     /**
+     * @return HasMany<PlanningItemOverride, $this>
+     */
+    public function overrides(): HasMany
+    {
+        return $this->hasMany(PlanningItemOverride::class);
+    }
+
+    /**
      * @return HasMany<WorkOrderItem, $this>
      */
     public function workOrderItems(): HasMany

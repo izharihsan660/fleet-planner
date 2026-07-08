@@ -27,6 +27,7 @@ class ReportFilterRequest extends FormRequest
             'month' => ['nullable', 'integer', 'between:1,12'],
             'year' => ['nullable', 'integer', 'between:2020,2100'],
             'site_id' => ['nullable', 'integer', Rule::exists('sites', 'id')],
+            'tab' => ['nullable', 'in:wo,item,unit,overdue'],
         ];
     }
 }

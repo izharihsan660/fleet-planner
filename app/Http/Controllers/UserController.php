@@ -19,7 +19,7 @@ class UserController extends Controller
     {
         Gate::authorize('viewAny', User::class);
 
-        return Inertia::render('Users/Index', ['users' => User::query()->with('site:id,name')->latest()->get()]);
+        return Inertia::render('Users/Index', ['users' => User::query()->with('site:id,name')->latest()->paginate(25)->withQueryString()]);
     }
 
     public function create(): Response

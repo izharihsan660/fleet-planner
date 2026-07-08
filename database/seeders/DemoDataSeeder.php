@@ -42,22 +42,27 @@ class DemoDataSeeder extends Seeder
     private function sites(): array
     {
         $rows = [
-            'balikpapan' => ['Site Balikpapan', 'Kalimantan Timur'],
-            'samarinda' => ['Site Samarinda', 'Kalimantan Timur'],
-            'jakarta' => ['Site Jakarta', 'DKI Jakarta'],
-            'surabaya' => ['Site Surabaya', 'Jawa Timur'],
-            'makassar' => ['Site Makassar', 'Sulawesi Selatan'],
-            'medan' => ['Site Medan', 'Sumatera Utara'],
-            'palembang' => ['Site Palembang', 'Sumatera Selatan'],
-            'pekanbaru' => ['Site Pekanbaru', 'Riau'],
-            'banjarmasin' => ['Site Banjarmasin', 'Kalimantan Selatan'],
-            'pontianak' => ['Site Pontianak', 'Kalimantan Barat'],
-            'manado' => ['Site Manado', 'Sulawesi Utara'],
-            'denpasar' => ['Site Denpasar', 'Bali'],
-            'semarang' => ['Site Semarang', 'Jawa Tengah'],
-            'bandung' => ['Site Bandung', 'Jawa Barat'],
-            'yogyakarta' => ['Site Yogyakarta', 'DI Yogyakarta'],
+            'adaro' => ['ADARO', 'Kalimantan Selatan'],
+            'bpn' => ['BPN', 'Kalimantan Timur'],
+            'gorontalo' => ['GORONTALO', 'Gorontalo'],
+            'kendari' => ['KENDARI', 'Sulawesi Tenggara'],
+            'loa-kulu' => ['LOA KULU', 'Kalimantan Timur'],
+            'loajanan' => ['LOAJANAN', 'Kalimantan Timur'],
+            'loreh' => ['LOREH', 'Kalimantan Utara'],
+            'm-lawa' => ['M. LAWA', 'Kalimantan Timur'],
+            'makassar' => ['MAKASSAR', 'Sulawesi Selatan'],
+            'manado' => ['MANADO', 'Sulawesi Utara'],
+            'mks' => ['MKS', 'Sulawesi Selatan'],
+            'sanga-sanga' => ['SANGA SANGA', 'Kalimantan Timur'],
+            'sangatta' => ['SANGATTA', 'Kalimantan Timur'],
+            'smd' => ['SMD', 'Kalimantan Timur'],
+            'soroako' => ['SOROAKO', 'Sulawesi Selatan'],
+            'tabang' => ['TABANG', 'Kalimantan Timur'],
+            'tgr' => ['TGR', 'Banten'],
+            'tj-redeb' => ['TJ. REDEB', 'Kalimantan Timur'],
         ];
+
+        Site::query()->whereNotIn('name', array_column($rows, 0))->delete();
 
         foreach ($rows as $slug => [$name, $region]) {
             $sites[$slug] = Site::query()->updateOrCreate(['name' => $name], ['region' => $region]);
@@ -68,33 +73,20 @@ class DemoDataSeeder extends Seeder
 
     private function users(array $sites): array
     {
-        User::query()->whereIn('email', [
-            'superadmin@example.com', 'planner.ho@example.com', 'admin.site@example.com',
-            'spv.ops@example.com', 'logistik@example.com', 'mekanik@example.com',
-        ])->update(['password' => Hash::make(self::PASSWORD)]);
-
         User::query()->updateOrCreate(
             ['email' => 'superadmin@example.com'],
             ['name' => 'Superadmin Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Superadmin, 'site_id' => null],
         );
         User::query()->updateOrCreate(
-            ['email' => 'planner.ho@example.com'],
-            ['name' => 'Planner HO Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::PlannerHo, 'site_id' => null],
-        );
-        User::query()->updateOrCreate(
-            ['email' => 'spv.ops@example.com'],
-            ['name' => 'SPV Ops Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::SpvOps, 'site_id' => null],
-        );
-        User::query()->updateOrCreate(
-            ['email' => 'logistik@example.com'],
-            ['name' => 'Logistik Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Logistik, 'site_id' => null],
+            ['email' => 'spv_ho@example.com'],
+            ['name' => 'Spv HO Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::SpvHo, 'site_id' => null],
         );
 
         foreach ($sites as $slug => $site) {
             $label = Str::of($slug)->replace('-', ' ')->headline()->toString();
             $users[$slug]['admin'] = User::query()->updateOrCreate(
-                ['email' => "admin.{$slug}@example.com"],
-                ['name' => "Admin {$label}", 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::AdminSite, 'site_id' => $site->id],
+                ['email' => "planner.{$slug}@example.com"],
+                ['name' => "Planner {$label}", 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::PlannerArea, 'site_id' => $site->id],
             );
             $users[$slug]['mechanic'] = User::query()->updateOrCreate(
                 ['email' => "mekanik.{$slug}@example.com"],
@@ -108,27 +100,27 @@ class DemoDataSeeder extends Seeder
     private function units(array $sites): array
     {
         $rows = [
-            ['BPN-001', 'balikpapan', 48200, 78], ['BPN-002', 'balikpapan', 76300, 92], ['BPN-003', 'balikpapan', 128400, 105],
-            ['SMR-001', 'samarinda', 91800, 260], ['SMR-002', 'samarinda', 43200, 69],
-            ['JKT-001', 'jakarta', 110500, 88], ['JKT-002', 'jakarta', 35500, 54], ['JKT-003', 'jakarta', 84200, 73],
-            ['SBY-001', 'surabaya', 67800, 82], ['SBY-002', 'surabaya', 119300, 97],
-            ['MKS-001', 'makassar', 96400, 112], ['MKS-002', 'makassar', 40100, 58],
-            ['MDN-001', 'medan', 102200, 94], ['MDN-002', 'medan', 28700, 47],
-            ['PLM-001', 'palembang', 73400, 86], ['PLM-002', 'palembang', 51600, 72],
-            ['PKU-001', 'pekanbaru', 88400, 240], ['PKU-002', 'pekanbaru', 36200, 63],
-            ['BJM-001', 'banjarmasin', 79400, 91], ['BJM-002', 'banjarmasin', 45200, 70],
-            ['PTK-001', 'pontianak', 98600, 225], ['PTK-002', 'pontianak', 57600, 76],
-            ['MND-001', 'manado', 69400, 83], ['MND-002', 'manado', 33300, 51],
-            ['DPS-001', 'denpasar', 61200, null], ['DPS-002', 'denpasar', 47800, 65],
-            ['SMG-001', 'semarang', 72400, 80], ['SMG-002', 'semarang', 52100, 74],
-            ['BDG-001', 'bandung', 46300, 62], ['BDG-002', 'bandung', 83300, 89],
-            ['YGY-001', 'yogyakarta', 54800, 68], ['YGY-002', 'yogyakarta', 39200, 57], ['YGY-003', 'yogyakarta', 91500, 93],
+            ['BPN-001', 'bpn', 48200, 78, 'pickup_suv'], ['BPN-002', 'bpn', 76300, 92, 'pickup_suv'], ['BPN-003', 'bpn', 128400, 105, 'truk_ringan'],
+            ['SMD-001', 'smd', 91800, 260, 'truk_ringan'], ['SMD-002', 'smd', 43200, 69, 'pickup_suv'],
+            ['MLW-001', 'm-lawa', 110500, 88, 'pickup_suv'], ['MLW-002', 'm-lawa', 35500, 54, 'pickup_suv'], ['MLW-003', 'm-lawa', 84200, 73, 'bus'],
+            ['LOR-001', 'loreh', 67800, 82, 'pickup_suv'], ['LOR-002', 'loreh', 119300, 97, 'truk_ringan'],
+            ['MKS-001', 'makassar', 96400, 112, 'pickup_suv'], ['MKS-002', 'makassar', 40100, 58, 'pickup_suv'],
+            ['MND-001', 'manado', 102200, 94, 'pickup_suv'], ['MND-002', 'manado', 28700, 47, 'pickup_suv'],
+            ['KDI-001', 'kendari', 73400, 86, 'pickup_suv'], ['KDI-002', 'kendari', 51600, 72, 'pickup_suv'],
+            ['LOJ-001', 'loajanan', 88400, 240, 'truk_ringan'], ['LOJ-002', 'loajanan', 36200, 63, 'pickup_suv'],
+            ['LOK-001', 'loa-kulu', 79400, 91, 'pickup_suv'], ['LOK-002', 'loa-kulu', 45200, 70, 'pickup_suv'],
+            ['SSG-001', 'sanga-sanga', 98600, 225, 'truk_ringan'], ['SSG-002', 'sanga-sanga', 57600, 76, 'pickup_suv'],
+            ['TGR-001', 'tgr', 69400, 83, 'pickup_suv'], ['TGR-002', 'tgr', 33300, 51, 'pickup_suv'],
+            ['GTO-001', 'gorontalo', 61200, null, 'pickup_suv'], ['GTO-002', 'gorontalo', 47800, 65, 'pickup_suv'],
+            ['TRD-001', 'tj-redeb', 72400, 80, 'pickup_suv'], ['TRD-002', 'tj-redeb', 52100, 74, 'pickup_suv'],
+            ['ADR-001', 'adaro', 46300, 62, 'truk_ringan'], ['ADR-002', 'adaro', 83300, 89, 'pickup_suv'],
+            ['TBN-001', 'tabang', 54800, 68, 'pickup_suv'], ['TBN-002', 'tabang', 39200, 57, 'pickup_suv'], ['SGT-001', 'sangatta', 91500, 93, 'pickup_suv'],
         ];
 
-        foreach ($rows as [$plate, $site, $odo, $avg]) {
+        foreach ($rows as [$plate, $site, $odo, $avg, $category]) {
             $units[$plate] = Unit::query()->updateOrCreate(
                 ['current_plate' => $plate],
-                ['site_id' => $sites[$site]->id, 'customer' => 'PT Demo UAT', 'type' => 'Operasional', 'brand' => 'Toyota/Hino/Isuzu', 'year' => 2022, 'current_odo' => $odo, 'avg_km_per_day' => $avg, 'status' => 'active'],
+                ['site_id' => $sites[$site]->id, 'customer' => 'PT Demo UAT', 'type' => 'Operasional', 'brand' => 'Toyota/Hino/Isuzu', 'vehicle_category' => $category, 'year' => 2022, 'current_odo' => $odo, 'avg_km_per_day' => $avg, 'status' => 'active'],
             )->refresh();
         }
 
@@ -159,30 +151,30 @@ class DemoDataSeeder extends Seeder
     {
         $admin = fn (Unit $unit): User => $users[$this->slug($unit)]['admin'];
 
-        foreach (['BPN-001', 'SMR-001'] as $plate) {
+        foreach (['BPN-001', 'SMD-001'] as $plate) {
             $this->dueSoon($units[$plate], 'PM Check / Reguler Services', $today);
             app(MaintenanceTriggerService::class)->checkAndTrigger($units[$plate]->refresh());
         }
 
         $this->previewPlanning($units['BPN-002'], 'Service A', $today->addDays(24));
-        $this->previewPlanning($units['BJM-002'], 'Service A', $today->addDays(12));
+        $this->previewPlanning($units['LOK-002'], 'Service A', $today->addDays(12));
 
-        $this->highUsage($units['SMR-001'], $today);
-        $this->highUsage($units['PKU-001'], $today, true, $admin($units['PKU-001']));
+        $this->highUsage($units['SMD-001'], $today);
+        $this->highUsage($units['LOJ-001'], $today, true, $admin($units['LOJ-001']));
 
-        $item = $this->woItem($units['JKT-001'], 'Service B', 'in_progress', $admin($units['JKT-001']), $today);
-        app(BlockedBreakdownService::class)->markBreakdown($units['JKT-001']->refresh(), $admin($units['JKT-001']), 'Demo UAT: unit breakdown dan WO item freeze.');
+        $item = $this->woItem($units['MLW-001'], 'Service B', 'in_progress', $admin($units['MLW-001']), $today);
+        app(BlockedBreakdownService::class)->markBreakdown($units['MLW-001']->refresh(), $admin($units['MLW-001']), 'Demo UAT: unit breakdown dan WO item freeze.');
 
         $blocked = $this->woItem($units['MKS-001'], 'Accu', 'on_hold', $admin($units['MKS-001']), $today);
         app(BlockedBreakdownService::class)->markBlocked($blocked, $admin($units['MKS-001']), 'Demo UAT: sparepart belum tersedia.');
 
-        $complete = $this->woItem($units['SBY-001'], 'Greasing', 'complete', $admin($units['SBY-001']), $today);
-        $complete->update(['action' => 'completed', 'completed_odo' => $units['SBY-001']->current_odo, 'completed_date' => $today->subDay(), 'approved_by' => $admin($units['SBY-001'])->id, 'approved_at' => now()->subDay()]);
-        $complete->workOrder()->update(['status' => 'complete', 'approved_by' => $admin($units['SBY-001'])->id, 'approved_at' => now()->subDay()]);
+        $complete = $this->woItem($units['LOR-001'], 'Greasing', 'complete', $admin($units['LOR-001']), $today);
+        $complete->update(['action' => 'completed', 'completed_odo' => $units['LOR-001']->current_odo, 'completed_date' => $today->subDay(), 'approved_by' => $admin($units['LOR-001'])->id, 'approved_at' => now()->subDay()]);
+        $complete->workOrder()->update(['status' => 'complete', 'approved_by' => $admin($units['LOR-001'])->id, 'approved_at' => now()->subDay()]);
 
-        $overduePlanning = $this->dueSoon($units['MDN-001'], 'Wiper Blade', $today->subDays(14));
-        $overduePlanning->update(['next_due_km' => $units['MDN-001']->current_odo - 100, 'next_due_date' => $today->subDays(3)]);
-        $this->woItem($units['MDN-001'], 'Wiper Blade', 'overdue', $admin($units['MDN-001']), $today);
+        $overduePlanning = $this->dueSoon($units['MND-001'], 'Wiper Blade', $today->subDays(14));
+        $overduePlanning->update(['next_due_km' => $units['MND-001']->current_odo - 100, 'next_due_date' => $today->subDays(3)]);
+        $this->woItem($units['MND-001'], 'Wiper Blade', 'overdue', $admin($units['MND-001']), $today);
     }
 
     private function dueSoon(Unit $unit, string $name, CarbonImmutable $today): UnitPlanning
@@ -213,7 +205,7 @@ class DemoDataSeeder extends Seeder
 
     private function highUsage(Unit $unit, CarbonImmutable $today, bool $windowTwo = false, ?User $actor = null): void
     {
-        $planning = $this->dueSoon($unit, 'Ban', $today->addDays(10));
+        $planning = $this->dueSoon($unit, 'Ban Depan', $today->addDays(10));
         HighUsageFlag::query()->updateOrCreate(
             ['unit_planning_id' => $planning->id, 'resolved_at' => null],
             [
@@ -243,6 +235,6 @@ class DemoDataSeeder extends Seeder
 
     private function slug(Unit $unit): string
     {
-        return Str::of($unit->site->name)->after('Site ')->lower()->replace(' ', '-')->toString();
+        return Str::of($unit->site->name)->lower()->replace(['.', ' '], ['', '-'])->toString();
     }
 }

@@ -27,8 +27,8 @@ class InspectionInputTest extends TestCase
 
         $this->seed([PlanningItemSeeder::class, UnitPlanningSeeder::class]);
 
-        $this->assertSame(18, PlanningItem::query()->count());
-        $this->assertSame(18, UnitPlanning::query()->count());
+        $this->assertSame(20, PlanningItem::query()->count());
+        $this->assertSame(20, UnitPlanning::query()->count());
     }
 
     public function test_mechanic_can_record_daily_odometer_and_updates_unit_average(): void
@@ -63,7 +63,7 @@ class InspectionInputTest extends TestCase
         $this->assertSame(350, $unit->current_odo);
         $this->assertSame(100, $unit->avg_km_per_day);
         $this->assertSame(3, InspectionLog::query()->where('unit_id', $unit->id)->count());
-        $this->assertSame(18, $unit->unitPlannings()->count());
+        $this->assertSame(20, $unit->unitPlannings()->count());
     }
 
     public function test_same_day_input_keeps_only_largest_odometer(): void
@@ -124,7 +124,45 @@ class InspectionInputTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Inspections/Index')
                 ->has('inspectionLogs.data', 1)
+                ->where('inspectionLogs.meta.per_page', 50)
                 ->has('units.data', 1)
+            );
+    }
+
+    public function test_inspection_index_is_paginated_to_fifty_rows_per_page(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 100));
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        foreach (range(1, 55) as $day) {
+            InspectionLog::query()->create([
+                'unit_id' => $unit->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => now()->subDays($day)->toDateString(),
+                'odometer' => 100 + $day,
+            ]);
+        }
+
+        $this->actingAs($mechanic)
+            ->get(route('inspections.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Inspections/Index')
+                ->has('inspectionLogs.data', 50)
+                ->where('inspectionLogs.meta.current_page', 1)
+                ->where('inspectionLogs.meta.per_page', 50)
+                ->where('inspectionLogs.meta.total', 55)
+            );
+
+        $this->actingAs($mechanic)
+            ->get(route('inspections.index', ['page' => 2]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Inspections/Index')
+                ->has('inspectionLogs.data', 5)
+                ->where('inspectionLogs.meta.current_page', 2)
+                ->where('inspectionLogs.meta.total', 55)
             );
     }
 

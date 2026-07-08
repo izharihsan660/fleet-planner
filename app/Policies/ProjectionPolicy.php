@@ -11,10 +11,8 @@ class ProjectionPolicy
     {
         return $user->isOneOf([
             UserRole::Superadmin,
-            UserRole::PlannerHo,
-            UserRole::AdminSite,
-            UserRole::SpvOps,
-            UserRole::Logistik,
+            UserRole::SpvHo,
+            UserRole::PlannerArea,
         ]);
     }
 }

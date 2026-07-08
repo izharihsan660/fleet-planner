@@ -2,7 +2,6 @@
 
 namespace App\Policies;
 
-use App\Enums\UserRole;
 use App\Models\User;
 
 class ReportPolicy
@@ -14,7 +13,7 @@ class ReportPolicy
 
     public function viewWoSummary(User $user): bool
     {
-        return ! $user->hasRole(UserRole::Logistik);
+        return true;
     }
 
     public function viewByItem(User $user): bool
@@ -24,11 +23,11 @@ class ReportPolicy
 
     public function viewByUnit(User $user): bool
     {
-        return ! $user->hasRole(UserRole::Logistik);
+        return true;
     }
 
     public function viewOverdue(User $user): bool
     {
-        return ! $user->hasRole(UserRole::Logistik);
+        return true;
     }
 }

@@ -13,7 +13,7 @@ class UnitPolicy
 
     public function view(User $user, Unit $unit): bool
     {
-        if ($user->isOneOf([UserRole::AdminSite, UserRole::Mekanik])) {
+        if ($user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik])) {
             return $user->site_id === $unit->site_id;
         }
 

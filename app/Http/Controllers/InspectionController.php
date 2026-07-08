@@ -31,14 +31,15 @@ class InspectionController extends Controller
         $logs = InspectionLog::query()
             ->with(['unit.site', 'mechanic:id,name'])
             ->when(
-                $user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]),
+                $user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]),
                 fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)),
             )
             ->when($filters['unit_id'] ?? null, fn (Builder $query, string $unitId) => $query->where('unit_id', $unitId))
             ->when($filters['inspection_date'] ?? null, fn (Builder $query, string $date) => $query->whereDate('inspection_date', $date))
             ->latest('inspection_date')
             ->latest('id')
-            ->get();
+            ->paginate(50)
+            ->withQueryString();
 
         return Inertia::render('Inspections/Index', [
             'inspectionLogs' => InspectionLogResource::collection($logs),
@@ -95,7 +96,7 @@ class InspectionController extends Controller
         return Unit::query()
             ->with('site:id,name,region')
             ->when(
-                $user->isOneOf([UserRole::AdminSite, UserRole::Mekanik]),
+                $user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]),
                 fn (Builder $query) => $query->where('site_id', $user->site_id),
             )
             ->orderBy('current_plate')

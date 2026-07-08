@@ -16,7 +16,7 @@ class SiteController extends Controller
     {
         Gate::authorize('viewAny', Site::class);
 
-        return Inertia::render('Sites/Index', ['sites' => Site::query()->withCount(['units', 'users'])->latest()->get()]);
+        return Inertia::render('Sites/Index', ['sites' => Site::query()->withCount(['units', 'users'])->latest()->paginate(25)->withQueryString()]);
     }
 
     public function create(): Response
