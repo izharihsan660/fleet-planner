@@ -1,5 +1,6 @@
 import ApplicationLogo from '@/Components/ApplicationLogo';
 import Dropdown from '@/Components/Dropdown';
+import { ThemeProvider } from '@/Contexts/ThemeContext';
 import { Notification, PageProps } from '@/types';
 import { Link, router, usePage } from '@inertiajs/react';
 import { PropsWithChildren, ReactNode, useMemo, useState } from 'react';
@@ -111,8 +112,8 @@ export default function Authenticated({
             className={[
                 'block rounded-lg px-3 py-2 text-sm font-medium transition',
                 item.active
-                    ? 'bg-indigo-50 text-indigo-700'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900',
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             ].join(' ')}
         >
             {item.label}
@@ -120,11 +121,11 @@ export default function Authenticated({
     );
 
     const SidebarContent = () => (
-        <div className="flex h-full flex-col bg-white">
-            <div className="flex h-16 shrink-0 items-center border-b border-gray-100 px-6">
+        <div className="flex h-full flex-col bg-card text-card-foreground">
+            <div className="flex h-16 shrink-0 items-center border-b px-6">
                 <Link href={route('dashboard')} onClick={closeMobileSidebar} className="flex items-center gap-3">
-                    <ApplicationLogo className="block h-9 w-auto fill-current text-gray-800" />
-                    <span className="text-sm font-semibold uppercase tracking-wide text-gray-700">Fleet Planner</span>
+                    <ApplicationLogo className="block h-9 w-auto fill-current text-foreground" />
+                    <span className="text-sm font-semibold uppercase tracking-wide text-foreground">Fleet Planner</span>
                 </Link>
             </div>
 
@@ -137,7 +138,7 @@ export default function Authenticated({
 
                 {masterDataNavigation.length > 0 && (
                     <div>
-                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Master Data</div>
+                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Master Data</div>
                         <div className="mt-2 space-y-1">
                             {masterDataNavigation.map((item) => (
                                 <SidebarLink key={item.label} item={item} />
@@ -148,7 +149,7 @@ export default function Authenticated({
 
                 {userNavigation.length > 0 && (
                     <div>
-                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Administration</div>
+                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Administration</div>
                         <div className="mt-2 space-y-1">
                             {userNavigation.map((item) => (
                                 <SidebarLink key={item.label} item={item} />
@@ -161,8 +162,9 @@ export default function Authenticated({
     );
 
     return (
-        <div className="min-h-screen bg-gray-100 lg:flex">
-            <aside className="hidden w-72 shrink-0 border-r border-gray-100 lg:sticky lg:top-0 lg:flex lg:h-screen">
+        <ThemeProvider>
+            <div className="min-h-screen bg-background lg:flex">
+            <aside className="hidden w-72 shrink-0 border-r lg:sticky lg:top-0 lg:flex lg:h-screen">
                 <SidebarContent />
             </aside>
 
@@ -181,13 +183,13 @@ export default function Authenticated({
             )}
 
             <div className="min-w-0 flex-1 lg:ml-0">
-                <header className="sticky top-0 z-30 border-b border-gray-100 bg-white">
+                <header className="sticky top-0 z-30 border-b bg-card/95 text-card-foreground backdrop-blur supports-[backdrop-filter]:bg-card/80">
                     <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
                         <div className="flex min-w-0 items-center gap-3">
                             <button
                                 type="button"
                                 onClick={() => setShowingSidebar((previous) => !previous)}
-                                className="inline-flex items-center justify-center rounded-md p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 focus:bg-gray-100 focus:outline-none lg:hidden"
+                                className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground focus:bg-muted focus:outline-none lg:hidden"
                             >
                                 <span className="sr-only">Open navigation menu</span>
                                 <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
@@ -196,14 +198,14 @@ export default function Authenticated({
                             </button>
 
                             <div className="truncate">
-                                {header ?? <h2 className="text-lg font-semibold leading-tight text-gray-800">Dashboard</h2>}
+                                {header ?? <h2 className="text-lg font-semibold leading-tight text-foreground">Dashboard</h2>}
                             </div>
                         </div>
 
                         <div className="flex items-center gap-3">
                             <Dropdown>
                                 <Dropdown.Trigger>
-                                    <button type="button" className="relative rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none">
+                                    <button type="button" className="relative rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none">
                                         <span className="sr-only">Notifications</span>
                                         <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                             <path d="M10 2a6 6 0 00-6 6v2.586l-.707.707A1 1 0 004 13h12a1 1 0 00.707-1.707L16 10.586V8a6 6 0 00-6-6z" />
@@ -212,19 +214,19 @@ export default function Authenticated({
                                         {notifications.unread_count > 0 && <span className="absolute right-0 top-0 rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">{notifications.unread_count}</span>}
                                     </button>
                                 </Dropdown.Trigger>
-                                <Dropdown.Content width="48" contentClasses="bg-white py-2">
-                                    <div className="px-4 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Notifikasi</div>
-                                    {notifications.latest.length === 0 && <div className="px-4 py-3 text-sm text-gray-500">Belum ada notifikasi.</div>}
+                                <Dropdown.Content width="48" contentClasses="bg-popover py-2 text-popover-foreground">
+                                    <div className="px-4 pb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notifikasi</div>
+                                    {notifications.latest.length === 0 && <div className="px-4 py-3 text-sm text-muted-foreground">Belum ada notifikasi.</div>}
                                     {notifications.latest.map((notification) => (
-                                        <button key={notification.id} type="button" onClick={() => readNotification(notification)} className="block w-full px-4 py-3 text-left text-sm hover:bg-gray-50">
+                                        <button key={notification.id} type="button" onClick={() => readNotification(notification)} className="block w-full px-4 py-3 text-left text-sm hover:bg-muted">
                                             <div className="flex items-start justify-between gap-3">
-                                                <span className="font-medium text-gray-900">{notification.title}</span>
+                                                <span className="font-medium text-foreground">{notification.title}</span>
                                                 {!notification.read_at && <span className="mt-1 h-2 w-2 rounded-full bg-indigo-500" />}
                                             </div>
-                                            <p className="mt-1 line-clamp-2 text-xs text-gray-500">{notification.message}</p>
+                                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{notification.message}</p>
                                         </button>
                                     ))}
-                                    <Link href={route('notifications.index')} className="block border-t px-4 py-3 text-center text-sm font-medium text-primary hover:bg-gray-50">
+                                    <Link href={route('notifications.index')} className="block border-t px-4 py-3 text-center text-sm font-medium text-primary hover:bg-muted">
                                         Lihat semua notifikasi
                                     </Link>
                                 </Dropdown.Content>
@@ -233,7 +235,7 @@ export default function Authenticated({
                             <Dropdown>
                                 <Dropdown.Trigger>
                                     <span className="inline-flex rounded-md">
-                                        <button type="button" className="inline-flex max-w-40 items-center truncate rounded-md border border-transparent bg-white px-3 py-2 text-sm font-medium leading-4 text-gray-500 transition duration-150 ease-in-out hover:text-gray-700 focus:outline-none sm:max-w-none">
+                                        <button type="button" className="inline-flex max-w-40 items-center truncate rounded-md border border-transparent bg-card px-3 py-2 text-sm font-medium leading-4 text-muted-foreground transition duration-150 ease-in-out hover:bg-muted hover:text-foreground focus:outline-none sm:max-w-none">
                                             <span className="truncate">{user.name}</span>
                                             <svg className="-me-0.5 ms-2 h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -253,6 +255,7 @@ export default function Authenticated({
 
                 <main>{children}</main>
             </div>
-        </div>
+            </div>
+        </ThemeProvider>
     );
 }

@@ -4,9 +4,11 @@ import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { useTheme } from '@/Contexts/ThemeContext';
 import { PageProps } from '@/types';
+import { chartTheme } from '@/lib/chartTheme';
 import { Head, Link, router } from '@inertiajs/react';
-import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 type PlannerStatusCounts = {
     on_hold: number;
@@ -65,12 +67,12 @@ export default function Dashboard({ auth, overdueBanner, plannerDashboard }: Das
             <div className="py-10">
                 <div className="mx-auto grid max-w-7xl gap-5 px-4 sm:px-6 lg:grid-cols-3 lg:px-8">
                     {canSeeOverdueBanner && (
-                        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-900 shadow-xs lg:col-span-3">
+                        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-900 shadow-xs dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-100 lg:col-span-3">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
-                                    <p className="text-sm font-semibold uppercase tracking-wide text-red-700">Perhatian Overdue</p>
+                                    <p className="text-sm font-semibold uppercase tracking-wide text-red-700 dark:text-red-200">Perhatian Overdue</p>
                                     <p className="mt-1 text-base font-semibold">{overdueBanner.count.toLocaleString('id-ID')} item maintenance overdue memerlukan tindakan.</p>
-                                    <p className="mt-1 text-sm text-red-700">Banner ini otomatis tampil selama jumlah overdue masih di atas {overdueBanner.threshold.toLocaleString('id-ID')} item.</p>
+                                    <p className="mt-1 text-sm text-red-700 dark:text-red-200">Banner ini otomatis tampil selama jumlah overdue masih di atas {overdueBanner.threshold.toLocaleString('id-ID')} item.</p>
                                 </div>
                                 <Link href={`${route('reports.index')}?tab=overdue`} className="inline-flex items-center justify-center rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700">
                                     Lihat Semua
@@ -105,6 +107,8 @@ export default function Dashboard({ auth, overdueBanner, plannerDashboard }: Das
 }
 
 function PlannerDashboardSummary({ dashboard }: { dashboard: PlannerDashboard }) {
+    const { appliedTheme } = useTheme();
+    const chart = chartTheme(appliedTheme);
     const statusEntries = Object.entries(dashboard.status_counts) as Array<[keyof PlannerStatusCounts, number]>;
     const hasOverdue = dashboard.status_counts.overdue > 0;
     const scopeLabel = dashboard.can_filter_region
@@ -176,7 +180,7 @@ function PlannerDashboardSummary({ dashboard }: { dashboard: PlannerDashboard })
                                 <Pie data={dashboard.status_chart} dataKey="value" nameKey="label" innerRadius={58} outerRadius={92} paddingAngle={2}>
                                     {dashboard.status_chart.map((item) => <Cell key={item.key} fill={item.color} />)}
                                 </Pie>
-                                <Tooltip formatter={(value, name) => [Number(value).toLocaleString('id-ID'), name]} />
+                                <Tooltip formatter={(value, name) => [Number(value).toLocaleString('id-ID'), name]} contentStyle={{ backgroundColor: chart.tooltipBackground, borderColor: chart.tooltipBorder, color: chart.tooltipText }} itemStyle={{ color: chart.tooltipText }} />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
@@ -200,9 +204,10 @@ function PlannerDashboardSummary({ dashboard }: { dashboard: PlannerDashboard })
                     <div className="h-72">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={dashboard.overdue_by_site_chart} margin={{ top: 8, right: 8, left: -20, bottom: 8 }}>
-                                <XAxis dataKey="site_name" tick={{ fontSize: 12 }} interval={0} />
-                                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                                <Tooltip formatter={(value) => [Number(value).toLocaleString('id-ID'), 'Overdue']} />
+                                <CartesianGrid stroke={chart.grid} vertical={false} />
+                                <XAxis dataKey="site_name" tick={{ fontSize: 12, fill: chart.axis }} axisLine={{ stroke: chart.grid }} tickLine={{ stroke: chart.grid }} interval={0} />
+                                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: chart.axis }} axisLine={{ stroke: chart.grid }} tickLine={{ stroke: chart.grid }} />
+                                <Tooltip formatter={(value) => [Number(value).toLocaleString('id-ID'), 'Overdue']} contentStyle={{ backgroundColor: chart.tooltipBackground, borderColor: chart.tooltipBorder, color: chart.tooltipText }} itemStyle={{ color: chart.tooltipText }} />
                                 <Bar dataKey="overdue_count" fill="var(--destructive)" radius={[6, 6, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>

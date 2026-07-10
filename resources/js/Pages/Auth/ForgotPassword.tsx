@@ -27,7 +27,7 @@ export default function ForgotPassword({ status }: { status?: string }) {
             </div>
 
             {status && (
-                <div className="mb-4 text-sm font-medium text-green-600">
+                <div className="mb-4 text-sm font-medium text-emerald-600 dark:text-emerald-300">
                     {status}
                 </div>
             )}

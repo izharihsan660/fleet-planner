@@ -4,6 +4,8 @@ export type UserRole =
     | 'spv_ho'
     | 'mekanik';
 
+export type ThemePreference = 'light' | 'dark' | 'system';
+
 export type VehicleCategory = 'pickup_suv' | 'truk_ringan' | 'bus';
 
 export interface VehicleCategoryOption {
@@ -33,6 +35,7 @@ export interface User {
     email: string;
     email_verified_at?: string;
     role: UserRole;
+    theme_preference: ThemePreference;
     site_id: number | null;
     region_id: number | null;
     site?: Site | null;
@@ -401,5 +404,8 @@ export type PageProps<
     };
     flash?: {
         status?: string | null;
+    };
+    theme?: {
+        preference: ThemePreference;
     };
 };

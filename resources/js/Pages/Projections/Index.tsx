@@ -162,7 +162,13 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
                     const isCurrentMonth = date.getMonth() === monthNumber - 1;
                     const isSelected = selectedDate === dateKey;
                     const hasTasks = Boolean(summary?.total);
-                    const tone = summary?.overdue ? 'border-red-300 bg-red-50 text-red-900' : summary?.high_usage ? 'border-amber-300 bg-amber-50 text-amber-900' : hasTasks ? 'border-sky-200 bg-sky-50 text-sky-900' : 'border-border bg-card';
+                    const tone = summary?.overdue
+                        ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-100'
+                        : summary?.high_usage
+                          ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-100'
+                          : hasTasks
+                            ? 'border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-100'
+                            : 'border-border bg-card text-card-foreground';
 
                     return (
                         <button
@@ -176,8 +182,8 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
                                 <span className="text-sm font-semibold">{date.getDate()}</span>
                                 {hasTasks && <span className="rounded-full bg-foreground px-2 py-0.5 text-xs font-semibold text-background">{summary.total}</span>}
                             </div>
-                            {summary?.overdue ? <span className="mt-3 inline-flex rounded-full bg-red-600 px-2 py-0.5 text-xs font-medium text-white">Overdue</span> : null}
-                            {!summary?.overdue && summary?.high_usage ? <span className="mt-3 inline-flex rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">High Usage</span> : null}
+                            {summary?.overdue ? <span className="mt-3 inline-flex rounded-full bg-red-600 px-2 py-0.5 text-xs font-medium text-white dark:bg-red-500 dark:text-red-950">Overdue</span> : null}
+                            {!summary?.overdue && summary?.high_usage ? <span className="mt-3 inline-flex rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white dark:bg-amber-300 dark:text-amber-950">High Usage</span> : null}
                         </button>
                     );
                 })}
@@ -375,7 +381,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                                         <TableCell>{item.item_name}</TableCell>
                                                                         <TableCell>{item.site_name}</TableCell>
                                                                         <TableCell>
-                                                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${item.is_overdue ? 'bg-red-100 text-red-700' : item.is_high_usage ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground'}`}>
+                                                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${item.is_overdue ? 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-200' : item.is_high_usage ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200' : 'bg-muted text-muted-foreground'}`}>
                                                                                 {item.status_label || item.status}
                                                                             </span>
                                                                         </TableCell>
@@ -398,7 +404,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     )}
                                 </TabsContent>
                                 <TabsContent value="part" className="space-y-5">
-                                    <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">Quantity adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>
+                                    <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">Quantity adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>
                                     {projection.by_part.data.map((part: ProjectionPart) => (
                                         <Card key={part.planning_item_id} className="shadow-xs">
                                             <CardHeader>

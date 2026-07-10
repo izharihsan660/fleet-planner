@@ -76,7 +76,7 @@ export default function UpdateProfileInformation({
 
                 {mustVerifyEmail && user.email_verified_at === null && (
                     <div>
-                        <p className="mt-2 text-sm text-gray-800">
+                        <p className="mt-2 text-sm text-foreground">
                             Your email address is unverified.
                             <Link
                                 href={route('verification.send')}
@@ -89,7 +89,7 @@ export default function UpdateProfileInformation({
                         </p>
 
                         {status === 'verification-link-sent' && (
-                            <div className="mt-2 text-sm font-medium text-green-600">
+                            <div className="mt-2 text-sm font-medium text-emerald-600 dark:text-emerald-300">
                                 A new verification link has been sent to your
                                 email address.
                             </div>

@@ -4,6 +4,7 @@ import { Head } from '@inertiajs/react';
 import DeleteUserForm from './Partials/DeleteUserForm';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm';
 import UpdateProfileInformationForm from './Partials/UpdateProfileInformationForm';
+import UpdateThemePreferenceForm from './Partials/UpdateThemePreferenceForm';
 
 export default function Edit({
     mustVerifyEmail,
@@ -31,6 +32,10 @@ export default function Edit({
 
                     <div className="rounded-xl border bg-card p-6 shadow-xs sm:p-8">
                         <UpdatePasswordForm className="max-w-xl" />
+                    </div>
+
+                    <div className="rounded-xl border bg-card p-6 shadow-xs sm:p-8">
+                        <UpdateThemePreferenceForm className="max-w-2xl" />
                     </div>
 
                     <div className="rounded-xl border bg-card p-6 shadow-xs sm:p-8">

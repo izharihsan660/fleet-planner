@@ -238,7 +238,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                 <h3 className="font-semibold text-foreground">Item aktif</h3>
                                 <p className="text-sm text-muted-foreground">{items.length} item perlu dipantau. Urutan paling telat ada di atas.</p>
                             </div>
-                            {selectedItems.length > 0 && <span className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700">{selectedItems.length} dipilih</span>}
+                            {selectedItems.length > 0 && <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{selectedItems.length} dipilih</span>}
                         </div>
 
                         <div>
@@ -256,7 +256,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                 </TableHeader>
                                 <TableBody className="divide-y">
                                     {items.map((item) => (
-                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50' : 'bg-card'}>
+                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
                                                 <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
@@ -264,7 +264,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                             <TableCell className="px-4 py-4 text-base text-foreground">{item.item_name}</TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700' : 'rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-semibold text-gray-700'}>
+                                                <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
                                                     {item.status_label}
                                                 </span>
                                             </TableCell>
@@ -310,10 +310,10 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                             {selectedSiteIds.length === 1 ? (
                                                 <p className="text-sm text-muted-foreground">{selectedSummary}</p>
                                             ) : (
-                                                <p className="text-sm font-medium text-indigo-700">{selectedItems.length} item dipilih, dari {selectedSiteIds.length} lokasi berbeda — diproses terpisah per lokasi.</p>
+                                                <p className="text-sm font-medium text-primary">{selectedItems.length} item dipilih, dari {selectedSiteIds.length} lokasi berbeda — diproses terpisah per lokasi.</p>
                                             )}
-                                            {selectedSiteIds.length > 8 && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Kamu memilih item dari {selectedSiteIds.length} lokasi. Pertimbangkan untuk memilih lebih sedikit lokasi sekaligus agar lebih mudah diperiksa sebelum kirim.</p>}
-                                            {!canSubmit && <p className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">Akun ini hanya untuk supervisi. Pengiriman pengajuan dilakukan oleh Planner Area atau Superadmin.</p>}
+                                            {selectedSiteIds.length > 8 && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">Kamu memilih item dari {selectedSiteIds.length} lokasi. Pertimbangkan untuk memilih lebih sedikit lokasi sekaligus agar lebih mudah diperiksa sebelum kirim.</p>}
+                                            {!canSubmit && <p className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-500/40 dark:bg-yellow-500/15 dark:text-yellow-200">Akun ini hanya untuk supervisi. Pengiriman pengajuan dilakukan oleh Planner Area atau Superadmin.</p>}
                                         </div>
                                         <SecondaryButton type="button" onClick={() => setIsActionPanelOpen(false)}>Tutup</SecondaryButton>
                                     </div>
@@ -321,10 +321,10 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                     <div className="max-h-[70vh] overflow-y-auto p-5">
                                         <div className="grid gap-4">
                                             {selectedSiteIds.length > 1 && (
-                                                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                                                <div className="rounded-lg border border-primary/30 bg-primary/10 p-4">
                                                     <div className="mb-3">
-                                                        <h4 className="font-semibold text-indigo-900">Terapkan ke Semua Lokasi</h4>
-                                                        <p className="text-sm text-indigo-700">Isi aksi dan tanggal yang sama ke semua form di bawah. Mekanik tidak ikut berubah.</p>
+                                                        <h4 className="font-semibold text-foreground">Terapkan ke Semua Lokasi</h4>
+                                                        <p className="text-sm text-muted-foreground">Isi aksi dan tanggal yang sama ke semua form di bawah. Mekanik tidak ikut berubah.</p>
                                                     </div>
                                                     <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
                                                         <div>
@@ -368,12 +368,12 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                                                 {visibleItems.map((item) => <li key={item.id}>{item.plate_number} — {item.item_name}</li>)}
                                                             </ul>
                                                             {hiddenCount > 0 && (
-                                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => toggleItemSiteExpanded(group.siteId)}>
+                                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-primary" onClick={() => toggleItemSiteExpanded(group.siteId)}>
                                                                     dan {hiddenCount} lainnya
                                                                 </Button>
                                                             )}
                                                             {isExpanded && group.items.length > 4 && (
-                                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => toggleItemSiteExpanded(group.siteId)}>
+                                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-primary" onClick={() => toggleItemSiteExpanded(group.siteId)}>
                                                                     Tampilkan lebih sedikit
                                                                 </Button>
                                                             )}

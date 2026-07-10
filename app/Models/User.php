@@ -28,6 +28,7 @@ class User extends Authenticatable
         'role',
         'site_id',
         'region_id',
+        'theme_preference',
     ];
 
     /**
@@ -51,6 +52,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'role' => UserRole::class,
+            'theme_preference' => 'string',
         ];
     }
 
