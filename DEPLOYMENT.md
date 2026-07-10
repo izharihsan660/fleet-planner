@@ -8,13 +8,13 @@ Target production:
 - Runtime: Laravel 11, PHP 8.4, FrankenPHP
 - Frontend: Vite + React + TypeScript, dibuild saat Docker image dibuat
 - Reverse proxy: Traefik existing di network eksternal `workspace_local-dev`
-- Database: MySQL production existing/shared, bukan container baru dari project ini
+- Database: MySQL 8.4 dedicated container `fleet-planner-mysql`
 
 ## File Yang Disiapkan
 
 - `Dockerfile` — multi-stage build: Node build untuk asset Vite, Composer production install, runtime FrankenPHP PHP 8.4.
 - `docker/entrypoint.sh` — membuat folder writable dan menjalankan `config:cache`, `route:cache`, `view:cache` saat container production start.
-- `docker-compose.yml` — **hanya service Fleet Planner**, membaca variabel dari `.env`, join ke network eksternal `workspace_local-dev`, label Traefik untuk domain Fleet.
+- `docker-compose.yml` — service `fleet-planner-app` dan MySQL dedicated `fleet-planner-mysql`; hanya app yang join network Traefik eksternal `workspace_local-dev`.
 - `.env.example` — template env production yang dicopy menjadi `.env` di VPS.
 - `.env.production.example` — salinan template production untuk operator yang masih memakai nama lama.
 - `bootstrap/app.php` — mempercayai `X-Forwarded-*` headers dari reverse proxy agar HTTPS Traefik dikenali Laravel.
@@ -33,9 +33,9 @@ Pastikan ini sudah tersedia sebelum mulai:
 
 4. DNS `fleet.nusantaraabadijaya.com` sudah mengarah ke IP VPS Hostinger.
 5. Traefik existing sudah punya entrypoint `websecure` dan cert resolver, biasanya `letsencrypt`.
-6. MySQL production sudah tersedia dan bisa diakses dari container di network `workspace_local-dev`.
+6. Tidak perlu MySQL shared/global. Compose Fleet Planner akan membuat container MySQL sendiri bernama `fleet-planner-mysql`.
 
-> Catatan: project ini tidak membuat service MySQL baru agar tidak mengganggu ERP/HR/recruitment yang sudah jalan.
+> Catatan: jangan ubah container MySQL aplikasi lain seperti inventory/karir/ERP/HR/recruitment. MySQL Fleet Planner berdiri sendiri di compose project ini.
 
 ## 1. Clone Atau Pull Repo
 
@@ -58,22 +58,23 @@ Ganti `main` jika branch production memakai nama lain.
 
 ## 2. Siapkan Database MySQL Production
 
-Buat database dan user MySQL untuk Fleet Planner di MySQL production existing. Contoh jika akses dari host VPS:
+Fleet Planner memakai container MySQL dedicated yang otomatis dibuat oleh `docker-compose.yml`:
 
-```bash
-mysql -u root -p
+- Service: `fleet-planner-mysql`
+- Image: `mysql:8.4`
+- Volume data: `fleet_planner_mysql_data`
+- Network: `fleet-planner-internal` saja, tidak diexpose ke host dan tidak join ke Traefik
+
+Tidak perlu menjalankan `mysql` client manual untuk membuat database/user. Saat container MySQL pertama kali start, image MySQL akan otomatis membuat database dan user dari env berikut:
+
+```dotenv
+DB_DATABASE=fleet_planner
+DB_USERNAME=fleet_planner
+DB_PASSWORD=isi_password_user_database
+MYSQL_ROOT_PASSWORD=isi_password_root_mysql
 ```
 
-Lalu di prompt MySQL:
-
-```sql
-CREATE DATABASE fleet_planner CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'fleet_planner'@'%' IDENTIFIED BY 'GANTI_PASSWORD_KUAT';
-GRANT ALL PRIVILEGES ON fleet_planner.* TO 'fleet_planner'@'%';
-FLUSH PRIVILEGES;
-```
-
-Jika MySQL sudah berjalan sebagai container di stack lain, gunakan host/container name yang reachable dari network `workspace_local-dev` sebagai `DB_HOST`.
+Pastikan `DB_PASSWORD` dan `MYSQL_ROOT_PASSWORD` diisi sebelum `docker compose up -d` pertama kali. Jika volume MySQL sudah pernah dibuat, perubahan env database tidak otomatis mengubah user/password lama; untuk reset total perlu backup lalu hapus volume secara sadar.
 
 ## 3. Buat File `.env`
 
@@ -100,11 +101,12 @@ APP_TIMEZONE=Asia/Makassar
 APP_URL=https://fleet.nusantaraabadijaya.com
 
 DB_CONNECTION=mysql
-DB_HOST=nama-host-mysql-production
+DB_HOST=fleet-planner-mysql
 DB_PORT=3306
 DB_DATABASE=fleet_planner
 DB_USERNAME=fleet_planner
 DB_PASSWORD=GANTI_PASSWORD_KUAT
+MYSQL_ROOT_PASSWORD=GANTI_ROOT_PASSWORD_KUAT
 
 SESSION_DRIVER=database
 CACHE_STORE=database
@@ -147,7 +149,7 @@ Setelah mengubah `.env`, lanjut start container.
 
 ## 6. Jalankan Container
 
-Start service Fleet Planner:
+Start service Fleet Planner dan MySQL dedicated:
 
 ```bash
 docker compose up -d
@@ -159,7 +161,7 @@ Cek status:
 docker compose ps
 ```
 
-Pastikan service `fleet-planner-app` statusnya `running` atau `healthy`.
+Pastikan service `fleet-planner-mysql` berstatus `healthy`, lalu `fleet-planner-app` berstatus `running` atau `healthy`.
 
 ## 7. Jalankan Migration
 
@@ -256,6 +258,20 @@ docker compose exec fleet-planner-app php artisan migrate:status
 
 Jika error `SQLSTATE[HY000] [2002]`, cek `DB_HOST`, network Docker, firewall MySQL, dan user MySQL boleh connect dari container.
 
+Untuk setup ini, nilai normal adalah:
+
+```dotenv
+DB_HOST=fleet-planner-mysql
+DB_PORT=3306
+```
+
+Cek health MySQL dedicated:
+
+```bash
+docker compose ps fleet-planner-mysql
+docker compose logs -f fleet-planner-mysql
+```
+
 ### Rebuild setelah pull kode terbaru
 
 ```bash
@@ -283,6 +299,7 @@ Perintah ini hanya mematikan service dari folder compose Fleet Planner. Jangan m
 
 - Jangan edit konfigurasi Traefik existing kecuali owner memang perlu menambah resolver/entrypoint global.
 - Jangan edit compose ERP, HR portal, atau recruitment system.
-- Jangan membuat network baru; gunakan network eksternal existing `workspace_local-dev`.
-- Jangan membuat container MySQL baru dari project ini; gunakan MySQL production existing/shared.
+- Jangan membuat network Traefik baru; app tetap memakai network eksternal existing `workspace_local-dev`.
+- Jangan menyentuh container MySQL app lain seperti `laravel-mysql`, `karir-mysql`, ERP, HR, atau recruitment.
+- MySQL baru yang dibuat hanya `fleet-planner-mysql` dari compose project Fleet Planner ini.
 - Semua command di dokumen ini dijalankan manual oleh owner di VPS, bukan dari environment Codex lokal.

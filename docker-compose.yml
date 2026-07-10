@@ -6,6 +6,9 @@ services:
     image: fleet-planner-frankenphp:latest
     container_name: fleet-planner-app
     restart: unless-stopped
+    depends_on:
+      fleet-planner-mysql:
+        condition: service_healthy
     environment:
       APP_NAME: ${APP_NAME:-Fleet Planner}
       APP_ENV: ${APP_ENV:-production}
@@ -68,12 +71,36 @@ services:
       retries: 5
       start_period: 45s
     networks:
+      - fleet-planner-internal
       - workspace_local-dev
+
+  fleet-planner-mysql:
+    image: mysql:8.4
+    container_name: fleet-planner-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - fleet_planner_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fleet-planner-internal
 
 volumes:
   fleet_planner_storage:
   fleet_planner_cache:
+  fleet_planner_mysql_data:
 
 networks:
+  fleet-planner-internal:
+    driver: bridge
   workspace_local-dev:
     external: true
