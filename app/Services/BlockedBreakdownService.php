@@ -12,13 +12,10 @@ class BlockedBreakdownService
 {
     public function markBlocked(WorkOrderItem $item, User $actor, string $reason): WorkOrderItem
     {
-        $freezeStart = now();
-
         $item->update([
             'status' => 'blocked',
             'action' => 'blocked',
             'reason' => $reason,
-            'freeze_start' => $item->freeze_start ?? $freezeStart,
             'submitted_by' => $actor->id,
         ]);
 

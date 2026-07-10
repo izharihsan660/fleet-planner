@@ -17,6 +17,7 @@ class InspectionService
 {
     public function __construct(
         private MaintenanceTriggerService $maintenanceTriggerService,
+        private BlockedBreakdownService $blockedBreakdownService,
         private HighUsageService $highUsageService,
         private PlanningIntervalResolver $intervalResolver,
     ) {}
@@ -28,6 +29,11 @@ class InspectionService
         }
 
         return DB::transaction(function () use ($unit, $odometer, $mechanic, $date): InspectionLog {
+            if ($unit->status === 'breakdown') {
+                $this->blockedBreakdownService->unfreezeBreakdown($unit);
+                $unit->refresh();
+            }
+
             $inspectionDate = $date->copy()->startOfDay();
 
             $log = InspectionLog::query()->create([

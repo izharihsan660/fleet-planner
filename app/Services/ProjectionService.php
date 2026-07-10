@@ -149,18 +149,18 @@ class ProjectionService
         $lastDate = CarbonImmutable::parse($last->inspection_date);
         $totalDays = max(1, $firstDate->diffInDays($lastDate));
 
-        $blockedDays = $this->countBlockedOrBreakdownDays($unitId, $firstDate, $lastDate);
-        $effectiveDays = max(1, $totalDays - $blockedDays);
+        $breakdownDays = $this->countBreakdownDays($unitId, $firstDate, $lastDate);
+        $effectiveDays = max(1, $totalDays - $breakdownDays);
 
         return round($totalKm / $effectiveDays, 2);
     }
 
-    private function countBlockedOrBreakdownDays(int $unitId, CarbonImmutable $from, CarbonImmutable $to): int
+    private function countBreakdownDays(int $unitId, CarbonImmutable $from, CarbonImmutable $to): int
     {
         $items = WorkOrderItem::query()
             ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unitId))
-            ->whereIn('status', ['blocked', 'breakdown', 'complete'])
-            ->whereIn('action', ['blocked', 'breakdown'])
+            ->whereIn('status', ['breakdown', 'complete'])
+            ->where('action', 'breakdown')
             ->whereNotNull('freeze_start')
             ->get(['freeze_start', 'freeze_end']);
 

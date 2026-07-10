@@ -180,7 +180,7 @@ class ProjectionTest extends TestCase
         $this->assertSame(round(300 / 10, 2), $byUnit['avg_km_per_day']);
     }
 
-    public function test_projection_excludes_blocked_days_from_effective_divisor(): void
+    public function test_projection_excludes_breakdown_days_from_effective_divisor(): void
     {
         SystemThreshold::query()->updateOrCreate(['key' => 'min_inspection_data'], ['value' => '2']);
         SystemThreshold::query()->updateOrCreate(['key' => 'rolling_window_days'], ['value' => '30']);
@@ -225,8 +225,8 @@ class ProjectionTest extends TestCase
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $unitPlanning->id,
             'planning_item_id' => $planningItem->id,
-            'action' => 'blocked',
-            'status' => 'blocked',
+            'action' => 'breakdown',
+            'status' => 'breakdown',
             'freeze_start' => now()->subDays(10)->startOfDay(),
             'freeze_end' => now()->subDays(8)->startOfDay(),
         ]);
@@ -269,8 +269,8 @@ class ProjectionTest extends TestCase
                 'work_order_id' => $workOrder->id,
                 'unit_planning_id' => $unitPlanning->id,
                 'planning_item_id' => $planningItem->id,
-                'action' => 'blocked',
-                'status' => 'blocked',
+                'action' => 'breakdown',
+                'status' => 'breakdown',
                 'freeze_start' => now()->subDays($startDaysAgo)->startOfDay(),
                 'freeze_end' => now()->subDays($endDaysAgo)->startOfDay(),
             ]);
