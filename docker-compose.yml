@@ -53,6 +53,7 @@ services:
       MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Fleet Planner}
       VITE_APP_NAME: ${VITE_APP_NAME:-Fleet Planner}
       SERVER_NAME: :8080
+      FRANKENPHP_CONFIG: ""
     volumes:
       - fleet_planner_storage:/app/storage
       - fleet_planner_cache:/app/bootstrap/cache

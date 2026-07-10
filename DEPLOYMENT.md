@@ -272,6 +272,27 @@ docker compose ps fleet-planner-mysql
 docker compose logs -f fleet-planner-mysql
 ```
 
+### Container app restart loop meski HTTP sukses
+
+Image FrankenPHP default dapat mengaktifkan worker mode melalui `FRANKENPHP_CONFIG="worker ./public/index.php"`. Fleet Planner belum memakai Laravel Octane dan `public/index.php` standar tidak menjalankan loop `frankenphp_handle_request()`, sehingga worker mode bisa membuat container restart terus.
+
+Fix permanen di repo:
+
+- `docker-compose.yml` mengosongkan `FRANKENPHP_CONFIG` pada service `fleet-planner-app`.
+- `Dockerfile` tidak boleh meng-hardcode `ENV FRANKENPHP_CONFIG=...` ke worker mode.
+
+Validasi setelah pull perubahan:
+
+```bash
+docker compose config
+```
+
+### `storage:link` gagal permission denied
+
+Jika `php artisan storage:link` gagal membuat symlink di `public/`, biasanya folder `public/` di image masih owned by `root` sementara proses PHP berjalan sebagai `www-data`.
+
+Fix permanen di repo: `Dockerfile` menjalankan `chown -R www-data:www-data /app/public` pada final/runtime stage setelah semua `COPY` yang menyentuh folder `public/`, termasuk hasil build Vite.
+
 ### Rebuild setelah pull kode terbaru
 
 ```bash

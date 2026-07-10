@@ -17,7 +17,6 @@ WORKDIR /app
 
 ENV SERVER_NAME=:8080 \
     SERVER_ROOT=public \
-    FRANKENPHP_CONFIG="worker ./public/index.php" \
     PHP_OPCACHE_ENABLE=1 \
     COMPOSER_ALLOW_SUPERUSER=1
 
@@ -49,7 +48,7 @@ COPY docker/entrypoint.sh /usr/local/bin/fleet-entrypoint
 RUN composer dump-autoload --optimize \
     && mkdir -p storage/app storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
     && chmod +x /usr/local/bin/fleet-entrypoint \
-    && chown -R www-data:www-data storage bootstrap/cache /data /config
+    && chown -R www-data:www-data storage bootstrap/cache public /data /config
 
 USER www-data
 
