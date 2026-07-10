@@ -6,7 +6,12 @@ import SecondaryButton from '@/Components/SecondaryButton';
 import TextInput from '@/Components/TextInput';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, Region } from '@/types';
+import { Button } from '@/Components/ui/button';
+import { Checkbox } from '@/Components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { Textarea } from '@/Components/ui/textarea';
 import { Head, router, useForm } from '@inertiajs/react';
 import { FormEvent, useMemo, useState } from 'react';
 
@@ -108,10 +113,15 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                         <form onSubmit={applyFilters} className="mt-6 grid gap-4 md:grid-cols-[220px_1fr_auto] md:items-end">
                             <div>
                                 <InputLabel htmlFor="region_id" value="Region" />
-                                <select id="region_id" className="mt-1 w-full rounded-lg border-border bg-background p-3 text-base shadow-xs" value={filterRegionId} onChange={(event) => setFilterRegionId(event.target.value)}>
-                                    <option value="">Semua Region</option>
-                                    {regions.data.map((region) => <option key={region.id} value={region.id}>{region.name}</option>)}
-                                </select>
+                                <Select value={filterRegionId || 'all'} onValueChange={(value) => setFilterRegionId(value === 'all' ? '' : value)}>
+                                    <SelectTrigger id="region_id" className="mt-1 h-12 w-full text-base">
+                                        <SelectValue placeholder="Semua Region" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">Semua Region</SelectItem>
+                                        {regions.data.map((region) => <SelectItem key={region.id} value={String(region.id)}>{region.name}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div>
                                 <InputLabel htmlFor="search" value="Cari plat atau nama item" />
@@ -130,45 +140,45 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                             {selectedItems.length > 0 && <span className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700">{selectedItems.length} dipilih</span>}
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y text-left text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground">
-                                    <tr>
-                                        <th className="w-14 px-4 py-4">
-                                            <input aria-label="Pilih semua item" type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={toggleAll} className="h-5 w-5 rounded border-gray-300" />
-                                        </th>
-                                        <th className="px-4 py-4 text-base font-semibold">Plat Nomor</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Item & Alasan</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Site</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Diajukan Oleh</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Lama Menunggu</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
+                        <div>
+                            <Table className="min-w-full text-left">
+                                <TableHeader className="bg-muted/50 text-muted-foreground">
+                                    <TableRow>
+                                        <TableHead className="w-14 px-4 py-4">
+                                            <Checkbox aria-label="Pilih semua item" checked={items.length > 0 && selectedIds.length === items.length} onCheckedChange={toggleAll} />
+                                        </TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Plat Nomor</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Item & Alasan</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Site</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Diajukan Oleh</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Lama Menunggu</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody className="divide-y">
                                     {items.map((item) => (
-                                        <tr key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50' : 'bg-card'}>
-                                            <td className="px-4 py-4">
-                                                <input aria-label={`Pilih ${item.plate_number} ${item.item_name}`} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleItem(item.id)} className="h-5 w-5 rounded border-gray-300" />
-                                            </td>
-                                            <td className="px-4 py-4 text-base font-semibold text-foreground">{item.plate_number}</td>
-                                            <td className="px-4 py-4">
+                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50' : 'bg-card'}>
+                                            <TableCell className="px-4 py-4">
+                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
+                                            </TableCell>
+                                            <TableCell className="px-4 py-4 text-base font-semibold text-foreground">{item.plate_number}</TableCell>
+                                            <TableCell className="px-4 py-4">
                                                 <p className="text-base font-medium text-foreground">{item.item_name}</p>
                                                 <p className="mt-1 text-sm text-muted-foreground">{item.reason || 'Tidak ada alasan tambahan.'}</p>
-                                            </td>
-                                            <td className="px-4 py-4 text-base text-muted-foreground">{item.site_name}<span className="block text-sm">{item.region_name}</span></td>
-                                            <td className="px-4 py-4 text-base text-muted-foreground">{item.submitted_by_name}</td>
-                                            <td className="px-4 py-4">
+                                            </TableCell>
+                                            <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}<span className="block text-sm">{item.region_name}</span></TableCell>
+                                            <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.submitted_by_name}</TableCell>
+                                            <TableCell className="px-4 py-4">
                                                 <span className={item.is_warning ? 'rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700' : 'rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-sm font-semibold text-yellow-700'}>{item.waiting_label}</span>
-                                            </td>
-                                        </tr>
+                                            </TableCell>
+                                        </TableRow>
                                     ))}
                                     {items.length === 0 && (
-                                        <tr>
-                                            <td colSpan={6} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item yang menunggu approval.</td>
-                                        </tr>
+                                        <TableRow>
+                                            <TableCell colSpan={6} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item yang menunggu approval.</TableCell>
+                                        </TableRow>
                                     )}
-                                </tbody>
-                            </table>
+                                </TableBody>
+                            </Table>
                         </div>
                     </section>
 
@@ -177,10 +187,12 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                     {selectedItems.length > 0 && !isActionPanelOpen && (
                         <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-4 shadow-2xl backdrop-blur">
                             <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-                                <button type="button" className="text-left" onClick={() => setIsActionPanelOpen(true)}>
+                                <Button type="button" variant="ghost" className="h-auto justify-start p-0 text-left hover:bg-transparent" onClick={() => setIsActionPanelOpen(true)}>
+                                    <span>
                                     <p className="text-base font-semibold text-foreground">{selectedSummary} — Lanjutkan →</p>
                                     <p className="text-sm text-muted-foreground">Klik untuk membuka daftar verifikasi dan keputusan.</p>
-                                </button>
+                                    </span>
+                                </Button>
                                 <div className="flex flex-wrap gap-2">
                                     <SecondaryButton type="button" onClick={() => setSelectedIds([])}>Batal pilih</SecondaryButton>
                                     <PrimaryButton type="button" onClick={() => setIsActionPanelOpen(true)}>Lanjutkan</PrimaryButton>
@@ -191,7 +203,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
 
                     {selectedItems.length > 0 && isActionPanelOpen && (
                         <>
-                            <button type="button" aria-label="Tutup panel approval" className="fixed inset-0 z-30 bg-black/20" onClick={() => setIsActionPanelOpen(false)} />
+                            <Button type="button" aria-label="Tutup panel approval" variant="ghost" className="fixed inset-0 z-30 h-auto rounded-none bg-black/20 p-0 hover:bg-black/20" onClick={() => setIsActionPanelOpen(false)} />
                             <div className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border bg-background shadow-2xl">
                                 <div className="mx-auto max-w-7xl">
                                     <div className="flex flex-wrap items-start justify-between gap-3 border-b p-5">
@@ -209,20 +221,20 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                                 {visibleVerificationItems.map((item) => <li key={item.id}>{item.plate_number} — {item.item_name}</li>)}
                                             </ul>
                                             {hiddenVerificationCount > 0 && (
-                                                <button type="button" className="mt-2 text-sm font-medium text-indigo-700 hover:underline" onClick={() => setIsVerificationExpanded(true)}>
+                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => setIsVerificationExpanded(true)}>
                                                     dan {hiddenVerificationCount} lainnya
-                                                </button>
+                                                </Button>
                                             )}
                                             {isVerificationExpanded && selectedItems.length > 4 && (
-                                                <button type="button" className="mt-2 block text-sm font-medium text-indigo-700 hover:underline" onClick={() => setIsVerificationExpanded(false)}>
+                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => setIsVerificationExpanded(false)}>
                                                     Tampilkan lebih sedikit
-                                                </button>
+                                                </Button>
                                             )}
                                         </div>
 
                                         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                                            <button type="button" className="rounded-xl bg-green-600 px-6 py-4 text-base font-semibold text-white shadow-sm transition hover:bg-green-700" onClick={openApproveConfirm}>Setuju</button>
-                                            <button type="button" className="rounded-xl bg-red-600 px-6 py-4 text-base font-semibold text-white shadow-sm transition hover:bg-red-700" onClick={openRejectConfirm}>Tolak</button>
+                                            <Button type="button" className="h-auto rounded-xl bg-green-600 px-6 py-4 text-base font-semibold text-white shadow-sm transition hover:bg-green-700" onClick={openApproveConfirm}>Setuju</Button>
+                                            <Button type="button" variant="destructive" className="h-auto rounded-xl px-6 py-4 text-base font-semibold shadow-sm" onClick={openRejectConfirm}>Tolak</Button>
                                         </div>
                                     </div>
                                 </div>
@@ -250,12 +262,12 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                     </DialogHeader>
                     <div>
                         <InputLabel value="Alasan penolakan" />
-                        <textarea className="mt-1 w-full rounded-lg border-border bg-background p-3 text-base shadow-xs" rows={4} value={form.data.reason} onChange={(event) => form.setData('reason', event.target.value)} placeholder="Contoh: Jadwal belum sesuai, mohon lengkapi alasan." />
+                        <Textarea className="mt-1 p-3 text-base" rows={4} value={form.data.reason} onChange={(event) => form.setData('reason', event.target.value)} placeholder="Contoh: Jadwal belum sesuai, mohon lengkapi alasan." />
                         <InputError className="mt-2" message={form.errors.reason} />
                     </div>
                     <DialogFooter>
                         <SecondaryButton type="button" disabled={form.processing} onClick={() => setShowRejectConfirm(false)}>Batal</SecondaryButton>
-                        <button type="button" className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold uppercase tracking-widest text-white transition hover:bg-red-700 disabled:opacity-25" disabled={form.processing || form.data.reason.trim() === ''} onClick={submitDecision}>Tolak</button>
+                        <Button type="button" variant="destructive" className="uppercase tracking-widest" disabled={form.processing || form.data.reason.trim() === ''} onClick={submitDecision}>Tolak</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

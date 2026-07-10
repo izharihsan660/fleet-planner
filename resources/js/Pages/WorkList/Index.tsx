@@ -4,6 +4,10 @@ import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import TextInput from '@/Components/TextInput';
+import { Button } from '@/Components/ui/button';
+import { Checkbox } from '@/Components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, Site, User } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
@@ -210,10 +214,15 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                         <form onSubmit={applyFilters} className="mt-6 grid gap-4 md:grid-cols-[220px_1fr_auto] md:items-end">
                             <div>
                                 <InputLabel htmlFor="site_id" value="Site" />
-                                <select id="site_id" className="mt-1 w-full rounded-lg border-border bg-background p-3 text-base shadow-xs" value={filterSiteId} onChange={(event) => setFilterSiteId(event.target.value)}>
-                                    <option value="">Semua Site</option>
-                                    {sites.data.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-                                </select>
+                                <Select value={filterSiteId || 'all'} onValueChange={(value) => setFilterSiteId(value === 'all' ? '' : value)}>
+                                    <SelectTrigger id="site_id" className="mt-1 h-12 w-full text-base">
+                                        <SelectValue placeholder="Semua Site" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">Semua Site</SelectItem>
+                                        {sites.data.map((site) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div>
                                 <InputLabel htmlFor="search" value="Cari plat atau nama item" />
@@ -232,42 +241,42 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                             {selectedItems.length > 0 && <span className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700">{selectedItems.length} dipilih</span>}
                         </div>
 
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y text-left text-sm">
-                                <thead className="bg-muted/50 text-muted-foreground">
-                                    <tr>
-                                        <th className="w-14 px-4 py-4">
-                                            <input aria-label="Pilih semua item" type="checkbox" checked={items.length > 0 && selectedIds.length === items.length} onChange={toggleAll} className="h-5 w-5 rounded border-gray-300" />
-                                        </th>
-                                        <th className="px-4 py-4 text-base font-semibold">Plat Nomor</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Nama Item</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Site</th>
-                                        <th className="px-4 py-4 text-base font-semibold">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y">
+                        <div>
+                            <Table className="min-w-full text-left">
+                                <TableHeader className="bg-muted/50 text-muted-foreground">
+                                    <TableRow>
+                                        <TableHead className="w-14 px-4 py-4">
+                                            <Checkbox aria-label="Pilih semua item" checked={items.length > 0 && selectedIds.length === items.length} onCheckedChange={toggleAll} />
+                                        </TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Plat Nomor</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Nama Item</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Site</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Status</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody className="divide-y">
                                     {items.map((item) => (
-                                        <tr key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50' : 'bg-card'}>
-                                            <td className="px-4 py-4">
-                                                <input aria-label={`Pilih ${item.plate_number} ${item.item_name}`} type="checkbox" checked={selectedIds.includes(item.id)} onChange={() => toggleItem(item.id)} className="h-5 w-5 rounded border-gray-300" />
-                                            </td>
-                                            <td className="px-4 py-4 text-base font-semibold text-foreground">{item.plate_number}</td>
-                                            <td className="px-4 py-4 text-base text-foreground">{item.item_name}</td>
-                                            <td className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</td>
-                                            <td className="px-4 py-4">
+                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50' : 'bg-card'}>
+                                            <TableCell className="px-4 py-4">
+                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
+                                            </TableCell>
+                                            <TableCell className="px-4 py-4 text-base font-semibold text-foreground">{item.plate_number}</TableCell>
+                                            <TableCell className="px-4 py-4 text-base text-foreground">{item.item_name}</TableCell>
+                                            <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</TableCell>
+                                            <TableCell className="px-4 py-4">
                                                 <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700' : 'rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-sm font-semibold text-gray-700'}>
                                                     {item.status_label}
                                                 </span>
-                                            </td>
-                                        </tr>
+                                            </TableCell>
+                                        </TableRow>
                                     ))}
                                     {items.length === 0 && (
-                                        <tr>
-                                            <td colSpan={5} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item aktif untuk filter ini.</td>
-                                        </tr>
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item aktif untuk filter ini.</TableCell>
+                                        </TableRow>
                                     )}
-                                </tbody>
-                            </table>
+                                </TableBody>
+                            </Table>
                         </div>
                     </section>
 
@@ -276,10 +285,12 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                     {selectedItems.length > 0 && !isActionPanelOpen && (
                         <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 p-4 shadow-2xl backdrop-blur">
                             <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
-                                <button type="button" className="text-left" onClick={() => setIsActionPanelOpen(true)}>
+                                <Button type="button" variant="ghost" className="h-auto justify-start p-0 text-left hover:bg-transparent" onClick={() => setIsActionPanelOpen(true)}>
+                                    <span>
                                     <p className="text-base font-semibold text-foreground">{selectedSummary} — Lanjutkan →</p>
                                     <p className="text-sm text-muted-foreground">Klik untuk membuka form pengajuan. Pilihan kamu tetap aman.</p>
-                                </button>
+                                    </span>
+                                </Button>
                                 <div className="flex flex-wrap gap-2">
                                     <SecondaryButton type="button" onClick={() => setSelectedIds([])}>Batal pilih</SecondaryButton>
                                     <PrimaryButton type="button" onClick={() => setIsActionPanelOpen(true)}>Lanjutkan</PrimaryButton>
@@ -290,7 +301,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
 
                     {selectedItems.length > 0 && isActionPanelOpen && (
                         <>
-                            <button type="button" aria-label="Tutup panel pengajuan" className="fixed inset-0 z-30 bg-black/20" onClick={() => setIsActionPanelOpen(false)} />
+                            <Button type="button" aria-label="Tutup panel pengajuan" variant="ghost" className="fixed inset-0 z-30 h-auto rounded-none bg-black/20 p-0 hover:bg-black/20" onClick={() => setIsActionPanelOpen(false)} />
                             <form onSubmit={submit} className="fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border bg-background shadow-2xl">
                                 <div className="mx-auto max-w-7xl">
                                     <div className="flex flex-wrap items-start justify-between gap-3 border-b p-5">
@@ -318,11 +329,16 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                                     <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
                                                         <div>
                                                             <InputLabel value="Aksi" />
-                                                            <select className="mt-1 w-full rounded-lg border-border bg-background p-3 text-base shadow-xs" value={bulkAction} onChange={(event) => setBulkAction(event.target.value as SiteAction['action'])}>
-                                                                <option value="replace">Ajukan Ganti</option>
-                                                                <option value="postpone">Tunda</option>
-                                                                <option value="blocked">Blokir</option>
-                                                            </select>
+                                                            <Select value={bulkAction} onValueChange={(value) => setBulkAction(value as SiteAction['action'])}>
+                                                                <SelectTrigger className="mt-1 h-12 w-full text-base">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="replace">Ajukan Ganti</SelectItem>
+                                                                    <SelectItem value="postpone">Tunda</SelectItem>
+                                                                    <SelectItem value="blocked">Blokir</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
                                                         </div>
                                                         <div>
                                                             <InputLabel value="Tanggal Rencana" />
@@ -352,33 +368,43 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                                                 {visibleItems.map((item) => <li key={item.id}>{item.plate_number} — {item.item_name}</li>)}
                                                             </ul>
                                                             {hiddenCount > 0 && (
-                                                                <button type="button" className="mt-2 text-sm font-medium text-indigo-700 hover:underline" onClick={() => toggleItemSiteExpanded(group.siteId)}>
+                                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => toggleItemSiteExpanded(group.siteId)}>
                                                                     dan {hiddenCount} lainnya
-                                                                </button>
+                                                                </Button>
                                                             )}
                                                             {isExpanded && group.items.length > 4 && (
-                                                                <button type="button" className="mt-2 block text-sm font-medium text-indigo-700 hover:underline" onClick={() => toggleItemSiteExpanded(group.siteId)}>
+                                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => toggleItemSiteExpanded(group.siteId)}>
                                                                     Tampilkan lebih sedikit
-                                                                </button>
+                                                                </Button>
                                                             )}
                                                         </div>
 
                                                         <div className="grid gap-4 md:grid-cols-3">
                                                             <div>
                                                                 <InputLabel value="Aksi" />
-                                                                <select className="mt-1 w-full rounded-lg border-border bg-background p-3 text-base shadow-xs" value={group.form.action} onChange={(event) => updateSiteAction(group.siteId, { action: event.target.value as SiteAction['action'] })}>
-                                                                    <option value="replace">Ajukan Ganti</option>
-                                                                    <option value="postpone">Tunda</option>
-                                                                    <option value="blocked">Blokir</option>
-                                                                </select>
+                                                                <Select value={group.form.action} onValueChange={(value) => updateSiteAction(group.siteId, { action: value as SiteAction['action'] })}>
+                                                                    <SelectTrigger className="mt-1 h-12 w-full text-base">
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="replace">Ajukan Ganti</SelectItem>
+                                                                        <SelectItem value="postpone">Tunda</SelectItem>
+                                                                        <SelectItem value="blocked">Blokir</SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
                                                             </div>
                                                             {group.form.action === 'replace' && (
                                                                 <div>
                                                                     <InputLabel value="Mekanik" />
-                                                                    <select className="mt-1 w-full rounded-lg border-border bg-background p-3 text-base shadow-xs" value={group.form.assigned_mechanic_id} onChange={(event) => updateSiteAction(group.siteId, { assigned_mechanic_id: event.target.value })}>
-                                                                        <option value="">Pilih mekanik</option>
-                                                                        {(mechanicsBySite[String(group.siteId)] ?? []).map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}
-                                                                    </select>
+                                                                    <Select value={group.form.assigned_mechanic_id || 'none'} onValueChange={(value) => updateSiteAction(group.siteId, { assigned_mechanic_id: value === 'none' ? '' : value })}>
+                                                                        <SelectTrigger className="mt-1 h-12 w-full text-base">
+                                                                            <SelectValue placeholder="Pilih mekanik" />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            <SelectItem value="none">Pilih mekanik</SelectItem>
+                                                                            {(mechanicsBySite[String(group.siteId)] ?? []).map((mechanic) => <SelectItem key={mechanic.id} value={String(mechanic.id)}>{mechanic.name}</SelectItem>)}
+                                                                        </SelectContent>
+                                                                    </Select>
                                                                 </div>
                                                             )}
                                                             <div>
