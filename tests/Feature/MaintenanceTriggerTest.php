@@ -134,6 +134,85 @@ class MaintenanceTriggerTest extends TestCase
         $this->assertSame(now()->addDays(90)->toDateString(), $unitPlanning->next_due_date->toDateString());
     }
 
+    public function test_daily_km_input_preserves_approved_postponed_due_km(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 2000, 'interval_days' => 90]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => now()->subDays(60)->toDateString(),
+            'next_due_km' => 2000,
+            'next_due_date' => now()->toDateString(),
+        ]);
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);
+        $item = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'postpone',
+            'action' => 'postpone',
+            'previous_due_km' => 2000,
+            'previous_due_date' => now()->toDateString(),
+            'new_due_km' => 5000,
+            'new_due_date' => now()->addDays(30)->toDateString(),
+        ]);
+        $spvHo = User::factory()->create(['role' => UserRole::SpvHo, 'site_id' => null]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $this->actingAs($spvHo)->post(route('work-orders.approve', $workOrder))->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('postponed', $item->refresh()->status);
+        $this->assertSame(5000, $unitPlanning->refresh()->next_due_km);
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->addDay()->toDateString(),
+            'odometer' => 1600,
+        ])->assertRedirect(route('inspections.create'));
+
+        $this->assertSame(5000, $unitPlanning->refresh()->next_due_km);
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+    }
+
+    public function test_rejected_item_does_not_block_future_maintenance_trigger(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 2000, 'interval_days' => 90]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => now()->subDays(60)->toDateString(),
+            'next_due_km' => 2000,
+            'next_due_date' => now()->addDays(30)->toDateString(),
+        ]);
+        $rejectedWorkOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'in_progress']);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $rejectedWorkOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'rejected',
+        ]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 1600,
+        ])->assertRedirect(route('inspections.create'));
+
+        $this->assertSame(2, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->where('status', 'on_hold')->count());
+    }
+
     private function seedThresholds(): void
     {
         SystemThreshold::query()->create(['key' => 'warning_km', 'value' => '500', 'description' => 'Warning KM']);

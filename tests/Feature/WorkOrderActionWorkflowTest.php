@@ -206,7 +206,12 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('complete', $firstItem->refresh()->status);
         $this->assertSame('overdue', $secondItem->refresh()->status);
 
-        $secondItem->update(['status' => 'in_progress', 'action' => 'replace']);
+        $this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('tasks.0.id', $secondItem->id)
+            );
 
         $this->actingAs($mechanic)
             ->post(route('work-orders.items.complete', [$workOrder, $secondItem]), [

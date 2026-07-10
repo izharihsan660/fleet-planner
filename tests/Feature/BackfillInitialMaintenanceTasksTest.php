@@ -76,6 +76,36 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
         $this->assertSame(1, WorkOrderItem::query()->where('status', 'overdue')->count());
     }
 
+    public function test_execute_creates_item_when_only_existing_item_is_rejected(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 2000, 'interval_days' => 90]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 1200,
+            'next_due_date' => null,
+            'is_estimated' => true,
+        ]);
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'in_progress']);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'rejected',
+        ]);
+
+        $this->artisan('maintenance:backfill-initial-tasks --execute')
+            ->expectsOutputToContain('Executing initial maintenance backfill')
+            ->assertSuccessful();
+
+        $this->assertSame(2, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->where('status', 'on_hold')->count());
+    }
+
     /**
      * @return array<string, mixed>
      */

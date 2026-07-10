@@ -47,7 +47,6 @@ class HighUsageService
 
             return $unit->unitPlannings()
                 ->with('planningItem:id,name')
-                ->whereDoesntHave('workOrderItems', fn ($query) => $query->whereIn('status', ['complete', 'postponed']))
                 ->get()
                 ->filter(fn (UnitPlanning $unitPlanning): bool => $this->shouldFlag($unit, $unitPlanning, $averageKmPerDay, $thresholdPercentage, $today))
                 ->reject(fn (UnitPlanning $unitPlanning): bool => $this->hasActiveWorkOrderItem($unitPlanning))
@@ -156,7 +155,7 @@ class HighUsageService
     {
         return WorkOrderItem::query()
             ->where('unit_planning_id', $unitPlanning->id)
-            ->whereNotIn('status', ['complete', 'postponed', 'cancelled'])
+            ->whereNotIn('status', ['complete', 'postponed', 'rejected', 'cancelled'])
             ->exists();
     }
 

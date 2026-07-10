@@ -239,6 +239,51 @@ class ProjectionTest extends TestCase
         $this->assertSame(round(200 / 8, 2), $byUnit['avg_km_per_day']);
     }
 
+    public function test_projection_counts_overlapping_freeze_days_once_per_unit(): void
+    {
+        SystemThreshold::query()->updateOrCreate(['key' => 'min_inspection_data'], ['value' => '2']);
+        SystemThreshold::query()->updateOrCreate(['key' => 'rolling_window_days'], ['value' => '30']);
+
+        $site = Site::query()->create(['name' => 'Site Overlap', 'region' => 'Region Test']);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $unit = Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'Customer A',
+            'current_plate' => 'DD 5555 AA',
+            'type' => 'Pickup',
+            'brand' => 'Toyota',
+            'year' => 2024,
+            'current_odo' => 200,
+            'status' => 'active',
+        ]);
+
+        InspectionLog::query()->create(['unit_id' => $unit->id, 'mechanic_id' => $mechanic->id, 'inspection_date' => now()->subDays(10)->toDateString(), 'odometer' => 0]);
+        InspectionLog::query()->create(['unit_id' => $unit->id, 'mechanic_id' => $mechanic->id, 'inspection_date' => now()->toDateString(), 'odometer' => 200]);
+
+        foreach ([['Overlap A', 10, 5], ['Overlap B', 8, 3], ['Overlap C', 7, 6]] as [$name, $startDaysAgo, $endDaysAgo]) {
+            $planningItem = PlanningItem::query()->create(['name' => $name, 'interval_km' => 500, 'interval_days' => 60]);
+            $unitPlanning = UnitPlanning::query()->create(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id, 'last_done_km' => 0, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 300, 'next_due_date' => now()->addDays(20)->toDateString()]);
+            $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'normal', 'status' => 'open']);
+
+            WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $unitPlanning->id,
+                'planning_item_id' => $planningItem->id,
+                'action' => 'blocked',
+                'status' => 'blocked',
+                'freeze_start' => now()->subDays($startDaysAgo)->startOfDay(),
+                'freeze_end' => now()->subDays($endDaysAgo)->startOfDay(),
+            ]);
+        }
+
+        $result = app(ProjectionService::class)->calculate(1);
+
+        $byUnit = collect($result['by_unit'])->firstWhere('plate_number', 'DD 5555 AA');
+        $this->assertNotNull($byUnit);
+        $this->assertFalse($byUnit['insufficient_data']);
+        $this->assertSame(round(200 / 3, 2), $byUnit['avg_km_per_day']);
+    }
+
     public function test_high_usage_service_still_uses_full_history_not_rolling_window(): void
     {
         SystemThreshold::query()->updateOrCreate(['key' => 'min_inspection_data'], ['value' => '3']);

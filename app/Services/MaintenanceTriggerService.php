@@ -80,7 +80,7 @@ class MaintenanceTriggerService
     {
         return WorkOrderItem::query()
             ->where('unit_planning_id', $unitPlanning->id)
-            ->whereNotIn('status', ['complete', 'postponed', 'cancelled'])
+            ->whereNotIn('status', ['complete', 'postponed', 'rejected', 'cancelled'])
             ->exists();
     }
 }

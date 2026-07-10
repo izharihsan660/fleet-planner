@@ -164,7 +164,7 @@ class ProjectionService
             ->whereNotNull('freeze_start')
             ->get(['freeze_start', 'freeze_end']);
 
-        $days = 0;
+        $intervals = [];
 
         foreach ($items as $item) {
             $freezeStart = CarbonImmutable::parse($item->freeze_start)->startOfDay();
@@ -176,9 +176,31 @@ class ProjectionService
             $overlapEnd = $freezeEnd->min($to);
 
             if ($overlapStart->lessThan($overlapEnd)) {
-                $days += (int) $overlapStart->diffInDays($overlapEnd);
+                $intervals[] = [$overlapStart, $overlapEnd];
             }
         }
+
+        if ($intervals === []) {
+            return 0;
+        }
+
+        usort($intervals, fn (array $first, array $second): int => $first[0]->lessThan($second[0]) ? -1 : 1);
+
+        $days = 0;
+        [$currentStart, $currentEnd] = array_shift($intervals);
+
+        foreach ($intervals as [$start, $end]) {
+            if ($start->lessThanOrEqualTo($currentEnd)) {
+                $currentEnd = $end->greaterThan($currentEnd) ? $end : $currentEnd;
+
+                continue;
+            }
+
+            $days += (int) $currentStart->diffInDays($currentEnd);
+            [$currentStart, $currentEnd] = [$start, $end];
+        }
+
+        $days += (int) $currentStart->diffInDays($currentEnd);
 
         return $days;
     }

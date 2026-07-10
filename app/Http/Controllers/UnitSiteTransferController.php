@@ -45,6 +45,9 @@ class UnitSiteTransferController extends Controller
             $newSiteId = $transfer->to_site_id;
 
             $transfer->unit->update(['site_id' => $newSiteId]);
+            $transfer->unit->workOrders()
+                ->whereIn('status', ['open', 'in_progress'])
+                ->update(['site_id' => $newSiteId]);
 
             $transfer->update([
                 'status' => 'approved',

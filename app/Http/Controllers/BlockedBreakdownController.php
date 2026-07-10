@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\UserRole;
 use App\Http\Requests\MarkConditionRequest;
 use App\Http\Requests\StoreBreakdownInspectionRequest;
+use App\Models\Site;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\User;
@@ -12,6 +12,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\BlockedBreakdownService;
 use App\Services\PlanningIntervalResolver;
+use App\Support\AccessScope;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
@@ -105,10 +106,9 @@ class BlockedBreakdownController extends Controller
 
     private function abortIfCannotAccessSite(User $user, int $siteId): void
     {
-        if ($user->isOneOf([UserRole::Superadmin, UserRole::SpvHo])) {
-            return;
-        }
-
-        abort_unless($user->site_id === $siteId, 403);
+        abort_unless(
+            AccessScope::canAccessSite($user, $siteId, Site::query()->whereKey($siteId)->value('region_id')),
+            403,
+        );
     }
 }

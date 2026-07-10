@@ -71,6 +71,10 @@ class InspectionController extends Controller
             abort(403);
         }
 
+        if ($unit->status === 'breakdown') {
+            return back()->withErrors(['unit_id' => 'Unit sedang Breakdown. Gunakan form inspeksi breakdown untuk mengembalikan unit ke aktif.'])->withInput();
+        }
+
         if (InspectionLog::query()->where('unit_id', $unit->id)->whereDate('inspection_date', $request->date('inspection_date'))->exists()) {
             return back()->withErrors(['unit_id' => 'Unit ini sudah diinput hari ini. Batalkan dulu kalau mau mengulang.'])->withInput();
         }

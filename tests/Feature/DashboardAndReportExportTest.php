@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Http\Controllers\ReportController;
 use App\Models\PlanningItem;
 use App\Models\Region;
 use App\Models\Site;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
@@ -164,6 +166,52 @@ class DashboardAndReportExportTest extends TestCase
         $this->assertCount(2, $rows);
     }
 
+    public function test_report_by_item_export_calculates_average_completion_days(): void
+    {
+        [$site] = $this->createRegionScenario();
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->createItem($site, 'KT 2101 AA', 'complete', '2026-07-04', '2026-07-01');
+        $this->createItem($site, 'KT 2102 AA', 'complete', '2026-07-06', '2026-07-01');
+
+        $response = $this->actingAs($user)->get(route('reports.export', [
+            'tab' => 'item',
+            'month' => 7,
+            'year' => 2026,
+            'site_id' => $site->id,
+        ]));
+
+        $response->assertOk()->assertDownload('laporan-per-item-2026-07.xlsx');
+
+        $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
+        $rows = $spreadsheet->getActiveSheet()->toArray();
+
+        $this->assertSame(['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $rows[0]);
+        $this->assertSame('Filter Oli', $rows[1][0]);
+        $this->assertSame(2, (int) $rows[1][1]);
+        $this->assertSame(4.0, (float) $rows[1][4]);
+    }
+
+    public function test_report_by_item_uses_mysql_safe_completion_days_expression(): void
+    {
+        $originalDefaultConnection = config('database.default');
+
+        try {
+            config(['database.default' => 'mysql']);
+            DB::purge('mysql');
+
+            $method = new \ReflectionMethod(ReportController::class, 'completionDaysExpression');
+
+            $this->assertSame(
+                'DATEDIFF(work_order_items.completed_date, DATE(work_order_items.created_at))',
+                $method->invoke(new ReportController)
+            );
+        } finally {
+            config(['database.default' => $originalDefaultConnection]);
+            DB::purge('mysql');
+        }
+    }
+
     /**
      * @return array{Site, Site}
      */
@@ -195,7 +243,7 @@ class DashboardAndReportExportTest extends TestCase
         ];
     }
 
-    private function createItem(Site $site, string $plate, string $status, ?string $completedDate = null): WorkOrderItem
+    private function createItem(Site $site, string $plate, string $status, ?string $completedDate = null, ?string $createdAt = null): WorkOrderItem
     {
         $unit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($site, $plate)));
         $planningItem = PlanningItem::query()->first() ?? PlanningItem::query()->create(['name' => 'Filter Oli', 'interval_km' => 5000, 'interval_days' => 90]);
@@ -215,10 +263,10 @@ class DashboardAndReportExportTest extends TestCase
             'status' => $status === 'complete' ? 'complete' : 'open',
         ]);
 
-        if ($completedDate !== null) {
+        if ($completedDate !== null || $createdAt !== null) {
             $workOrder->forceFill([
-                'created_at' => $completedDate,
-                'updated_at' => $completedDate,
+                'created_at' => $createdAt ?? $completedDate,
+                'updated_at' => $createdAt ?? $completedDate,
             ])->save();
         }
 
@@ -230,10 +278,10 @@ class DashboardAndReportExportTest extends TestCase
             'completed_date' => $completedDate,
         ]);
 
-        if ($completedDate !== null) {
+        if ($completedDate !== null || $createdAt !== null) {
             $item->forceFill([
-                'created_at' => $completedDate,
-                'updated_at' => $completedDate,
+                'created_at' => $createdAt ?? $completedDate,
+                'updated_at' => $createdAt ?? $completedDate,
             ])->save();
         }
 

@@ -45,7 +45,7 @@ class WorkOrderController extends Controller
 
         $items = WorkOrderItem::query()
             ->with(['planningItem:id,name', 'workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name'])
-            ->where('work_order_items.status', 'in_progress')
+            ->whereIn('work_order_items.status', ['in_progress', 'overdue'])
             ->whereHas('workOrder', fn ($query) => $query
                 ->where('assigned_mechanic_id', $user->id)
                 ->where('work_orders.status', 'in_progress')
@@ -426,8 +426,8 @@ class WorkOrderController extends Controller
             abort(404);
         }
 
-        if ($item->status !== 'in_progress') {
-            return back()->withErrors(['action' => 'Item harus In Progress sebelum bisa diselesaikan.']);
+        if (! in_array($item->status, ['in_progress', 'overdue'], true)) {
+            return back()->withErrors(['action' => 'Item harus In Progress atau Overdue sebelum bisa diselesaikan.']);
         }
 
         DB::transaction(function () use ($request, $wo, $item, $notifications): void {

@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -196,12 +197,22 @@ class ReportController extends Controller
             ->selectRaw('COUNT(work_order_items.id) as total_wo')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as total_overdue")
-            ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN julianday(work_order_items.completed_date) - julianday(work_order_items.created_at) END), 1) as avg_hari_penyelesaian")
+            ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN {$this->completionDaysExpression()} END), 1) as avg_hari_penyelesaian")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
             ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_order_items.planning_item_id', 'planning_items.name')
             ->orderBy('planning_items.name');
+    }
+
+    private function completionDaysExpression(): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'mysql', 'mariadb' => 'DATEDIFF(work_order_items.completed_date, DATE(work_order_items.created_at))',
+            'pgsql' => "DATE_PART('day', work_order_items.completed_date::timestamp - work_order_items.created_at::timestamp)",
+            'sqlsrv' => 'DATEDIFF(day, work_order_items.created_at, work_order_items.completed_date)',
+            default => 'julianday(work_order_items.completed_date) - julianday(work_order_items.created_at)',
+        };
     }
 
     /**

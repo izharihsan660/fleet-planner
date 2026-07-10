@@ -75,6 +75,46 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertDatabaseHas('units', ['current_plate' => 'DD 1111 AA', 'vehicle_category' => 'pickup_suv', 'current_odo' => 12345]);
     }
 
+    public function test_commit_rejects_import_path_traversal(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        Storage::disk('local')->put('imports/valid.csv', 'site,plat_nomor');
+
+        $this->actingAs($user)
+            ->from(route('maintenance-imports.index'))
+            ->post(route('maintenance-imports.commit'), [
+                'type' => 'units',
+                'path' => 'imports/../private.csv',
+                'original_filename' => 'private.csv',
+            ])
+            ->assertRedirect(route('maintenance-imports.index'))
+            ->assertSessionHasErrors('path');
+
+        $this->assertSame(0, MaintenanceImport::query()->count());
+    }
+
+    public function test_commit_rejects_paths_outside_imports_directory(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        Storage::disk('local')->put('private.csv', 'site,plat_nomor');
+
+        $this->actingAs($user)
+            ->from(route('maintenance-imports.index'))
+            ->post(route('maintenance-imports.commit'), [
+                'type' => 'units',
+                'path' => 'private.csv',
+                'original_filename' => 'private.csv',
+            ])
+            ->assertRedirect(route('maintenance-imports.index'))
+            ->assertSessionHasErrors('path');
+
+        $this->assertSame(0, MaintenanceImport::query()->count());
+    }
+
     public function test_unit_planning_import_is_queued_and_job_calculates_override_due(): void
     {
         Storage::fake('local');

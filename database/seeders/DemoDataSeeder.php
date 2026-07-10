@@ -73,8 +73,6 @@ class DemoDataSeeder extends Seeder
             'tj-redeb' => ['TJ. REDEB', 'Kalimantan Timur', 'kalimantan'],
         ];
 
-        Site::query()->whereNotIn('name', array_column($rows, 0))->delete();
-
         foreach ($rows as $slug => [$name, $region, $regionSlug]) {
             $sites[$slug] = Site::query()->updateOrCreate(['name' => $name], ['region' => $region, 'region_id' => $regions[$regionSlug]->id]);
         }

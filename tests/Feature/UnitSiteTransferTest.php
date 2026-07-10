@@ -71,7 +71,7 @@ class UnitSiteTransferTest extends TestCase
 
         $this->assertSame($newSite->id, $unit->refresh()->site_id);
         $this->assertDatabaseHas('work_orders', ['id' => $workOrder->id, 'status' => 'open']);
-        $this->assertSame($oldSite->id, $workOrder->refresh()->site_id);
+        $this->assertSame($newSite->id, $workOrder->refresh()->site_id);
         $this->assertDatabaseHas('unit_site_transfers', ['id' => $transfer->id, 'status' => 'approved', 'approved_by' => $spv->id]);
 
         $this->actingAs($plannerOld)->get(route('work-orders.index'))->assertOk()->assertInertia(fn (Assert $page) => $page

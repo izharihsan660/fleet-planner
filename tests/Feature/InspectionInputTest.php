@@ -170,6 +170,49 @@ class InspectionInputTest extends TestCase
         $this->assertSame(200, $unit->refresh()->current_odo);
     }
 
+    public function test_regular_km_input_is_rejected_for_breakdown_unit_without_unfreezing_items(): void
+    {
+        $this->seed(SystemThresholdSeeder::class);
+
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 100));
+        $unit->update(['status' => 'breakdown']);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $planningItem = PlanningItem::query()->create(['name' => 'Service Breakdown', 'interval_km' => 1000, 'interval_days' => 90]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => now()->subMonth()->toDateString(),
+            'next_due_km' => 1000,
+            'next_due_date' => now()->addMonth()->toDateString(),
+            'freeze_start' => now()->subDay(),
+        ]);
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);
+        $item = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'breakdown',
+            'action' => 'breakdown',
+            'freeze_start' => now()->subDay(),
+        ]);
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 200,
+        ])->assertSessionHasErrors([
+            'unit_id' => 'Unit sedang Breakdown. Gunakan form inspeksi breakdown untuk mengembalikan unit ke aktif.',
+        ]);
+
+        $this->assertSame('breakdown', $unit->refresh()->status);
+        $this->assertSame('breakdown', $item->refresh()->status);
+        $this->assertNull($item->freeze_end);
+        $this->assertSame(100, $unit->current_odo);
+        $this->assertSame(0, InspectionLog::query()->where('unit_id', $unit->id)->count());
+    }
+
     public function test_mechanic_input_page_hides_units_already_input_today(): void
     {
         $this->seed(SystemThresholdSeeder::class);

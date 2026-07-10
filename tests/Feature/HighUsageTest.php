@@ -36,6 +36,29 @@ class HighUsageTest extends TestCase
         ]);
     }
 
+    public function test_completed_history_does_not_permanently_block_future_high_usage_detection(): void
+    {
+        [$unit, $unitPlanning] = $this->createHighUsageScenario();
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'normal', 'status' => 'complete']);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $unitPlanning->planning_item_id,
+            'status' => 'complete',
+            'completed_odo' => 1200,
+            'completed_date' => now()->subDays(10)->toDateString(),
+        ]);
+
+        $flags = app(HighUsageService::class)->detect($unit->refresh());
+
+        $this->assertCount(1, $flags);
+        $this->assertDatabaseHas('high_usage_flags', [
+            'unit_id' => $unit->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'resolved_at' => null,
+        ]);
+    }
+
     public function test_planner_area_can_trigger_high_usage_work_order_item(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
@@ -55,6 +78,31 @@ class HighUsageTest extends TestCase
         ]);
         $this->assertNotNull($flag->refresh()->resolved_at);
         $this->assertSame('triggered', $flag->action_taken);
+    }
+
+    public function test_rejected_item_does_not_block_high_usage_work_order_item(): void
+    {
+        [$unit, $unitPlanning] = $this->createHighUsageScenario();
+        $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'high_usage', 'status' => 'in_progress']);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $unitPlanning->planning_item_id,
+            'status' => 'rejected',
+        ]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
+
+        $this->actingAs($admin)->post(route('high-usage.action', $flag), [
+            'action' => 'triggered',
+        ])->assertRedirect();
+
+        $this->assertSame(2, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+        $this->assertDatabaseHas('work_order_items', [
+            'unit_planning_id' => $unitPlanning->id,
+            'status' => 'on_hold',
+            'triggered_by_high_usage' => true,
+        ]);
     }
 
     public function test_planner_area_can_defer_and_submit_new_schedule_in_second_window(): void

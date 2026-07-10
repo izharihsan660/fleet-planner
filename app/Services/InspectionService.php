@@ -17,7 +17,6 @@ class InspectionService
 {
     public function __construct(
         private MaintenanceTriggerService $maintenanceTriggerService,
-        private BlockedBreakdownService $blockedBreakdownService,
         private HighUsageService $highUsageService,
         private PlanningIntervalResolver $intervalResolver,
     ) {}
@@ -29,11 +28,6 @@ class InspectionService
         }
 
         return DB::transaction(function () use ($unit, $odometer, $mechanic, $date): InspectionLog {
-            if ($unit->status === 'breakdown') {
-                $this->blockedBreakdownService->unfreezeBreakdown($unit);
-                $unit->refresh();
-            }
-
             $inspectionDate = $date->copy()->startOfDay();
 
             $log = InspectionLog::query()->create([
@@ -96,9 +90,10 @@ class InspectionService
             ->get()
             ->each(function ($unitPlanning): void {
                 $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
+                $nextDueKm = $unitPlanning->last_done_km + $interval['interval_km'];
 
                 $unitPlanning->update([
-                    'next_due_km' => $unitPlanning->last_done_km + $interval['interval_km'],
+                    'next_due_km' => max($unitPlanning->next_due_km, $nextDueKm),
                 ]);
             });
 
