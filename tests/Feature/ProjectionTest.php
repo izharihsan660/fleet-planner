@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\UserRole;
 use App\Models\InspectionLog;
 use App\Models\PlanningItem;
+use App\Models\Region;
 use App\Models\Site;
 use App\Models\SystemThreshold;
 use App\Models\Unit;
@@ -76,6 +77,11 @@ class ProjectionTest extends TestCase
         $this->assertStringNotContainsString("projection.warnings.map((warning) => warning.plate_number).join(', ')", $projectionSource);
         $this->assertStringContainsString('Filter Lokasi', $projectionSource);
         $this->assertStringContainsString('Semua Lokasi', $projectionSource);
+        $this->assertStringContainsString('Kalender hanya untuk monitoring', $projectionSource);
+        $this->assertStringContainsString('Buka di Daftar Kerja', $projectionSource);
+        $this->assertStringNotContainsString('WorkListActionPanel', $projectionSource);
+        $this->assertStringNotContainsString('Panel Pengajuan', $projectionSource);
+        $this->assertStringNotContainsString('Lanjutkan', $projectionSource);
         $this->assertStringContainsString("label: 'Proyeksi'", $layoutSource);
         $this->assertStringNotContainsString("label: 'Projections'", $layoutSource);
     }
@@ -291,6 +297,69 @@ class ProjectionTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->where('filters.site_id', $ownUnit->site_id)
                 ->where('projection.by_unit.data.0.unit_id', $ownUnit->id)
+            );
+    }
+
+    public function test_projection_calendar_uses_effective_due_dates_and_excludes_finished_items(): void
+    {
+        $region = Region::query()->create(['name' => 'Kalimantan']);
+        $site = Site::query()->create(['name' => 'Site Calendar', 'region' => 'Kalimantan', 'region_id' => $region->id]);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $planningItem = PlanningItem::query()->create(['name' => 'Service Calendar', 'interval_km' => 1000, 'interval_days' => 30]);
+        $unit = Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'Customer A',
+            'current_plate' => 'KT 1234 CV',
+            'type' => 'Pickup',
+            'brand' => 'Toyota',
+            'year' => 2024,
+            'current_odo' => 1800,
+            'status' => 'active',
+        ]);
+        $unitPlanning = UnitPlanning::query()->updateOrCreate([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+        ], [
+            'last_done_km' => 1000,
+            'last_done_date' => '2026-06-01',
+            'next_due_km' => 4200,
+            'next_due_date' => '2026-07-15',
+        ]);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+            'scheduled_date' => '2026-07-20',
+        ]);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'action' => 'postpone',
+            'status' => 'postponed',
+            'new_due_date' => '2026-07-25',
+            'approved_at' => '2026-07-10 08:00:00',
+            'triggered_by_high_usage' => true,
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'complete',
+        ]);
+
+        $this->actingAs($user)->get(route('projections.index', ['month' => '2026-07', 'region_id' => $region->id]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('filters.month', '2026-07')
+                ->where('filters.region_id', $region->id)
+                ->where('calendar.summary_by_date.2026-07-25.total', 1)
+                ->where('calendar.summary_by_date.2026-07-25.high_usage', 1)
+                ->where('calendar.items.0.due_date', '2026-07-25')
+                ->where('calendar.items.0.is_high_usage', true)
+                ->where('calendar.items.0.status_label', 'Postponed')
             );
     }
 

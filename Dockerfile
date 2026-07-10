@@ -11,14 +11,15 @@ COPY public ./public
 COPY vite.config.js tsconfig.json components.json ./
 RUN npm run build
 
-FROM dunglas/frankenphp:php8.4-alpine AS app
+FROM dunglas/frankenphp:1-php8.4-alpine AS app
 
 WORKDIR /app
 
 ENV SERVER_NAME=:8080 \
     SERVER_ROOT=public \
     FRANKENPHP_CONFIG="worker ./public/index.php" \
-    PHP_OPCACHE_ENABLE=1
+    PHP_OPCACHE_ENABLE=1 \
+    COMPOSER_ALLOW_SUPERUSER=1
 
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
     && install-php-extensions \
@@ -43,11 +44,16 @@ RUN composer install \
 
 COPY . .
 COPY --from=frontend /app/public/build ./public/build
+COPY docker/entrypoint.sh /usr/local/bin/fleet-entrypoint
 
 RUN composer dump-autoload --optimize \
-    && mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && mkdir -p storage/app storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chmod +x /usr/local/bin/fleet-entrypoint \
     && chown -R www-data:www-data storage bootstrap/cache /data /config
 
 USER www-data
 
 EXPOSE 8080
+
+ENTRYPOINT ["fleet-entrypoint"]
+CMD ["frankenphp", "run", "--config", "/etc/caddy/Caddyfile"]

@@ -20,6 +20,8 @@ class ProjectionIndexRequest extends FormRequest
         return [
             'months' => ['nullable', 'integer', Rule::in([1, 2, 3])],
             'site_id' => ['nullable', 'integer', Rule::exists('sites', 'id')],
+            'month' => ['nullable', 'date_format:Y-m'],
+            'region_id' => ['nullable', 'integer', Rule::exists('regions', 'id')],
         ];
     }
 }

@@ -1,185 +1,288 @@
-# Deployment Fleet Maintenance Planner
+# Deployment Fleet Planner ke VPS Hostinger
 
-Panduan ini menyiapkan deployment Docker untuk Fleet Maintenance Planner dengan FrankenPHP, MySQL, queue worker, scheduler, dan Traefik sebagai reverse proxy. File ini hanya membahas deployment; kode aplikasi tidak perlu diubah.
+Panduan ini menyiapkan **Fleet Planner** sebagai service baru di VPS yang sudah menjalankan ERP, HR portal, dan recruitment system dengan Docker + Traefik. Jangan ubah compose, network, atau konfigurasi Traefik milik aplikasi lain.
 
-## File deployment
+Target production:
 
-- `Dockerfile`: multi-stage build untuk aset frontend dan runtime Laravel di FrankenPHP.
-- `docker-compose.yml`: service `app`, `mysql`, `queue`, dan `scheduler` dengan label Traefik.
-- `.env.production.example`: template environment production.
-- `.dockerignore`: mengecualikan file lokal yang tidak perlu masuk image.
+- Domain: `https://fleet.nusantaraabadijaya.com`
+- Runtime: Laravel 11, PHP 8.4, FrankenPHP
+- Frontend: Vite + React + TypeScript, dibuild saat Docker image dibuat
+- Reverse proxy: Traefik existing di network eksternal `workspace_local-dev`
+- Database: MySQL production existing/shared, bukan container baru dari project ini
+
+## File Yang Disiapkan
+
+- `Dockerfile` — multi-stage build: Node build untuk asset Vite, Composer production install, runtime FrankenPHP PHP 8.4.
+- `docker/entrypoint.sh` — membuat folder writable dan menjalankan `config:cache`, `route:cache`, `view:cache` saat container production start.
+- `docker-compose.yml` — **hanya service Fleet Planner**, membaca variabel dari `.env`, join ke network eksternal `workspace_local-dev`, label Traefik untuk domain Fleet.
+- `.env.example` — template env production yang dicopy menjadi `.env` di VPS.
+- `.env.production.example` — salinan template production untuk operator yang masih memakai nama lama.
+- `bootstrap/app.php` — mempercayai `X-Forwarded-*` headers dari reverse proxy agar HTTPS Traefik dikenali Laravel.
 
 ## Prasyarat VPS
 
-- Docker Engine dan Docker Compose plugin sudah terpasang.
-- Traefik sudah berjalan di network Docker eksternal `workspace_local-dev`.
-- DNS domain sudah mengarah ke IP VPS.
-- Resolver sertifikat Traefik, misalnya `letsencrypt`, sudah dikonfigurasi di Traefik.
+Pastikan ini sudah tersedia sebelum mulai:
 
-Jika network Traefik belum ada, buat sekali di VPS:
+1. Docker Engine dan Docker Compose plugin sudah terpasang.
+2. Traefik sudah berjalan dan sudah join ke network Docker `workspace_local-dev`.
+3. Network `workspace_local-dev` sudah ada. Cek dengan:
+
+   ```bash
+   docker network ls | grep workspace_local-dev
+   ```
+
+4. DNS `fleet.nusantaraabadijaya.com` sudah mengarah ke IP VPS Hostinger.
+5. Traefik existing sudah punya entrypoint `websecure` dan cert resolver, biasanya `letsencrypt`.
+6. MySQL production sudah tersedia dan bisa diakses dari container di network `workspace_local-dev`.
+
+> Catatan: project ini tidak membuat service MySQL baru agar tidak mengganggu ERP/HR/recruitment yang sudah jalan.
+
+## 1. Clone Atau Pull Repo
+
+Masuk ke folder kerja di VPS. Contoh:
 
 ```bash
-docker network create workspace_local-dev
+cd /var/www
+git clone <URL_REPO_FLEET_PLANNER> fleet-planner
+cd fleet-planner
 ```
 
-## Setup awal
-
-Clone atau salin project ke VPS, lalu masuk ke folder project:
+Jika repo sudah pernah diclone:
 
 ```bash
 cd /var/www/fleet-planner
+git pull origin main
 ```
 
-Buat file environment production dari template:
+Ganti `main` jika branch production memakai nama lain.
+
+## 2. Siapkan Database MySQL Production
+
+Buat database dan user MySQL untuk Fleet Planner di MySQL production existing. Contoh jika akses dari host VPS:
 
 ```bash
-cp .env.production.example .env.production
+mysql -u root -p
 ```
 
-Edit `.env.production`, minimal isi nilai berikut:
+Lalu di prompt MySQL:
+
+```sql
+CREATE DATABASE fleet_planner CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'fleet_planner'@'%' IDENTIFIED BY 'GANTI_PASSWORD_KUAT';
+GRANT ALL PRIVILEGES ON fleet_planner.* TO 'fleet_planner'@'%';
+FLUSH PRIVILEGES;
+```
+
+Jika MySQL sudah berjalan sebagai container di stack lain, gunakan host/container name yang reachable dari network `workspace_local-dev` sebagai `DB_HOST`.
+
+## 3. Buat File `.env`
+
+Copy template production:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+nano .env
+```
+
+Minimal isi/cek value berikut:
 
 ```dotenv
+APP_NAME="Fleet Planner"
+APP_ENV=production
 APP_KEY=
-APP_URL=https://domain-anda.com
-APP_DOMAIN=domain-anda.com
-DB_PASSWORD=password-kuat
-DB_ROOT_PASSWORD=password-root-kuat
+APP_DEBUG=false
+APP_TIMEZONE=Asia/Makassar
+APP_URL=https://fleet.nusantaraabadijaya.com
+
+DB_CONNECTION=mysql
+DB_HOST=nama-host-mysql-production
+DB_PORT=3306
+DB_DATABASE=fleet_planner
+DB_USERNAME=fleet_planner
+DB_PASSWORD=GANTI_PASSWORD_KUAT
+
+SESSION_DRIVER=database
+CACHE_STORE=database
+QUEUE_CONNECTION=database
 TRAEFIK_CERT_RESOLVER=letsencrypt
 ```
 
-Semua command Docker Compose di panduan ini memakai `--env-file .env.production` agar variabel seperti `APP_DOMAIN`, `DB_DATABASE`, dan password database ikut dipakai saat Compose membaca konfigurasi.
+Jangan commit file `.env` ke Git.
 
-Generate `APP_KEY` di dalam container setelah image berhasil dibangun:
+## 4. Build Docker Image
 
-```bash
-docker compose --env-file .env.production build app
-docker compose --env-file .env.production run --rm app php artisan key:generate --show
-```
-
-Salin hasil key ke `APP_KEY` di `.env.production`.
-
-## Menjalankan stack
-
-Build dan jalankan semua service:
+Build image Fleet Planner:
 
 ```bash
-docker compose --env-file .env.production up -d --build
+docker compose build fleet-planner-app
 ```
 
-Cek status container:
+Build ini akan:
+
+1. Menjalankan `npm ci`.
+2. Menjalankan `npm run build` untuk asset Vite/React/TypeScript.
+3. Menjalankan `composer install --no-dev --optimize-autoloader`.
+4. Menyiapkan runtime FrankenPHP PHP 8.4.
+
+## 5. Generate `APP_KEY`
+
+Jika `APP_KEY` masih kosong, generate key dari image yang baru dibuat:
 
 ```bash
-docker compose --env-file .env.production ps
+docker compose run --rm fleet-planner-app php artisan key:generate --show
 ```
 
-Jalankan migrasi database production:
+Copy output key, lalu paste ke `.env`:
+
+```dotenv
+APP_KEY=base64:HASIL_KEY_DARI_COMMAND
+```
+
+Setelah mengubah `.env`, lanjut start container.
+
+## 6. Jalankan Container
+
+Start service Fleet Planner:
 
 ```bash
-docker compose --env-file .env.production exec app php artisan migrate --force
+docker compose up -d
 ```
 
-Buat symbolic link storage publik:
+Cek status:
 
 ```bash
-docker compose --env-file .env.production exec app php artisan storage:link
+docker compose ps
 ```
 
-Optimalkan cache Laravel untuk production:
+Pastikan service `fleet-planner-app` statusnya `running` atau `healthy`.
+
+## 7. Jalankan Migration
+
+Migration terbaru project ini mencakup tabel master data, units, planning items, unit plannings, work orders, work order items, high usage, approvals, notifications, dan transfer site/unit. Jalankan migration production:
 
 ```bash
-docker compose --env-file .env.production exec app php artisan optimize
+docker compose exec fleet-planner-app php artisan migrate --force
 ```
 
-Jika ada perubahan kode setelah deploy, restart worker agar membaca kode terbaru:
+Jika ini deployment pertama dan data awal/role/master data diperlukan, cek daftar seeder dulu:
 
 ```bash
-docker compose --env-file .env.production exec app php artisan queue:restart
-docker compose --env-file .env.production restart app queue scheduler
+docker compose exec fleet-planner-app php artisan db:seed --class=DatabaseSeeder --force
 ```
 
-## Traefik
+Jalankan seeder hanya jika owner memang ingin mengisi data awal. Jangan jalankan seeder di database production yang sudah berisi data tanpa memastikan isi seeder aman/idempotent.
 
-`docker-compose.yml` memakai label berikut:
+## 8. Buat Storage Link
+
+Jika aplikasi memakai file publik dari storage, jalankan:
+
+```bash
+docker compose exec fleet-planner-app php artisan storage:link
+```
+
+Jika muncul pesan link sudah ada, itu aman.
+
+## 9. Refresh Cache Laravel Setelah Perubahan Env
+
+Entrypoint container otomatis menjalankan cache production saat start. Jika `.env` berubah saat container sedang hidup, jalankan:
+
+```bash
+docker compose exec fleet-planner-app php artisan optimize:clear
+docker compose restart fleet-planner-app
+```
+
+Saat restart, entrypoint akan membuat ulang `config:cache`, `route:cache`, dan `view:cache` memakai env terbaru.
+
+> Penting: karena `config:cache` memakai nilai `.env`, restart container setiap kali `APP_URL`, `DB_*`, session, cache, queue, atau mail env berubah.
+
+## 10. Cek Traefik Routing Dan SSL
+
+Compose sudah memasang label Traefik berikut:
 
 - Router: `fleet-planner`
-- Host rule: ``Host(`${APP_DOMAIN}`)``
+- Rule: `Host(`fleet.nusantaraabadijaya.com`)`
 - Entrypoint: `websecure`
-- TLS resolver: `${TRAEFIK_CERT_RESOLVER:-letsencrypt}`
-- Container port: `8080`
-- Network eksternal: `workspace_local-dev`
+- TLS: enabled
+- Cert resolver: `${TRAEFIK_CERT_RESOLVER:-letsencrypt}`
+- Backend port: `8080`
+- Network: `workspace_local-dev`
 
-Pastikan service Traefik berada di network yang sama:
-
-```bash
-docker network inspect workspace_local-dev
-```
-
-Jika Traefik memakai nama entrypoint atau cert resolver berbeda, sesuaikan nilai label di `docker-compose.yml` atau variabel `TRAEFIK_CERT_RESOLVER`.
-
-## Queue dan scheduler
-
-Service `queue` menjalankan:
+Cek Traefik melihat container:
 
 ```bash
-php artisan queue:work --sleep=3 --tries=3 --timeout=120
+docker logs <nama-container-traefik> --tail=100
 ```
 
-Service `scheduler` menjalankan `php artisan schedule:run` setiap menit. Keduanya memakai image yang sama dengan app dan volume storage/cache yang sama.
+Jika Traefik dashboard tersedia, pastikan router `fleet-planner` muncul dan service mengarah ke `fleet-planner-app:8080`.
 
-Lihat log worker:
+Cek domain dari browser:
+
+```text
+https://fleet.nusantaraabadijaya.com
+```
+
+Jika SSL belum keluar, pastikan DNS sudah benar, port 80/443 VPS terbuka, dan cert resolver Traefik existing aktif.
+
+## 11. Troubleshooting
+
+### Cek log aplikasi
 
 ```bash
-docker compose --env-file .env.production logs -f queue scheduler
+docker compose logs -f fleet-planner-app
 ```
 
-## Migrasi data awal
-
-Production menggunakan MySQL kosong. Data lokal tidak otomatis masuk ke image Docker.
-
-Jika perlu mengimpor data lama, gunakan fitur import aplikasi atau command project yang memang sudah tersedia. Jalankan hanya setelah migrasi production berhasil dan user admin sudah siap.
-
-## Backup database
-
-Buat folder backup di host:
+### Cek log Laravel di volume storage
 
 ```bash
-mkdir -p /var/backups/fleet-planner
+docker compose exec fleet-planner-app tail -n 100 storage/logs/laravel.log
 ```
 
-Backup manual:
+### Cek env terbaca di container
 
 ```bash
-docker compose --env-file .env.production exec -T mysql mysqldump -u root -p"CHANGE_ME_ROOT_PASSWORD" fleet_planner > /var/backups/fleet-planner/fleet_$(date +%F_%H-%M).sql
+docker compose exec fleet-planner-app php artisan about
 ```
 
-Contoh cron harian pukul 02:00:
-
-```cron
-0 2 * * * cd /var/www/fleet-planner && docker compose --env-file .env.production exec -T mysql mysqldump -u root -p"CHANGE_ME_ROOT_PASSWORD" fleet_planner > /var/backups/fleet-planner/fleet_$(date +\%F_\%H-\%M).sql
-```
-
-Simpan backup penting di lokasi terpisah seperti object storage atau server backup lain.
-
-## Troubleshooting
-
-Cek log app dan database:
+### Cek koneksi database
 
 ```bash
-docker compose --env-file .env.production logs -f app mysql
+docker compose exec fleet-planner-app php artisan migrate:status
 ```
 
-Clear cache Laravel jika konfigurasi berubah:
+Jika error `SQLSTATE[HY000] [2002]`, cek `DB_HOST`, network Docker, firewall MySQL, dan user MySQL boleh connect dari container.
+
+### Rebuild setelah pull kode terbaru
 
 ```bash
-docker compose --env-file .env.production exec app php artisan optimize:clear
-docker compose --env-file .env.production exec app php artisan optimize
+git pull origin main
+docker compose build fleet-planner-app
+docker compose up -d
+docker compose exec fleet-planner-app php artisan migrate --force
 ```
 
-Rebuild image setelah update dependency:
+### Restart bersih service Fleet saja
 
 ```bash
-docker compose --env-file .env.production build --no-cache app
-docker compose --env-file .env.production up -d
+docker compose restart fleet-planner-app
 ```
 
-Jika domain belum bisa diakses, cek tiga hal dulu: DNS domain, network `workspace_local-dev`, dan log Traefik.
+### Stop service Fleet saja
+
+```bash
+docker compose down
+```
+
+Perintah ini hanya mematikan service dari folder compose Fleet Planner. Jangan menjalankan `docker compose down` dari folder ERP/HR/recruitment kecuali memang ingin mematikan service tersebut.
+
+## 12. Batasan Scope
+
+- Jangan edit konfigurasi Traefik existing kecuali owner memang perlu menambah resolver/entrypoint global.
+- Jangan edit compose ERP, HR portal, atau recruitment system.
+- Jangan membuat network baru; gunakan network eksternal existing `workspace_local-dev`.
+- Jangan membuat container MySQL baru dari project ini; gunakan MySQL production existing/shared.
+- Semua command di dokumen ini dijalankan manual oleh owner di VPS, bukan dari environment Codex lokal.
