@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
+use App\Exports\ReportExport;
 use App\Http\Requests\ReportFilterRequest;
 use App\Http\Resources\ReportSummaryResource;
 use App\Http\Resources\SiteResource;
@@ -13,9 +14,12 @@ use App\Support\AccessScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ReportController extends Controller
 {
@@ -33,9 +37,9 @@ class ReportController extends Controller
                 'total_overdue' => $this->visibleWorkOrderItems($request)->where('status', 'overdue')->count(),
             ])->resolve(),
             'woSummary' => Gate::allows('view-reports.wo-summary') ? $this->paginatedReport($this->woSummaryData($request, $filters)) : $this->emptyReportPage(),
-            'byItem' => Gate::allows('view-reports.by-item') ? $this->paginatedReport($this->byItemData($request)) : $this->emptyReportPage(),
-            'byUnit' => Gate::allows('view-reports.by-unit') ? $this->paginatedReport($this->byUnitData($request)) : $this->emptyReportPage(),
-            'overdueByArea' => Gate::allows('view-reports.overdue') ? $this->paginatedReport($this->overdueByAreaData($request)) : $this->emptyReportPage(),
+            'byItem' => Gate::allows('view-reports.by-item') ? $this->paginatedReport($this->byItemData($request, $filters)) : $this->emptyReportPage(),
+            'byUnit' => Gate::allows('view-reports.by-unit') ? $this->paginatedReport($this->byUnitData($request, $filters)) : $this->emptyReportPage(),
+            'overdueByArea' => Gate::allows('view-reports.overdue') ? $this->paginatedReport($this->overdueByAreaData($request, $filters)) : $this->emptyReportPage(),
             'sites' => SiteResource::collection($this->visibleSites($request)),
             'filters' => $filters,
             'permissions' => [
@@ -60,21 +64,45 @@ class ReportController extends Controller
     {
         Gate::authorize('view-reports.by-item');
 
-        return $this->paginatedReport($this->byItemData($request));
+        return $this->paginatedReport($this->byItemData($request, $this->filters($request)));
     }
 
     public function byUnit(ReportFilterRequest $request): array
     {
         Gate::authorize('view-reports.by-unit');
 
-        return $this->paginatedReport($this->byUnitData($request));
+        return $this->paginatedReport($this->byUnitData($request, $this->filters($request)));
     }
 
     public function overdueByArea(ReportFilterRequest $request): array
     {
         Gate::authorize('view-reports.overdue');
 
-        return $this->paginatedReport($this->overdueByAreaData($request));
+        return $this->paginatedReport($this->overdueByAreaData($request, $this->filters($request)));
+    }
+
+    public function export(ReportFilterRequest $request, string $tab): BinaryFileResponse
+    {
+        $filters = $this->filters($request);
+        $tab = in_array($tab, ['wo', 'item', 'unit', 'overdue'], true) ? $tab : 'wo';
+
+        Gate::authorize(match ($tab) {
+            'wo' => 'view-reports.wo-summary',
+            'item' => 'view-reports.by-item',
+            'unit' => 'view-reports.by-unit',
+            'overdue' => 'view-reports.overdue',
+        });
+
+        [$label, $headings, $rows] = match ($tab) {
+            'wo' => ['rekap-wo', ['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $this->woSummaryRows($request, $filters)],
+            'item' => ['per-item', ['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $this->byItemRows($request, $filters)],
+            'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
+            'overdue' => ['terlambat', ['Lokasi', 'Total Terlambat', 'Item Terlambat'], $this->overdueByAreaRows($request, $filters)],
+        };
+
+        $filename = sprintf('laporan-%s-%04d-%02d.xlsx', $label, $filters['year'], $filters['month']);
+
+        return Excel::download(new ReportExport($headings, $rows), $filename);
     }
 
     /**
@@ -120,6 +148,16 @@ class ReportController extends Controller
      */
     private function woSummaryData(ReportFilterRequest $request, array $filters): LengthAwarePaginator
     {
+        return $this->woSummaryQuery($request, $filters)
+            ->paginate(25, ['*'], 'wo_page')
+            ->withQueryString();
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     */
+    private function woSummaryQuery(ReportFilterRequest $request, array $filters): Builder
+    {
         return $this->visibleWorkOrders($request)
             ->leftJoin('work_order_items', 'work_order_items.work_order_id', '=', 'work_orders.id')
             ->leftJoin('sites', 'sites.id', '=', 'work_orders.site_id')
@@ -133,33 +171,53 @@ class ReportController extends Controller
             ->whereYear('work_orders.created_at', $filters['year'])
             ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_orders.site_id', 'sites.name')
-            ->orderBy('sites.name')
-            ->paginate(25, ['*'], 'wo_page')
-            ->withQueryString();
+            ->orderBy('sites.name');
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function byItemData(ReportFilterRequest $request): LengthAwarePaginator
+    private function byItemData(ReportFilterRequest $request, array $filters): LengthAwarePaginator
+    {
+        return $this->byItemQuery($request, $filters)
+            ->paginate(25, ['*'], 'item_page')
+            ->withQueryString();
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     */
+    private function byItemQuery(ReportFilterRequest $request, array $filters): Builder
     {
         return $this->visibleWorkOrderItems($request)
+            ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
             ->join('planning_items', 'planning_items.id', '=', 'work_order_items.planning_item_id')
             ->selectRaw('planning_items.name as item')
             ->selectRaw('COUNT(work_order_items.id) as total_wo')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as total_overdue")
             ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN julianday(work_order_items.completed_date) - julianday(work_order_items.created_at) END), 1) as avg_hari_penyelesaian")
+            ->whereMonth('work_orders.created_at', $filters['month'])
+            ->whereYear('work_orders.created_at', $filters['year'])
+            ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_order_items.planning_item_id', 'planning_items.name')
-            ->orderBy('planning_items.name')
-            ->paginate(25, ['*'], 'item_page')
-            ->withQueryString();
+            ->orderBy('planning_items.name');
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function byUnitData(ReportFilterRequest $request): LengthAwarePaginator
+    private function byUnitData(ReportFilterRequest $request, array $filters): LengthAwarePaginator
+    {
+        return $this->byUnitQuery($request, $filters)
+            ->paginate(25, ['*'], 'unit_page')
+            ->withQueryString();
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     */
+    private function byUnitQuery(ReportFilterRequest $request, array $filters): Builder
     {
         return $this->visibleWorkOrders($request)
             ->leftJoin('work_order_items', 'work_order_items.work_order_id', '=', 'work_orders.id')
@@ -171,16 +229,27 @@ class ReportController extends Controller
             ->selectRaw('COUNT(DISTINCT work_orders.id) as total_wo')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as total_overdue")
+            ->whereMonth('work_orders.created_at', $filters['month'])
+            ->whereYear('work_orders.created_at', $filters['year'])
+            ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_orders.unit_id', 'units.current_plate', 'sites.name')
-            ->orderBy('units.current_plate')
-            ->paginate(25, ['*'], 'unit_page')
-            ->withQueryString();
+            ->orderBy('units.current_plate');
     }
 
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function overdueByAreaData(ReportFilterRequest $request): LengthAwarePaginator
+    private function overdueByAreaData(ReportFilterRequest $request, array $filters): LengthAwarePaginator
+    {
+        return $this->overdueByAreaQuery($request, $filters)
+            ->paginate(25, ['*'], 'overdue_page')
+            ->withQueryString();
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     */
+    private function overdueByAreaQuery(ReportFilterRequest $request, array $filters): Builder
     {
         return $this->visibleWorkOrderItems($request)
             ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
@@ -190,10 +259,11 @@ class ReportController extends Controller
             ->selectRaw('COUNT(work_order_items.id) as total_overdue')
             ->selectRaw('GROUP_CONCAT(DISTINCT planning_items.name) as items')
             ->where('work_order_items.status', 'overdue')
+            ->whereMonth('work_orders.created_at', $filters['month'])
+            ->whereYear('work_orders.created_at', $filters['year'])
+            ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_orders.site_id', 'sites.name')
-            ->orderBy('sites.name')
-            ->paginate(25, ['*'], 'overdue_page')
-            ->withQueryString();
+            ->orderBy('sites.name');
     }
 
     private function paginatedReport(LengthAwarePaginator $paginator): array
@@ -218,6 +288,65 @@ class ReportController extends Controller
                 'total' => $paginator->total(),
             ],
         ];
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     * @return Collection<int, array<int, mixed>>
+     */
+    private function woSummaryRows(ReportFilterRequest $request, array $filters): Collection
+    {
+        return $this->woSummaryQuery($request, $filters)->get()->map(fn ($row): array => [
+            $row->site,
+            (int) $row->total_wo,
+            (int) $row->total_item,
+            (int) $row->complete,
+            (int) $row->overdue,
+            (int) $row->in_progress,
+        ]);
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     * @return Collection<int, array<int, mixed>>
+     */
+    private function byItemRows(ReportFilterRequest $request, array $filters): Collection
+    {
+        return $this->byItemQuery($request, $filters)->get()->map(fn ($row): array => [
+            $row->item,
+            (int) $row->total_wo,
+            (int) $row->total_complete,
+            (int) $row->total_overdue,
+            $row->avg_hari_penyelesaian,
+        ]);
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     * @return Collection<int, array<int, mixed>>
+     */
+    private function byUnitRows(ReportFilterRequest $request, array $filters): Collection
+    {
+        return $this->byUnitQuery($request, $filters)->get()->map(fn ($row): array => [
+            $row->plat_nomor,
+            $row->site,
+            (int) $row->total_wo,
+            (int) $row->total_complete,
+            (int) $row->total_overdue,
+        ]);
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     * @return Collection<int, array<int, mixed>>
+     */
+    private function overdueByAreaRows(ReportFilterRequest $request, array $filters): Collection
+    {
+        return $this->overdueByAreaQuery($request, $filters)->get()->map(fn ($row): array => [
+            $row->site,
+            (int) $row->total_overdue,
+            collect(explode(',', (string) $row->items))->filter()->implode(', '),
+        ]);
     }
 
     private function emptyReportPage(): array

@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\File;
 
 class PreviewMaintenanceImportRequest extends FormRequest
 {
@@ -26,7 +27,7 @@ class PreviewMaintenanceImportRequest extends FormRequest
     {
         return [
             'type' => ['required', Rule::in(['units', 'unit_plannings'])],
-            'file' => ['required', 'file', 'mimes:csv,txt', 'max:10240'],
+            'file' => ['required', File::types(['csv', 'xlsx'])->max(10 * 1024)],
         ];
     }
 }

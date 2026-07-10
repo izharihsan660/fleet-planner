@@ -1,8 +1,8 @@
 <?php
 
-use App\Enums\UserRole;
 use App\Http\Controllers\ApprovalQueueController;
 use App\Http\Controllers\BlockedBreakdownController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\HighUsageController;
 use App\Http\Controllers\InspectionController;
 use App\Http\Controllers\MaintenanceImportController;
@@ -21,25 +21,11 @@ use App\Http\Controllers\UnitSiteTransferController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkListController;
 use App\Http\Controllers\WorkOrderController;
-use App\Models\WorkOrderItem;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
 Route::redirect('/', '/login');
 
-Route::get('/dashboard', function (Request $request) {
-    if ($request->user()?->hasRole(UserRole::Mekanik)) {
-        return redirect()->route('mechanic.tasks');
-    }
-
-    return Inertia::render('Dashboard', [
-        'overdueBanner' => [
-            'threshold' => 20,
-            'count' => WorkOrderItem::query()->where('status', 'overdue')->count(),
-        ],
-    ]);
-})->middleware(['auth', 'verified'])->name('dashboard');
+Route::get('/dashboard', DashboardController::class)->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -63,6 +49,7 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/by-item', [ReportController::class, 'byItem'])->name('reports.by-item');
     Route::get('reports/by-unit', [ReportController::class, 'byUnit'])->name('reports.by-unit');
     Route::get('reports/overdue', [ReportController::class, 'overdueByArea'])->name('reports.overdue');
+    Route::get('reports/export/{tab}', [ReportController::class, 'export'])->name('reports.export');
     Route::get('units/{unit}/history', [UnitHistoryController::class, 'show'])->name('units.history');
     Route::post('units/{unit}/site-transfers', [UnitSiteTransferController::class, 'store'])->name('units.site-transfers.store');
     Route::post('unit-site-transfers/{transfer}/approve', [UnitSiteTransferController::class, 'approve'])->name('unit-site-transfers.approve');

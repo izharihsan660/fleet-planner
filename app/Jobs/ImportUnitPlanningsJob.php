@@ -6,7 +6,7 @@ use App\Models\MaintenanceImport;
 use App\Models\PlanningItem;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
-use App\Services\CsvImportReader;
+use App\Services\MaintenanceImportReader;
 use App\Services\PlanningIntervalResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
@@ -26,12 +26,12 @@ class ImportUnitPlanningsJob implements ShouldQueue
 
     public function __construct(public int $maintenanceImportId) {}
 
-    public function handle(CsvImportReader $reader, PlanningIntervalResolver $intervalResolver): void
+    public function handle(MaintenanceImportReader $reader, PlanningIntervalResolver $intervalResolver): void
     {
         $import = MaintenanceImport::query()->findOrFail($this->maintenanceImportId);
         $import->update(['status' => 'processing']);
 
-        $rows = $reader->rows(Storage::path($import->stored_path));
+        $rows = $reader->rows(Storage::path($import->stored_path), $import->type);
         $units = Unit::query()->get()->keyBy(fn (Unit $unit): string => strtoupper($unit->current_plate));
         $items = PlanningItem::query()->get()->keyBy(fn (PlanningItem $item): string => strtoupper($item->name));
         $successRows = 0;

@@ -10,7 +10,7 @@ use App\Models\MaintenanceImport;
 use App\Models\PlanningItem;
 use App\Models\Site;
 use App\Models\Unit;
-use App\Services\CsvImportReader;
+use App\Services\MaintenanceImportReader;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -26,16 +26,17 @@ class MaintenanceImportController extends Controller
         ]);
     }
 
-    public function preview(PreviewMaintenanceImportRequest $request, CsvImportReader $reader): Response
+    public function preview(PreviewMaintenanceImportRequest $request, MaintenanceImportReader $reader): Response
     {
         $path = $request->file('file')->store('imports');
-        $rows = $reader->rows(Storage::path($path));
-        $validatedRows = $this->validateRows($request->string('type')->toString(), $rows);
+        $type = $request->string('type')->toString();
+        $rows = $reader->rows(Storage::path($path), $type);
+        $validatedRows = $this->validateRows($type, $rows);
 
         return Inertia::render('MaintenanceImports/Index', [
             'imports' => MaintenanceImport::query()->latest()->take(20)->get(),
             'preview' => [
-                'type' => $request->string('type')->toString(),
+                'type' => $type,
                 'path' => $path,
                 'original_filename' => $request->file('file')->getClientOriginalName(),
                 'total_rows' => count($validatedRows),
@@ -47,11 +48,11 @@ class MaintenanceImportController extends Controller
         ]);
     }
 
-    public function commit(CommitMaintenanceImportRequest $request, CsvImportReader $reader): RedirectResponse
+    public function commit(CommitMaintenanceImportRequest $request, MaintenanceImportReader $reader): RedirectResponse
     {
         $type = $request->string('type')->toString();
         $path = $request->string('path')->toString();
-        $rows = $reader->rows(Storage::path($path));
+        $rows = $reader->rows(Storage::path($path), $type);
         $validatedRows = $this->validateRows($type, $rows);
 
         if (collect($validatedRows)->contains(fn (array $row): bool => ! $row['valid'])) {

@@ -10,13 +10,15 @@ use App\Models\Site;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\User;
-use App\Services\CsvImportReader;
+use App\Services\MaintenanceImportReader;
 use App\Services\PlanningIntervalResolver;
 use Database\Seeders\PlanningItemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Tests\TestCase;
 
 class MaintenanceMasterDataImportTest extends TestCase
@@ -91,7 +93,7 @@ class MaintenanceMasterDataImportTest extends TestCase
 
         Queue::assertPushed(ImportUnitPlanningsJob::class);
         Queue::assertPushed(ImportUnitPlanningsJob::class, function (ImportUnitPlanningsJob $job): bool {
-            $job->handle(app(CsvImportReader::class), app(PlanningIntervalResolver::class));
+            $job->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
 
             return true;
         });
@@ -101,5 +103,93 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertSame('2026-04-07', $planning->next_due_date->toDateString());
         $this->assertTrue($planning->is_estimated);
         $this->assertSame(1, MaintenanceImport::query()->firstOrFail()->estimated_rows);
+    }
+
+    public function test_import_units_reads_xlsx_data_unit_sheet_with_formula_values(): void
+    {
+        Storage::fake('local');
+        Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $xlsx = $this->makeFleetTemplateUpload('Template_Data_Fleet_Planner_Kalimantan_PREFILLED.xlsx');
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'units', 'file' => $xlsx])
+            ->assertOk();
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), ['type' => 'units', 'path' => $path, 'original_filename' => 'Template_Data_Fleet_Planner_Kalimantan_PREFILLED.xlsx'])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        $this->assertDatabaseHas('units', [
+            'current_plate' => 'DD 3333 XX',
+            'vehicle_category' => 'truk_ringan',
+            'current_odo' => 45678,
+        ]);
+        $this->assertDatabaseMissing('units', ['current_plate' => 'PANDUAN']);
+    }
+
+    public function test_import_unit_plannings_reads_xlsx_setup_awal_item_sheet_with_formula_values(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 3333 XX', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 60000, 'status' => 'active']);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $xlsx = $this->makeFleetTemplateUpload('Template_Data_Fleet_Planner_Sulawesi_PREFILLED.xlsx');
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $xlsx])
+            ->assertOk();
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), ['type' => 'unit_plannings', 'path' => $path, 'original_filename' => 'Template_Data_Fleet_Planner_Sulawesi_PREFILLED.xlsx'])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        Queue::assertPushed(ImportUnitPlanningsJob::class, function (ImportUnitPlanningsJob $job): bool {
+            $job->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
+
+            return true;
+        });
+
+        $planning = UnitPlanning::query()->whereHas('planningItem', fn ($query) => $query->where('name', 'Service A'))->firstOrFail();
+        $this->assertSame(50000, $planning->last_done_km);
+        $this->assertSame(60000, $planning->next_due_km);
+        $this->assertTrue($planning->is_estimated);
+    }
+
+    private function makeFleetTemplateUpload(string $filename): UploadedFile
+    {
+        $spreadsheet = new Spreadsheet;
+        $spreadsheet->getActiveSheet()->setTitle('PANDUAN');
+        $spreadsheet->getActiveSheet()->fromArray([
+            ['Panduan upload template fleet planner'],
+            ['Sheet ini harus diabaikan importer.'],
+        ]);
+
+        $dataUnit = $spreadsheet->createSheet();
+        $dataUnit->setTitle('Data Unit');
+        $dataUnit->fromArray([
+            ['site', 'plat_nomor', 'tipe_merk', 'kategori_kendaraan', 'tahun', 'customer', 'odometer_saat_ini', 'helper_formula'],
+            ['BPN', '=CONCAT("DD ","3333"," XX")', 'HINO 300', 'truk_ringan', 2024, 'PT NAJ', 45678, '=CONCAT(B2," - helper")'],
+        ]);
+
+        $setupAwalItem = $spreadsheet->createSheet();
+        $setupAwalItem->setTitle('SETUP AWAL ITEM');
+        $setupAwalItem->fromArray([
+            ['plat_nomor', 'nama_item', 'last_done_km', 'last_done_date', 'catatan', 'helper_formula'],
+            ['=\'Data Unit\'!B2', 'Service A', 50000, '2026-01-01', 'TIDAK ADA RIWAYAT COMPLETE - formula dari template', '=CONCAT(A2,"|",B2)'],
+        ]);
+
+        $path = tempnam(sys_get_temp_dir(), 'fleet-template-').'.xlsx';
+        (new Xlsx($spreadsheet))->save($path);
+        $spreadsheet->disconnectWorksheets();
+
+        return new UploadedFile($path, $filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 }

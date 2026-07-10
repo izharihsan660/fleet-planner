@@ -1,5 +1,6 @@
 import PaginationLinks from '@/Components/PaginationLinks';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { Button } from '@/Components/ui/button';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Label } from '@/Components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
@@ -39,6 +40,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
     const [activeTab, setActiveTab] = useState(tabs.find((tab) => tab.key === permissions.default_tab)?.key ?? tabs[0]?.key ?? 'item');
 
     const reportUrl = (month: number, year: number, siteId: string) => `${route('reports.index')}?month=${month}&year=${year}${siteId ? `&site_id=${siteId}` : ''}`;
+    const exportUrl = (tab: typeof activeTab) => `${route('reports.export', tab)}?month=${filters.month}&year=${filters.year}${filters.site_id ? `&site_id=${filters.site_id}` : ''}`;
 
     return (
         <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Laporan & History</h2>}>
@@ -69,10 +71,10 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                                 <TabsList>
                                     {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
                                 </TabsList>
-                                <TabsContent value="wo"><DataTable headers={['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan']} rows={woSummary.data.map((row) => [row.site, row.total_wo, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></TabsContent>
-                                <TabsContent value="item"><DataTable headers={['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></TabsContent>
-                                <TabsContent value="unit"><DataTable headers={['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></TabsContent>
-                                <TabsContent value="overdue"><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></TabsContent>
+                                <TabsContent value="wo"><ReportTab exportHref={exportUrl('wo')}><DataTable headers={['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan']} rows={woSummary.data.map((row) => [row.site, row.total_wo, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="unit"><ReportTab exportHref={exportUrl('unit')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="overdue"><ReportTab exportHref={exportUrl('overdue')}><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></ReportTab></TabsContent>
                             </Tabs>
                         </CardContent>
                     </Card>
@@ -80,6 +82,10 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
             </div>
         </AuthenticatedLayout>
     );
+}
+
+function ReportTab({ exportHref, children }: { exportHref: string; children: ReactNode }) {
+    return <div className="space-y-4"><div className="mt-4 flex justify-end"><Button asChild variant="outline"><a href={exportHref}>Export Excel</a></Button></div>{children}</div>;
 }
 
 function SummaryCard({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'danger' }) {
