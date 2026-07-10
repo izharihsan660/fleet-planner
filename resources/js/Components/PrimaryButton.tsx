@@ -13,7 +13,7 @@ const PrimaryButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLBut
         <Button
             ref={ref}
             {...props}
-            className={cn('uppercase tracking-widest', className)}
+            className={cn('uppercase tracking-widest dark:bg-secondary dark:text-secondary-foreground dark:hover:bg-muted', className)}
             disabled={disabled}
         >
             {children}

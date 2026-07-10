@@ -29,7 +29,7 @@ export default function Index({ auth, units, totalUnits }: PageProps<{ units: Pa
                         </Link>
                     )}
 
-                    <Card>
+                    <Card className="bg-card text-card-foreground">
                         <CardHeader>
                             <CardTitle>Daftar Unit</CardTitle>
                             <CardDescription>Total {totalUnits.toLocaleString('id-ID')} unit</CardDescription>

@@ -112,7 +112,7 @@ export default function Authenticated({
             className={[
                 'block rounded-lg px-3 py-2 text-sm font-medium transition',
                 item.active
-                    ? 'bg-primary text-primary-foreground'
+                    ? 'bg-muted text-foreground ring-1 ring-border'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             ].join(' ')}
         >
@@ -121,7 +121,7 @@ export default function Authenticated({
     );
 
     const SidebarContent = () => (
-        <div className="flex h-full flex-col bg-card text-card-foreground">
+        <div className="flex h-full flex-col bg-card text-card-foreground dark:bg-background dark:text-foreground">
             <div className="flex h-16 shrink-0 items-center border-b px-6">
                 <Link href={route('dashboard')} onClick={closeMobileSidebar} className="flex items-center gap-3">
                     <ApplicationLogo className="block h-9 w-auto fill-current text-foreground" />
@@ -183,8 +183,8 @@ export default function Authenticated({
             )}
 
             <div className="min-w-0 flex-1 lg:ml-0">
-                <header className="sticky top-0 z-30 border-b bg-card/95 text-card-foreground backdrop-blur supports-[backdrop-filter]:bg-card/80">
-                    <div className="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+                <header className="sticky top-0 z-30 border-b bg-card/95 text-card-foreground backdrop-blur dark:bg-background/95 dark:text-foreground supports-[backdrop-filter]:bg-card/80 supports-[backdrop-filter]:dark:bg-background/80">
+                    <div className="flex h-16 items-center justify-between px-4 sm:px-5 lg:px-4">
                         <div className="flex min-w-0 items-center gap-3">
                             <button
                                 type="button"
@@ -235,7 +235,7 @@ export default function Authenticated({
                             <Dropdown>
                                 <Dropdown.Trigger>
                                     <span className="inline-flex rounded-md">
-                                        <button type="button" className="inline-flex max-w-40 items-center truncate rounded-md border border-transparent bg-card px-3 py-2 text-sm font-medium leading-4 text-muted-foreground transition duration-150 ease-in-out hover:bg-muted hover:text-foreground focus:outline-none sm:max-w-none">
+                                        <button type="button" className="inline-flex max-w-40 items-center truncate rounded-md border border-transparent bg-card px-3 py-2 text-sm font-medium leading-4 text-muted-foreground transition duration-150 ease-in-out hover:bg-muted hover:text-foreground focus:outline-none dark:bg-background sm:max-w-none">
                                             <span className="truncate">{user.name}</span>
                                             <svg className="-me-0.5 ms-2 h-4 w-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -253,7 +253,9 @@ export default function Authenticated({
                     </div>
                 </header>
 
-                <main>{children}</main>
+                <main className="[&>div]:py-8 [&>div>div.mx-auto]:px-4 [&>div>div.mx-auto]:sm:px-5 [&>div>div.mx-auto]:lg:px-4">
+                    {children}
+                </main>
             </div>
             </div>
         </ThemeProvider>
