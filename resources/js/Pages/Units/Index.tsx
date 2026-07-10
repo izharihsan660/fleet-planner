@@ -2,38 +2,43 @@ import DangerButton from '@/Components/DangerButton';
 import PaginationLinks from '@/Components/PaginationLinks';
 import PrimaryButton from '@/Components/PrimaryButton';
 import StatusBadge from '@/Components/StatusBadge';
-import { Card, CardContent } from '@/Components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, PaginatedCollection, Unit } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 
-export default function Index({ auth, units }: PageProps<{ units: PaginatedCollection<Unit> }>) {
+export default function Index({ auth, units, totalUnits }: PageProps<{ units: PaginatedCollection<Unit>; totalUnits: number }>) {
     const canManage = auth.user.role === 'superadmin' || auth.user.role === 'spv_ho';
 
     const destroy = (unit: Unit) => {
-        if (confirm(`Delete unit ${unit.current_plate}?`)) {
+        if (confirm(`Hapus unit ${unit.current_plate}?`)) {
             router.delete(route('units.destroy', unit.id));
         }
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Units</h2>}>
-            <Head title="Units" />
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Unit</h2>}>
+            <Head title="Unit" />
 
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                     {canManage && (
                         <Link href={route('units.create')}>
-                            <PrimaryButton>Add Unit</PrimaryButton>
+                            <PrimaryButton>Tambah Unit</PrimaryButton>
                         </Link>
                     )}
 
-                    <Card><CardContent><div className="overflow-x-auto">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Daftar Unit</CardTitle>
+                            <CardDescription>Total {totalUnits.toLocaleString('id-ID')} unit</CardDescription>
+                        </CardHeader>
+                        <CardContent><div className="overflow-x-auto">
                         <Table>
                             <TableHeader>
                                 <TableRow>
-                                    {['Plate', 'Site', 'Customer', 'Type', 'Brand', 'Year', 'ODO', 'Status', 'Plate History', 'Actions'].map((head) => (
+                                    {['Plat Nomor', 'Lokasi', 'Customer', 'Tipe', 'Merk', 'Tahun', 'ODO', 'Status', 'Riwayat Plat', 'Aksi'].map((head) => (
                                         <TableHead key={head}>
                                             {head}
                                         </TableHead>
@@ -48,6 +53,7 @@ export default function Index({ auth, units }: PageProps<{ units: PaginatedColle
                                             <div className="mt-1 flex gap-1">
                                                 {unit.is_warranty && <StatusBadge tone="warranty">Warranty</StatusBadge>}
                                                 {unit.status === 'breakdown' && <StatusBadge tone="danger">Breakdown</StatusBadge>}
+                                                {unit.needs_document_verification && <StatusBadge tone="warning">Perlu Verifikasi Dokumen</StatusBadge>}
                                             </div>
                                         </TableCell>
                                         <TableCell>{unit.site?.name}</TableCell>
@@ -56,7 +62,7 @@ export default function Index({ auth, units }: PageProps<{ units: PaginatedColle
                                         <TableCell>{unit.brand}</TableCell>
                                         <TableCell>{unit.year}</TableCell>
                                         <TableCell>{unit.current_odo.toLocaleString('id-ID')}</TableCell>
-                                        <TableCell>{unit.status}</TableCell>
+                                        <TableCell>{{ active: 'Aktif', inactive: 'Tidak Aktif', breakdown: 'Breakdown' }[unit.status] ?? unit.status}</TableCell>
                                         <TableCell>
                                             <Link className="text-sm font-medium text-primary hover:underline" href={route('units.history', unit.id)}>
                                                 Show History
@@ -68,7 +74,7 @@ export default function Index({ auth, units }: PageProps<{ units: PaginatedColle
                                                     <Link className="text-sm font-medium text-primary hover:underline" href={route('units.edit', unit.id)}>
                                                         Edit
                                                     </Link>
-                                                    <DangerButton onClick={() => destroy(unit)}>Delete</DangerButton>
+                                                    <DangerButton onClick={() => destroy(unit)}>Hapus</DangerButton>
                                                 </div>
                                             )}
                                         </TableCell>

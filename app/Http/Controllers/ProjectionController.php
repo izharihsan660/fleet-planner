@@ -8,6 +8,7 @@ use App\Http\Resources\ProjectionResultResource;
 use App\Http\Resources\SiteResource;
 use App\Models\Site;
 use App\Services\ProjectionService;
+use App\Support\AccessScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -22,14 +23,14 @@ class ProjectionController extends Controller
         $user = $request->user();
         $months = (int) ($request->validated('months') ?? 1);
         $requestedSiteId = $request->validated('site_id');
-        $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]);
-        $siteId = $user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
-        $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null);
+        $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]);
+        $siteId = $user->hasRole(UserRole::Mekanik) || ($user->hasRole(UserRole::PlannerArea) && $user->region_id === null) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
+        $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null, $user->hasRole(UserRole::PlannerArea) ? $user->region_id : null);
 
         return Inertia::render('Projections/Index', [
             'projection' => ProjectionResultResource::make($result)->resolve(),
             'sites' => SiteResource::collection(Site::query()
-                ->when($user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]), fn (Builder $query) => $query->whereKey($user->site_id))
+                ->tap(fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
                 ->orderBy('name')
                 ->get()),
             'filters' => [

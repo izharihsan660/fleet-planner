@@ -59,15 +59,72 @@ class BlockedBreakdownTest extends TestCase
             'unit_id' => $unit->id,
             'inspection_date' => '2026-07-03',
             'odometer' => 1200,
-        ])->assertRedirect(route('inspections.index'));
+        ])->assertRedirect(route('inspections.create'));
 
         $this->assertSame('active', $unit->refresh()->status);
-        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertSame('breakdown', $item->refresh()->status);
         $this->assertSame('2026-07-03 10:00:00', $item->freeze_end->toDateTimeString());
         $this->assertNull($planning->refresh()->freeze_start);
         $this->assertSame('2026-07-13', $planning->next_due_date->toDateString());
 
         CarbonImmutable::setTestNow();
+    }
+
+    public function test_breakdown_item_cannot_submit_replace_before_breakdown_inspection(): void
+    {
+        [$site, $unit, $planning, $item] = $this->createWorkOrderScenario();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+
+        $this->actingAs($mechanic)->post(route('units.breakdown', $unit), [
+            'reason' => 'Engine rusak.',
+        ])->assertRedirect();
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => '2026-07-03',
+            'odometer' => 1200,
+        ])->assertRedirect(route('inspections.create'));
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$item->workOrder, $item]), [
+                'reason' => 'Coba lanjut normal sebelum inspeksi breakdown.',
+            ])
+            ->assertSessionHasErrors('action');
+
+        $this->assertSame('breakdown', $item->refresh()->status);
+        $this->assertSame(5000, $planning->refresh()->next_due_km);
+    }
+
+    public function test_unit_breakdown_blocks_normal_actions_even_when_item_is_still_on_hold(): void
+    {
+        [$site, $unit, $planning, $item] = $this->createWorkOrderScenario();
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+
+        $unit->update(['status' => 'breakdown']);
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$item->workOrder, $item]), [
+                'reason' => 'Coba replace saat unit breakdown.',
+            ])
+            ->assertSessionHasErrors('action');
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.postpone', [$item->workOrder, $item]), [
+                'reason' => 'Coba tunda saat unit breakdown.',
+                'new_due_km' => 6000,
+                'new_due_date' => '2026-07-20',
+            ])
+            ->assertSessionHasErrors('action');
+
+        $this->actingAs($planner)
+            ->post(route('work-order-items.blocked', $item), [
+                'reason' => 'Coba blokir saat unit breakdown.',
+            ])
+            ->assertSessionHasErrors('action');
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertSame(5000, $planning->refresh()->next_due_km);
     }
 
     public function test_breakdown_inspection_resets_selected_unit_planning_cycle(): void

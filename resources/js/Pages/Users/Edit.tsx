@@ -1,6 +1,8 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, Site, User, UserRole } from '@/types';
+import { PageProps, Region, Site, User, UserRole } from '@/types';
 import { Head } from '@inertiajs/react';
 import Form from './Form';
 
-export default function Edit({ auth, managedUser, sites, roles }: PageProps<{ managedUser: User; sites: Site[]; roles: { value: UserRole; label: string }[] }>) { return <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Edit User</h2>}><Head title="Edit User" /><div className="py-10"><div className="mx-auto max-w-4xl sm:px-6 lg:px-8"><Form managedUser={managedUser} sites={sites} roles={roles} /></div></div></AuthenticatedLayout>; }
+export default function Edit({ managedUser, sites, regions, roles }: PageProps<{ managedUser: User; sites: Site[]; regions: Region[]; roles: { value: UserRole; label: string }[] }>) {
+    return <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Edit User</h2>}><Head title="Edit User" /><div className="py-10"><div className="mx-auto max-w-4xl sm:px-6 lg:px-8"><Form managedUser={managedUser} sites={sites} regions={regions} roles={roles} /></div></div></AuthenticatedLayout>;
+}

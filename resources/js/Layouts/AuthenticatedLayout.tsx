@@ -29,6 +29,14 @@ export default function Authenticated({
     const [showingSidebar, setShowingSidebar] = useState(false);
 
     const mainNavigation = useMemo<NavigationItem[]>(() => {
+        if (user.role === 'mekanik') {
+            return [
+                { label: 'Tugas Saya', href: route('mechanic.tasks'), active: route().current('mechanic.tasks') },
+                { label: 'Input KM', href: route('inspections.create'), active: route().current('inspections.create') },
+                { label: 'Riwayat Inspeksi', href: route('inspections.index'), active: route().current('inspections.index') },
+            ];
+        }
+
         const items: Array<NavigationItem | false> = [
             { label: 'Dashboard', href: route('dashboard'), active: route().current('dashboard') },
             canAccess(user.role, ['superadmin', 'mekanik']) && {
@@ -39,16 +47,26 @@ export default function Authenticated({
             { label: 'Riwayat Inspeksi', href: route('inspections.index'), active: route().current('inspections.index') },
             { label: 'Work Orders', href: route('work-orders.index'), active: route().current('work-orders.*') },
             canAccess(user.role, ['superadmin', 'spv_ho', 'planner_area']) && {
-                label: 'High Usage',
+                label: 'Daftar Kerja',
+                href: route('work-list.index'),
+                active: route().current('work-list.*'),
+            },
+            canAccess(user.role, ['superadmin', 'spv_ho']) && {
+                label: 'Antrian Approval',
+                href: route('approval-queue.index'),
+                active: route().current('approval-queue.*'),
+            },
+            canAccess(user.role, ['superadmin', 'spv_ho', 'planner_area']) && {
+                label: 'Pemakaian Tinggi',
                 href: route('high-usage.index'),
                 active: route().current('high-usage.*'),
             },
             canAccess(user.role, ['superadmin', 'spv_ho', 'planner_area']) && {
-                label: 'Projections',
+                label: 'Proyeksi',
                 href: route('projections.index'),
                 active: route().current('projections.*'),
             },
-            { label: 'Reports', href: route('reports.index'), active: route().current('reports.*') || route().current('units.history') },
+            { label: 'Laporan', href: route('reports.index'), active: route().current('reports.*') || route().current('units.history') },
         ];
 
         return items.filter(Boolean) as NavigationItem[];
@@ -60,12 +78,13 @@ export default function Authenticated({
         }
 
         return [
-            { label: 'Sites', href: route('sites.index'), active: route().current('sites.*') },
-            { label: 'Units', href: route('units.index'), active: route().current('units.*') && !route().current('units.history') },
-            { label: 'Planning Items', href: route('planning-items.index'), active: route().current('planning-items.*') },
-            { label: 'Interval Override', href: route('planning-item-overrides.index'), active: route().current('planning-item-overrides.*') },
+            { label: 'Lokasi', href: route('sites.index'), active: route().current('sites.*') },
+            { label: 'Region', href: route('regions.index'), active: route().current('regions.*') },
+            { label: 'Unit', href: route('units.index'), active: route().current('units.*') && !route().current('units.history') },
+            { label: 'Item Perawatan', href: route('planning-items.index'), active: route().current('planning-items.*') },
+            { label: 'Pengecualian Interval', href: route('planning-item-overrides.index'), active: route().current('planning-item-overrides.*') },
             { label: 'Import Data', href: route('maintenance-imports.index'), active: route().current('maintenance-imports.*') },
-            { label: 'System Thresholds', href: route('system-thresholds.index'), active: route().current('system-thresholds.*') },
+            { label: 'Pengaturan Sistem', href: route('system-thresholds.index'), active: route().current('system-thresholds.*') },
         ];
     }, [user.role]);
 
@@ -74,7 +93,7 @@ export default function Authenticated({
             return [];
         }
 
-        return [{ label: 'User Management', href: route('users.index'), active: route().current('users.*') }];
+        return [{ label: 'Manajemen Pengguna', href: route('users.index'), active: route().current('users.*') }];
     }, [user.role]);
 
     const readNotification = (notification: Notification) => {

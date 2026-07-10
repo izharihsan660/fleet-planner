@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Site extends Model
@@ -13,7 +14,16 @@ class Site extends Model
     protected $fillable = [
         'name',
         'region',
+        'region_id',
     ];
+
+    /**
+     * @return BelongsTo<Region, $this>
+     */
+    public function area(): BelongsTo
+    {
+        return $this->belongsTo(Region::class, 'region_id');
+    }
 
     /**
      * @return HasMany<Unit, $this>

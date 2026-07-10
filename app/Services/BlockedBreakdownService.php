@@ -76,7 +76,6 @@ class BlockedBreakdownService
                 ->where('status', 'breakdown')
                 ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))
                 ->update([
-                    'status' => 'on_hold',
                     'freeze_end' => $now,
                     'updated_at' => $now,
                 ]);

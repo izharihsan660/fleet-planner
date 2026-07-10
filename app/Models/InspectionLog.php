@@ -12,6 +12,7 @@ class InspectionLog extends Model
         'mechanic_id',
         'inspection_date',
         'odometer',
+        'previous_odo',
     ];
 
     protected $appends = [

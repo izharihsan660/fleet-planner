@@ -1,0 +1,176 @@
+site,plat_nomor,tipe_merk,kategori_kendaraan,tahun,customer,plat_lama
+BPN,B 2444 UIL,"Toyota Kijang Innova Zenix 2,0G CVT",pickup_suv,2023,PT. KMSI,KT 1077 WK
+BPN,B 2533 UIY,"Toyota Kijang Innova Zenix 2,0G CVT",pickup_suv,2023,PT. KMSI,KT 1148 WI
+BPN,KT 8404 YR,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2021,PT. UT,
+BPN,KT 8620 YR,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2021,PT. UT,
+BPN,KT 8619 YR,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2021,PT. UT,
+BPN,KT 8621 YR,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2021,PT. UT,
+BPN,KT 8932 ZA,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT,
+BPN,KT 8942 ZE,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT,
+BPN,KT 1538 HC,"Daihatsu New Terios 1,5 R A",pickup_suv,2025,PT. UT,KT 1120 YR
+BPN,KT 8926 ZK,"Toyota Hilux Rangga Pick Up 2,0 STD M",pickup_suv,2025,PT. UT,KT 8485 XB
+BPN,KT 7233 K,"Isuzu NQR 71 EC E2-1 5,0 Bus",bus,2018,PT. KRA,
+BPN,KT 7236 K,"Isuzu NQR 71 EC E2-1 5,0 Bus",bus,2018,PT. KRA,
+BPN,KT 8870 YP,"Daihatsu Gran Max PU AC PS 1,5 FH EA",pickup_suv,2020,PT. TRIATRA,
+SANGA SANGA,KT 8714 YK,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2018,PT. TRIATRA,
+JAKARTA,B 1493 EOG,"Toyota Kijang Innova 2,0E A",pickup_suv,2015,PT. INTERNUSA JAYARAYA ABADI,
+JAKARTA,B 2317 UKL,"Toyota Grand New Avanza 1,3 G M",pickup_suv,2018,PT. INTERNUSA JAYARAYA ABADI,
+JAKARTA,B 2229 UOK,"Toyota All New Innova 2,0 G A",pickup_suv,2019,PT. INTERNUSA JAYARAYA ABADI,
+JAKARTA,B 1695 EOS,Toyota All New Innova 2.0 G A,pickup_suv,2016,PT. INTERNUSA JAYARAYA ABADI,
+JAKARTA,B 1984 EJA,"Toyota Fortuner 2,7V Automatic TCN51",pickup_suv,2011,PT. INTERNUSA JAYARAYA ABADI,
+JAKARTA,B 1327 EOH,Toyota Grand New Avanza 1.3 G M,pickup_suv,2015,PT. NAJR,
+SANGA SANGA,KT 7564 KA,"Isuzu NLR 55B LX Mikrobus 2,771 (20 Seat + AC)",bus,2019,PT. TRIATRA,KT 7524 K
+SANGATTA,KT 8154 YH,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2018,PT. NAJR,KT 8507 NR
+BPN,KT 8836 YQ,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2021,PT. NAJR,
+LOREH,KT 1619 YI,"Toyota All New Fortuner 2,4 VRZ 4X4 A",pickup_suv,2021,PT. UT,
+LOREH,KT 8526 YT,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2021,PT. UT,
+LOREH,KT 8527 YT,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2021,PT. UT,
+LOREH,KT 8039 YV,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+LOREH,KT 8041 YV,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+LOREH,KT 8042 YV,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+LOREH,KT 8322 YV,"Toyota All New Hilux 2,393 CC SC 4X4 M",pickup_suv,2022,PT. UT,
+LOREH,B 2468 UZT,"Toyota All New Innova Reborn 2,4 G M",pickup_suv,2022,PT. UT,
+LOREH,KT 8417 YS,"Mitsubishi All New Triton 2,442 GLS DC 4X4 M",pickup_suv,2021,PT. NAJR - GS,
+LOREH,KT 8036 YV,"Toyota All New Hilux 2,393 G DC 4X4 M",pickup_suv,2021,PT. NAJR - GS,
+MUARA LAWA,KT 8475 YZ,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT - Damai /,
+MUARA LAWA,KT 8164 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT - Damai /,
+MUARA LAWA,KT 8192 YT,"Toyota All New Hilux Pick Up 2,4 4X4 M",pickup_suv,2021,PT. UT - Damai /,
+MUARA LAWA,KT 8976 YZ,"Toyota All New Hilux 2,393 E DC CC 4X4 M",pickup_suv,2022,PT. UT - Damai /,
+MUARA LAWA,KT 8157 ZA,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - Damai /,
+MUARA LAWA,KT 8870 ZE,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT - Damai /,
+MUARA LAWA,KT 8307 ZF,"Toyota All New Hilux SC 2,4 4X4 M",pickup_suv,2023,PT. UT - Damai /,
+MUARA LAWA,B 2213 UYO,"Toyota Innova Reborn 2,4G M",pickup_suv,2024,PT. UT - Damai /,B 1045 BCF
+MUARA LAWA,DD 8468 UY,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT - Damai /,DD 1407 XX
+MUARA LAWA,DD 8467 UY,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT - Damai /,DD 1781 XX
+MUARA LAWA,KT 8471 ZH,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,KT 8367 WE
+MUARA LAWA,KT 8306 ZH,"Mitsubishi All New Triton 2,4 GLS DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8307 ZH,"Mitsubishi All New Triton 2,4 GLS DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8472 ZH,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8473 ZH,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8834 ZH,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8832 ZH,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,B 2898 UYP,"Toyota Innova Reborn 2,4G M",pickup_suv,2024,PT. UT - Damai /,B 1699 LKJ
+MUARA LAWA,KT 7398 KA,"Mitsubishi Canter FE 71L 3,907 CC BC N 4X2 M",truk_ringan,2024,PT. UT - Damai /,
+MUARA LAWA,KT 7401 KA,"Mitsubishi Canter FE 71L 3,907 CC BC N 4X2 M",truk_ringan,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8492 ZI,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT - Damai /,
+MUARA LAWA,KT 8918 ZL,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2025,PT. UT - Damai /,
+MUARA LAWA,KT 8622 ZN,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2025,PT. UT - Damai /,
+MUARA LAWA,KT 8832 YQ,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2021,PT. UT - Damai /,
+MUARA LAWA,KT 8943 ZE,"Toyota All New Hilux 2,398 CC G DC 4X4 M",pickup_suv,2023,PT. TRIATRA,
+MUARA LAWA,KT 8167 ZA,"Toyota All New Hilux 2,393 CC E DC 4X4 M",pickup_suv,2022,PT. NAJR,
+MUARA LAWA,DW 8328 AN,Mahindra Scorpio Pikup DC E11 WD 4X4 M,pickup_suv,2022,PT. NAJR,
+MUARA LAWA,KT 8166 ZA,"Toyota All New Hilux 2,393 CC E DC 4X4 M",pickup_suv,2022,PT. NAJR,
+MUARA LAWA,KT 8165 ZA,"Toyota All New Hilux 2,398 CC G DC 4X4 M",pickup_suv,2022,PT. NAJR,
+MUARA LAWA,KT 8923 YY,"Toyota All New Hilux DC 2,393 CC G 4X4 M",pickup_suv,2022,PT. NAJR,
+MUARA LAWA,KT 8401 ZA,Toyota Hilux Pick Up 2.393 SC 4X4 M,pickup_suv,2022,PT. NAJR,KT 8041 ZA
+TENGGARONG,KT 8665 YS,"Mitsubishi All New Triton 2,4L GLS DC 4X4 M",pickup_suv,2021,PT. NAJR,
+SMD,KT 8137 YW,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8138 YW,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8328 YW,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8329 YW,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8785 YW,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8622 YY,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8701 YY,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8697 YY,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8696 YY,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8075 YZ,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8162 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,DD 8003 UC,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8170 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8172 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+LOA KULU,KT 8477 YZ,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT - SMD (Site. MHU,
+LOA KULU,KT 8163 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT - SMD (Site. MHU,
+SMD,KT 8173 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+SMD,KT 8478 YZ,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. NAJR,
+TENGGARONG,KT 8831 YQ,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2021,PT. TRIATRA,
+SMD,KT 8524 ZJ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. AKR Corporindo,
+SMD,KT 8523 ZJ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. AKR T. I,KT 8214 UZ
+SMD,B 2411 UFY,"Toyota All New Avanza 1,5 Veloz M",pickup_suv,2018,PT. BERKARYA,
+SMD,KT 8038 YV,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2022,PT. TAMBANG,
+SMD,KT 8926 YZ,"Mahindra Scorpio Pikup DC E11 WD 2,2 4X4 M",pickup_suv,2022,PT. NAJR,
+SMD,KT 8693 YS,"Toyota All New Hilux 2,4 E DC 4X4 M",pickup_suv,2021,PT. NAJR,
+SMD,KT 8834 YQ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2021,PT. NAJR,
+TJ. REDEB,DA 1550 OA,"Toyota All New Fortuner 2,4 VRZ 4X4 A",pickup_suv,2020,PT. UT,
+TJ. REDEB,KT 8479 YZ,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+TARAKAN,KT 8493 ZI,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT,
+TABANG,KT 1492 YY,"Toyota All New Innova 2,4G M",pickup_suv,2023,PT. TRIATRA,
+SMD,KT 8621 YY,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+TABANG,KT 8817 YS,"Toyota All New Hilux 2,393 G DC 4X4 M",pickup_suv,2021,PT. NAJR,
+SANGA SANGA,KT 8323 YV,"Toyota All New Hilux SC 2,393 CC 4X4 M",pickup_suv,2022,PT. UT,
+LOAJANAN,KT 8990 YS,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2021,PT. UT,
+SANGA SANGA,KT 8993 YS,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2021,PT. UT,
+SANGA SANGA,KT 8229 YS,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2021,PT. UT,
+SANGA SANGA,KT 8694 YS,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2021,PT. UT,
+LOAJANAN,KT 8695 YS,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2021,PT. UT,
+LOAJANAN,KT 8698 YS,"Toyota All New Hilux 2,4E DC 4X4 M",pickup_suv,2021,PT. UT,
+LOAJANAN,KT 8623 YY,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT,
+LOAJANAN,DD 8184 SQ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT,
+HO,KT 8719 YS,"Mitsubishi All New Triton 2,442 GLS DC 4X4 M",pickup_suv,2021,PT. NAJR (GS),
+SEPARI,KT 8626 YT,"Toyota All New Hilux SC Pick Up 2,393 CC 4X4 M",pickup_suv,2022,PT. UT,
+TENGGARONG,KT 8160 ZA,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. UT,
+TENGGARONG,KT 8158 ZA,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT,
+TENGGARONG,KT 8927 ZE,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT,
+LOA KULU,KT 8227 ZN,"Mitsubishi All New Triton 2,4L HDX DC 4X4 M",pickup_suv,2025,PT. BSS - MHU,
+LOA KULU,KT 8250 ZN,"Mitsubishi All New Triton 2,4L HDX DC 4X4 M",pickup_suv,2025,PT. BSS - MHU,
+LOA KULU,KT 8251 ZN,"Mitsubishi All New Triton 2,4L HDX DC 4X4 M",pickup_suv,2025,PT. BSS - MHU,
+LOA KULU,KT 8252 ZN,"Mitsubishi All New Triton 2,4L HDX DC 4X4 M",pickup_suv,2025,PT. BSS - MHU,
+LOA KULU,KT 8036 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. BSS - MHU,KT 8152 XB
+LOA KULU,KT 8037 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. BSS - MHU,KT 8350 XB
+LOA KULU,KT 8079 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. BSS - MHU,
+LOA KULU,KT 8082 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. BSS - MHU,
+LOA KULU,KT 8192 ZO,"Mitsubishi All New Triton 2,5L SC HDX-L 4X4 M",pickup_suv,2025,PT. BSS - MHU,
+LOA KULU,KT 8994 YS,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2021,PT. BSS - MHU,
+LOA KULU,KT 8136 YW,"Toyota All New Hilux 2,393 CC G DC 4X4 M",pickup_suv,2022,PT. BSS - MHU,
+TABANG,KT 1862 YJ,"Mitsubishi All New Pajero Sport 2,4L Dakar Ultimate 4X4 A",pickup_suv,2022,PT. BSS,
+LOA KULU,KT 8176 YS,"Toyota All New Hilux DC 2,393 CC E 4X4 M",pickup_suv,2021,PT. NAJR - GS BSS,
+ADARO,DA 7376 HG,Mitsubishi Canter FE 84G 3908 CC BC 4X2 M,truk_ringan,2023,PT. UT,
+ADARO,DA 7378 HG,Mitsubishi Canter FE 84G 3908 CC BC 4X2 M,truk_ringan,2023,PT. UT,
+MANADO,KT 8037 YV,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2022,PT. UT,
+MANADO,DB 8214 LO,"Toyota All New Hilux 2,4 G DC 4X4 M",pickup_suv,2022,PT. UT,
+MANADO,DB 8631 LO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT,DB 8531 LO
+MANADO,DD 8185 SQ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT,
+MANADO,KT 8755 ZE,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT,
+MANADO,DD 8518 UE,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT,
+MANADO,DD 8573 UE,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2023,PT. UT,
+MANADO,DD 8016 UF,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT,
+MANADO,DD 8017 UF,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2024,PT. UT,
+MANADO,DD 8592 VG,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2025,PT. UT,
+GORONTALO,KT 8341 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. UT,
+GORONTALO,KT 8342 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. UT,
+GORONTALO,KT 8452 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. UT,
+GORONTALO,KT 8453 ZO,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2026,PT. UT,
+MANADO,KT 8987 YS,"Toyota All New Hilux 2,393 CC E DC 4X4 M",pickup_suv,2021,PT. NAJR,
+SOROAKO,DP 8157 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8546 UB
+SOROAKO,DP 8158 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8548 UB
+SOROAKO,DP 8183 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8549 UB
+SOROAKO,DP 8180 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8539 UB
+SOROAKO,DP 8207 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8186 SQ
+SOROAKO,DP 8209 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8640 UB
+SOROAKO,DP 8208 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS,DD 8641 UB
+SOROAKO,DP 8156 GZ,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2019,PT. NAJR - MKS,DD 8253 XCU
+MKS,B 1899 EKR,"Toyota New Avanza Minibus 1,3 G M",bus,2014,PT. UT,
+MKS,B 1324 EOH,T. New Avanza 1.3 G M,pickup_suv,2015,PT. UT,
+MKS,DA 1206 TBI,Toyota All New Innova 2.0 G A,pickup_suv,2016,PT. Raja Reman Solusi,KT 1256 ZP
+MKS,DA 8141 BR,Isuzu D-Max Rodeo DC VGS 4X4 M,pickup_suv,2017,PT. Raja Reman Solusi,KT 8706 YI
+KENDARI,KT 8420 YS,"Mitsubishi All New Triton 2,442 GLS DC 4X4 M",pickup_suv,2021,PT. UT - MKS (Sulawesi Tenggara,
+KENDARI,KT 8418 YS,"Mitsubishi All New Triton 2,442 GLS DC 4X4 M",pickup_suv,2021,PT. UT - MKS (Sulawesi Tenggara,
+KENDARI,DD 8547 UB,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS /,
+KENDARI,DD 8550 UB,"Toyota All New Hilux 2,4G DC 4X4 M",pickup_suv,2022,PT. UT - MKS /,
+KENDARI,KT 8720 YS,"Mitsubishi All New Triton 2,442 GLS DC 4X4 M",pickup_suv,2021,PT. UT - MKS /,
+KENDARI,KT 8697 YS,"Toyota All New Hilux 2,393 CC E DC 4X4 M",pickup_suv,2021,PT. UT - MKS/,
+KENDARI,DA 1365 O,"Toyota All New Fortuner 2,4 VRZ 4X4 A",pickup_suv,2020,PT. UT - MKS/,DA 1689 BL
+MKS,B 1395 ERA,"Toyota Avanza Grand New 1,3 G M",pickup_suv,2017,PT. NAJR,
+MKS,B 2665 UKQ,"Toyota All New Agya 1,2 G AT",pickup_suv,2019,PT. NAJ,
+MKS,B 126 NAJ,Merc Benz C200 CGI AT,pickup_suv,2011,PT. NAJ,
+MKS,DT 8594 GE,"Mahindra Scorpio Pikup 2,179 DC 4X4 M",pickup_suv,2022,PT. NAJR,DT 9171 XX
+MKS,DT 8863 GE,"Mahindra Scorpio Pikup 2,179 DC 4X4 M",pickup_suv,2022,PT. NAJR,
+MKS,B 2547 UOU,"Toyota All New Innova Facelift 2,4 G M",pickup_suv,2020,PT. NAJ,
+BPN,KT 8763 LQ,"Daihatsu Gran Max PU 1,5 AC PS",pickup_suv,2014,PT. NAJR,KT 8958 LP
+BPN,B 1153 EKX,"Toyota New Avanza Veloz 1,5 M",pickup_suv,2014,PT. NAJR,
+BPN,KT 8418 YB,Daihatsu Gran Max PU AC PS 1.5,pickup_suv,2016,PT. NAJR,
+BPN,KT 1167 ZM,"New Nissan X-Trail 2,5 ST A",pickup_suv,2014,PT. NAJ,B 126 NI
+BPN,B 1363 EOD,Toyota New Avanza 1.3 G M,pickup_suv,2015,PT. NAJR,
+BPN,DA 1660 BH,Mitsubishi Pajero Sport 2.4 L Dakar 4X4 A,pickup_suv,2016,PT. NAJR,DA 7372 BL
+BPN,KT 8476 LM,Daihatsu Gran Max 1.3 Blind Van ACS401RV-BMREJJ,pickup_suv,2015,PT. NAJR,B 9782 ECB
+BPN,DA 8069 BP,Mitsubishi All New Triton DC GLS 4X4 M,pickup_suv,2018,PT. NAJR,KT 8430 YH
+HO,KT 1748 AZ,"Kia New Picanto SE 1,1L M",pickup_suv,2009,PT. NUSANTARA AERO JELAJAH,

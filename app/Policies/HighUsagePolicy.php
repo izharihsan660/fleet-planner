@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\UserRole;
 use App\Models\HighUsageFlag;
 use App\Models\User;
+use App\Support\AccessScope;
 
 class HighUsagePolicy
 {
@@ -25,7 +26,9 @@ class HighUsagePolicy
             return true;
         }
 
-        return $user->hasRole(UserRole::PlannerArea) && $user->site_id === $highUsageFlag->unit?->site_id;
+        $highUsageFlag->loadMissing('unit.site:id,region_id');
+
+        return AccessScope::canAccessSite($user, $highUsageFlag->unit?->site_id, $highUsageFlag->unit?->site?->region_id);
     }
 
     public function takeAction(User $user, HighUsageFlag $highUsageFlag): bool

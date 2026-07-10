@@ -6,7 +6,10 @@ use App\Models\InspectionLog;
 use App\Models\SystemThreshold;
 use App\Models\Unit;
 use App\Models\User;
+use App\Models\WorkOrder;
+use App\Models\WorkOrderItem;
 use Carbon\Carbon;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -33,64 +36,118 @@ class InspectionService
 
             $inspectionDate = $date->copy()->startOfDay();
 
-            InspectionLog::query()->upsert(
-                [[
-                    'unit_id' => $unit->id,
-                    'inspection_date' => $inspectionDate->toDateTimeString(),
-                    'mechanic_id' => $mechanic->id,
-                    'odometer' => $odometer,
-                    'created_at' => now(),
-                    'updated_at' => now(),
-                ]],
-                ['unit_id', 'inspection_date'],
-                ['mechanic_id', 'odometer', 'updated_at'],
-            );
+            $log = InspectionLog::query()->create([
+                'unit_id' => $unit->id,
+                'inspection_date' => $inspectionDate->toDateString(),
+                'mechanic_id' => $mechanic->id,
+                'odometer' => $odometer,
+                'previous_odo' => $unit->current_odo,
+            ]);
 
-            $log = InspectionLog::query()
-                ->where('unit_id', $unit->id)
-                ->where('inspection_date', $inspectionDate->toDateTimeString())
-                ->firstOrFail();
-
-            $unit->forceFill(['current_odo' => max($unit->current_odo, $odometer)])->save();
-
-            $minimumInspectionData = (int) (SystemThreshold::query()
-                ->where('key', 'min_inspection_data')
-                ->value('value') ?? 3);
-
-            $logs = InspectionLog::query()
-                ->where('unit_id', $unit->id)
-                ->orderBy('inspection_date')
-                ->orderBy('id')
-                ->get(['inspection_date', 'odometer']);
-
-            $insufficientData = $logs->count() < $minimumInspectionData;
-            $averageKmPerDay = null;
-
-            if (! $insufficientData) {
-                $firstLog = $logs->first();
-                $lastLog = $logs->last();
-                $days = max(1, Carbon::parse($firstLog->inspection_date)->diffInDays(Carbon::parse($lastLog->inspection_date)));
-                $averageKmPerDay = (int) round(($lastLog->odometer - $firstLog->odometer) / $days);
-            }
-
-            $unit->forceFill(['avg_km_per_day' => $averageKmPerDay])->save();
-            $unit->unitPlannings()
-                ->with(['planningItem:id,interval_km,interval_days', 'unit'])
-                ->get()
-                ->each(function ($unitPlanning): void {
-                    $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
-
-                    $unitPlanning->update([
-                        'next_due_km' => $unitPlanning->last_done_km + $interval['interval_km'],
-                    ]);
-                });
+            $insufficientData = $this->refreshUnitAfterInspectionChange($unit->refresh());
 
             $log->setAttribute('insufficient_data', $insufficientData);
 
-            $this->maintenanceTriggerService->checkAndTrigger($unit->refresh());
-            $this->highUsageService->detect($unit->refresh());
-
             return $log->refresh()->setAttribute('insufficient_data', $insufficientData);
         });
+    }
+
+    public function cancelToday(InspectionLog $log): void
+    {
+        DB::transaction(function () use ($log): void {
+            $unit = $log->unit()->lockForUpdate()->firstOrFail();
+            $fallbackOdometer = $log->previous_odo;
+
+            $log->delete();
+
+            $this->refreshUnitAfterInspectionChange($unit->refresh(), true, $fallbackOdometer);
+        });
+    }
+
+    private function refreshUnitAfterInspectionChange(Unit $unit, bool $pruneStaleTriggers = false, ?int $fallbackOdometer = null): bool
+    {
+        $logs = InspectionLog::query()
+            ->where('unit_id', $unit->id)
+            ->orderBy('inspection_date')
+            ->orderBy('id')
+            ->get(['inspection_date', 'odometer']);
+
+        $latestLog = $logs->last();
+        $minimumInspectionData = (int) (SystemThreshold::query()
+            ->where('key', 'min_inspection_data')
+            ->value('value') ?? 3);
+
+        $insufficientData = $logs->count() < $minimumInspectionData;
+        $averageKmPerDay = null;
+
+        if (! $insufficientData) {
+            $firstLog = $logs->first();
+            $days = max(1, Carbon::parse($firstLog->inspection_date)->diffInDays(Carbon::parse($latestLog->inspection_date)));
+            $averageKmPerDay = (int) round(($latestLog->odometer - $firstLog->odometer) / $days);
+        }
+
+        $unit->forceFill([
+            'current_odo' => $latestLog?->odometer ?? $fallbackOdometer ?? $unit->current_odo,
+            'avg_km_per_day' => $averageKmPerDay,
+        ])->save();
+
+        $unit->unitPlannings()
+            ->with(['planningItem:id,interval_km,interval_days', 'unit'])
+            ->get()
+            ->each(function ($unitPlanning): void {
+                $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
+
+                $unitPlanning->update([
+                    'next_due_km' => $unitPlanning->last_done_km + $interval['interval_km'],
+                ]);
+            });
+
+        if ($pruneStaleTriggers) {
+            $this->pruneStaleNormalTriggers($unit->refresh());
+        }
+
+        $this->maintenanceTriggerService->checkAndTrigger($unit->refresh());
+        $this->highUsageService->detect($unit->refresh());
+
+        return $insufficientData;
+    }
+
+    private function pruneStaleNormalTriggers(Unit $unit): void
+    {
+        $warningKm = (int) (SystemThreshold::query()->where('key', 'warning_km')->value('value') ?? 500);
+        $warningDays = (int) (SystemThreshold::query()->where('key', 'warning_days')->value('value') ?? 7);
+        $today = CarbonImmutable::today();
+
+        $staleItems = WorkOrderItem::query()
+            ->where('status', 'on_hold')
+            ->whereHas('workOrder', fn ($query) => $query
+                ->where('unit_id', $unit->id)
+                ->where('trigger_type', 'normal')
+                ->where('status', 'open'))
+            ->with(['unitPlanning.planningItem', 'unitPlanning.unit', 'workOrder'])
+            ->get()
+            ->filter(function (WorkOrderItem $item) use ($unit, $warningKm, $warningDays, $today): bool {
+                $planning = $item->unitPlanning;
+
+                if (! $planning) {
+                    return false;
+                }
+
+                $kmDueSoon = $planning->next_due_km !== null
+                    && $unit->current_odo >= ($planning->next_due_km - $warningKm);
+                $dateDueSoon = $planning->next_due_date !== null
+                    && $today->greaterThanOrEqualTo(CarbonImmutable::parse($planning->next_due_date)->subDays($warningDays));
+
+                return ! ($kmDueSoon || $dateDueSoon);
+            });
+
+        $workOrderIds = $staleItems->pluck('work_order_id')->unique();
+
+        $staleItems->each->delete();
+
+        WorkOrder::query()
+            ->whereIn('id', $workOrderIds)
+            ->whereDoesntHave('items')
+            ->delete();
     }
 }

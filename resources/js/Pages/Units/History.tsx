@@ -1,8 +1,13 @@
+import InputError from '@/Components/InputError';
 import PaginationLinks from '@/Components/PaginationLinks';
+import PrimaryButton from '@/Components/PrimaryButton';
+import SecondaryButton from '@/Components/SecondaryButton';
+import StatusBadge from '@/Components/StatusBadge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, UnitHistory, UnitHistoryItem, UnitPlateHistory } from '@/types';
-import { Head, Link } from '@inertiajs/react';
-import { ReactNode } from 'react';
+import { PageProps, UnitHistory, UnitHistoryItem, UnitPlateHistory, UnitSiteTransfer } from '@/types';
+import { Head, Link, useForm } from '@inertiajs/react';
+import { FormEvent, ReactNode } from 'react';
 
 type UnitHistoryPageProps = PageProps<{
     history: UnitHistory;
@@ -19,6 +24,7 @@ export default function History({ history }: UnitHistoryPageProps) {
                         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                             <div>
                                 <h3 className="text-base font-semibold text-foreground">{history.unit.current_plate}</h3>
+                                {history.unit.needs_document_verification && <div className="mt-2"><StatusBadge tone="warning">Perlu Verifikasi Dokumen</StatusBadge></div>}
                                 <p className="mt-1 text-sm text-muted-foreground">{history.unit.brand} {history.unit.type} · {history.unit.year} · {history.unit.site}</p>
                                 <p className="mt-1 text-sm text-muted-foreground">Customer: {history.unit.customer} · ODO: {history.unit.current_odo.toLocaleString('id-ID')} KM · Status: {history.unit.status}</p>
                             </div>
@@ -26,12 +32,19 @@ export default function History({ history }: UnitHistoryPageProps) {
                         </div>
                     </div>
 
+                    {history.can_request_transfer && <TransferRequestForm history={history} />}
+                    {history.can_approve_transfer && history.pending_transfers.length > 0 && <PendingTransferApprovals transfers={history.pending_transfers} />}
+
                     <Section title="Riwayat Penggantian" empty="Belum ada penggantian complete." meta={history.replacements.meta}>
                         {history.replacements.data.map((item) => <HistoryCard key={item.id} item={item} />)}
                     </Section>
 
                     <Section title="Riwayat Plat Nomor" empty="Belum ada perubahan plat nomor." meta={history.plate_histories.meta}>
                         {history.plate_histories.data.map((plate) => <PlateCard key={plate.id} plate={plate} />)}
+                    </Section>
+
+                    <Section title="Riwayat Pindah Site" empty="Belum ada pengajuan pindah site." meta={history.site_transfers.meta}>
+                        {history.site_transfers.data.map((transfer) => <TransferCard key={transfer.id} transfer={transfer} />)}
                     </Section>
 
                     <Section title="Riwayat Blocked/Breakdown" empty="Belum ada blocked atau breakdown." meta={history.blocked_breakdowns.meta}>
@@ -47,6 +60,29 @@ export default function History({ history }: UnitHistoryPageProps) {
     );
 }
 
+function TransferRequestForm({ history }: { history: UnitHistory }) {
+    const form = useForm({ to_site_id: '', reason: '' });
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.post(route('units.site-transfers.store', history.unit.id), { preserveScroll: true, onSuccess: () => form.reset() });
+    };
+
+    return <section className="rounded-xl border bg-card p-6 shadow-xs"><h3 className="text-base font-semibold text-foreground">Pindah Site</h3><p className="mt-1 text-sm text-muted-foreground">Ajukan pindah site unit. Site unit tidak berubah sampai Spv HO approve.</p><form onSubmit={submit} className="mt-4 grid gap-4 md:grid-cols-[1fr_2fr_auto]"><div><Select value={form.data.to_site_id} onValueChange={(value) => form.setData('to_site_id', value)}><SelectTrigger><SelectValue placeholder="Pilih site baru" /></SelectTrigger><SelectContent>{history.transfer_sites.map((site) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}</SelectContent></Select><InputError className="mt-2" message={form.errors.to_site_id} /></div><div><textarea className="min-h-11 w-full rounded-md border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring" placeholder="Alasan (opsional)" value={form.data.reason} onChange={(event) => form.setData('reason', event.target.value)} /><InputError className="mt-2" message={form.errors.reason} /></div><PrimaryButton disabled={form.processing}>Ajukan</PrimaryButton></form></section>;
+}
+
+function PendingTransferApprovals({ transfers }: { transfers: UnitSiteTransfer[] }) {
+    return <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 shadow-xs"><h3 className="text-base font-semibold text-amber-900">Approval Pindah Site Pending</h3><div className="mt-4 space-y-3">{transfers.map((transfer) => <TransferApprovalCard key={transfer.id} transfer={transfer} />)}</div></section>;
+}
+
+function TransferApprovalCard({ transfer }: { transfer: UnitSiteTransfer }) {
+    const form = useForm({ decision_reason: '' });
+    const decide = (action: 'approve' | 'reject') => {
+        form.post(route(action === 'approve' ? 'unit-site-transfers.approve' : 'unit-site-transfers.reject', transfer.id), { preserveScroll: true });
+    };
+
+    return <div className="rounded-xl border bg-background p-4"><div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between"><div><div className="font-medium text-foreground">{transfer.unit_plate ?? 'Unit'}: {transfer.from_site} → {transfer.to_site}</div><p className="mt-1 text-sm text-muted-foreground">Diajukan oleh {transfer.requested_by ?? '-'} pada {transfer.requested_at ?? '-'}</p>{transfer.reason && <p className="mt-2 text-sm text-muted-foreground">Alasan: {transfer.reason}</p>}</div><div className="flex flex-wrap gap-2"><PrimaryButton type="button" disabled={form.processing} onClick={() => decide('approve')}>Approve</PrimaryButton><SecondaryButton type="button" disabled={form.processing} onClick={() => decide('reject')}>Reject</SecondaryButton></div></div><textarea className="mt-3 w-full rounded-md border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring" placeholder="Catatan approve/reject (opsional)" value={form.data.decision_reason} onChange={(event) => form.setData('decision_reason', event.target.value)} /><InputError className="mt-2" message={form.errors.decision_reason} /></div>;
+}
+
 function Section({ title, empty, children, meta }: { title: string; empty: string; children: ReactNode; meta: UnitHistory['replacements']['meta'] }) {
     const items = Array.isArray(children) ? children.filter(Boolean) : children;
 
@@ -59,4 +95,8 @@ function HistoryCard({ item, showReason = false }: { item: UnitHistoryItem; show
 
 function PlateCard({ plate }: { plate: UnitPlateHistory }) {
     return <div className="rounded-xl border bg-muted/20 p-4 text-sm text-foreground"><div className="font-medium text-foreground">{plate.plate_number}</div><div className="mt-1 text-muted-foreground">Aktif: {plate.active_from} sampai {plate.active_until ?? 'sekarang'}</div></div>;
+}
+
+function TransferCard({ transfer }: { transfer: UnitSiteTransfer }) {
+    return <div className="rounded-xl border bg-muted/20 p-4 text-sm text-foreground"><div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between"><div className="font-medium text-foreground">{transfer.from_site} → {transfer.to_site}</div><div className="text-muted-foreground">{transfer.status} · {transfer.requested_at ?? '-'}</div></div><div className="mt-2 grid gap-2 text-muted-foreground md:grid-cols-3"><span>Pengaju: {transfer.requested_by ?? '-'}</span><span>Approver: {transfer.approved_by ?? '-'}</span><span>Diproses: {transfer.approved_at ?? '-'}</span></div>{transfer.reason && <p className="mt-3 rounded-lg bg-muted/40 p-3 text-muted-foreground">Alasan: {transfer.reason}</p>}{transfer.decision_reason && <p className="mt-2 rounded-lg bg-muted/40 p-3 text-muted-foreground">Catatan keputusan: {transfer.decision_reason}</p>}</div>;
 }

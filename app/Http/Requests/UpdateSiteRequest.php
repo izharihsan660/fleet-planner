@@ -13,6 +13,6 @@ class UpdateSiteRequest extends FormRequest
 
     public function rules(): array
     {
-        return ['name' => ['required', 'string', 'max:255'], 'region' => ['required', 'string', 'max:255']];
+        return ['name' => ['required', 'string', 'max:255'], 'region' => ['required', 'string', 'max:255'], 'region_id' => ['nullable', 'exists:regions,id']];
     }
 }

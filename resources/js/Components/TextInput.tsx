@@ -1,28 +1,34 @@
 import {
     forwardRef,
     InputHTMLAttributes,
+    MutableRefObject,
     useEffect,
-    useImperativeHandle,
     useRef,
 } from 'react';
 
 import { Input } from '@/Components/ui/input';
 import { cn } from '@/lib/utils';
 
-export default forwardRef(function TextInput(
+export default forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { isFocused?: boolean }>(function TextInput(
     {
         type = 'text',
         className = '',
         isFocused = false,
         ...props
-    }: InputHTMLAttributes<HTMLInputElement> & { isFocused?: boolean },
+    },
     ref,
 ) {
-    const localRef = useRef<HTMLInputElement>(null);
+    const localRef = useRef<HTMLInputElement | null>(null);
 
-    useImperativeHandle(ref, () => ({
-        focus: () => localRef.current?.focus(),
-    }));
+    const setRefs = (element: HTMLInputElement | null) => {
+        localRef.current = element;
+
+        if (typeof ref === 'function') {
+            ref(element);
+        } else if (ref) {
+            (ref as MutableRefObject<HTMLInputElement | null>).current = element;
+        }
+    };
 
     useEffect(() => {
         if (isFocused) {
@@ -35,7 +41,7 @@ export default forwardRef(function TextInput(
             {...props}
             type={type}
             className={cn(className)}
-            ref={localRef}
+            ref={setRefs}
         />
     );
 });

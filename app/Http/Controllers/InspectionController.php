@@ -10,6 +10,7 @@ use App\Models\InspectionLog;
 use App\Models\SystemThreshold;
 use App\Models\Unit;
 use App\Services\InspectionService;
+use App\Support\AccessScope;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -30,10 +31,9 @@ class InspectionController extends Controller
 
         $logs = InspectionLog::query()
             ->with(['unit.site', 'mechanic:id,name'])
-            ->when(
-                $user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]),
-                fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)),
-            )
+            ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)))
+            ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id !== null, fn (Builder $query) => $query->whereHas('unit.site', fn (Builder $siteQuery) => $siteQuery->where('region_id', $user->region_id)))
+            ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id === null, fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)))
             ->when($filters['unit_id'] ?? null, fn (Builder $query, string $unitId) => $query->where('unit_id', $unitId))
             ->when($filters['inspection_date'] ?? null, fn (Builder $query, string $date) => $query->whereDate('inspection_date', $date))
             ->latest('inspection_date')
@@ -57,7 +57,7 @@ class InspectionController extends Controller
             ->value('value') ?? 3);
 
         return Inertia::render('Inspections/Create', [
-            'units' => UnitResource::collection($this->visibleUnits($request)->loadCount('inspectionLogs')),
+            'units' => UnitResource::collection($this->visibleUnits($request, true)->loadCount('inspectionLogs')),
             'today' => now()->toDateString(),
             'minimumInspectionData' => $minimumInspectionData,
         ]);
@@ -71,6 +71,10 @@ class InspectionController extends Controller
             abort(403);
         }
 
+        if (InspectionLog::query()->where('unit_id', $unit->id)->whereDate('inspection_date', $request->date('inspection_date'))->exists()) {
+            return back()->withErrors(['unit_id' => 'Unit ini sudah diinput hari ini. Batalkan dulu kalau mau mengulang.'])->withInput();
+        }
+
         try {
             $log = $inspectionService->record(
                 $unit,
@@ -78,27 +82,42 @@ class InspectionController extends Controller
                 $request->user(),
                 Carbon::parse($request->date('inspection_date')),
             );
-        } catch (InvalidArgumentException $exception) {
-            return back()->withErrors(['odometer' => $exception->getMessage()])->withInput();
+        } catch (InvalidArgumentException) {
+            return back()->withErrors(['odometer' => 'KM harus lebih besar dari '.$unit->current_odo.'. Coba cek lagi ya.'])->withInput();
         }
 
         $message = $log->insufficient_data
             ? 'KM harian berhasil disimpan. Data inspeksi masih kurang untuk menghitung rata-rata pemakaian.'
             : 'KM harian berhasil disimpan dan rata-rata pemakaian diperbarui.';
 
+        if ($request->user()->hasRole(UserRole::Mekanik)) {
+            return redirect()->route('inspections.create')->with('status', 'Berhasil disimpan');
+        }
+
         return redirect()->route('inspections.index')->with('status', $message);
     }
 
-    private function visibleUnits(Request $request)
+    public function cancelToday(Request $request, InspectionLog $inspectionLog, InspectionService $inspectionService): RedirectResponse
+    {
+        $user = $request->user();
+
+        abort_unless($user->hasRole(UserRole::Mekanik), 403);
+        abort_unless($inspectionLog->mechanic_id === $user->id, 403);
+        abort_unless($inspectionLog->inspection_date?->isSameDay(now()), 403);
+
+        $inspectionService->cancelToday($inspectionLog);
+
+        return redirect()->route('inspections.index')->with('status', 'Input hari ini berhasil dibatalkan. Unit bisa diinput ulang.');
+    }
+
+    private function visibleUnits(Request $request, bool $hideTodayInput = false)
     {
         $user = $request->user();
 
         return Unit::query()
             ->with('site:id,name,region')
-            ->when(
-                $user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]),
-                fn (Builder $query) => $query->where('site_id', $user->site_id),
-            )
+            ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $user))
+            ->when($hideTodayInput && $user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereDoesntHave('inspectionLogs', fn (Builder $logQuery) => $logQuery->whereDate('inspection_date', now()->toDateString())))
             ->orderBy('current_plate')
             ->get();
     }
@@ -107,14 +126,12 @@ class InspectionController extends Controller
     {
         $user = $request->user();
 
-        if ($user->hasRole(UserRole::Superadmin)) {
+        $unit->loadMissing('site:id,region_id');
+
+        if (AccessScope::canAccessAllSites($user)) {
             return true;
         }
 
-        if ($user->hasRole(UserRole::Mekanik)) {
-            return $unit->site_id === $user->site_id;
-        }
-
-        return false;
+        return AccessScope::canAccessSite($user, $unit->site_id, $unit->site?->region_id);
     }
 }

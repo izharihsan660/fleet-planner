@@ -90,7 +90,7 @@ export default function Login({
                             }
                         />
                         <span className="ms-2 text-sm text-muted-foreground">
-                            Remember me
+                            Ingat saya
                         </span>
                     </label>
                 </div>
@@ -101,12 +101,12 @@ export default function Login({
                             href={route('password.request')}
                             className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
                         >
-                            Forgot your password?
+                        Lupa kata sandi?
                         </Link>
                     )}
 
                     <PrimaryButton disabled={processing}>
-                        Log in
+                        Masuk
                     </PrimaryButton>
                 </div>
             </form>

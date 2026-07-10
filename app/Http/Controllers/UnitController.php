@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\UserRole;
 use App\Enums\VehicleCategory;
 use App\Http\Requests\StoreUnitRequest;
 use App\Http\Requests\UpdateUnitRequest;
+use App\Http\Resources\UnitResource;
 use App\Models\Site;
 use App\Models\Unit;
+use App\Support\AccessScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,12 +23,15 @@ class UnitController extends Controller
         Gate::authorize('viewAny', Unit::class);
 
         return Inertia::render('Units/Index', [
-            'units' => Unit::query()
+            'units' => UnitResource::collection(Unit::query()
                 ->with(['site', 'plateHistories' => fn ($query) => $query->latest('active_from')])
-                ->when($this->isSiteScoped($request), fn (Builder $query) => $query->where('site_id', $request->user()->site_id))
+                ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $request->user()))
                 ->latest()
                 ->paginate(25)
-                ->withQueryString(),
+                ->withQueryString()),
+            'totalUnits' => Unit::query()
+                ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $request->user()))
+                ->count(),
         ]);
     }
 
@@ -70,13 +74,8 @@ class UnitController extends Controller
     private function visibleSites(Request $request)
     {
         return Site::query()
-            ->when($this->isSiteScoped($request), fn (Builder $query) => $query->whereKey($request->user()->site_id))
+            ->tap(fn (Builder $query) => AccessScope::applySiteListScope($query, $request->user()))
             ->orderBy('name')
             ->get(['id', 'name', 'region']);
-    }
-
-    private function isSiteScoped(Request $request): bool
-    {
-        return $request->user()->isOneOf([UserRole::PlannerArea, UserRole::Mekanik]);
     }
 }

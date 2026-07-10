@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use Illuminate\Http\RedirectResponse;
@@ -33,7 +34,11 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        $homeRoute = $request->user()?->hasRole(UserRole::Mekanik)
+            ? route('mechanic.tasks', absolute: false)
+            : route('dashboard', absolute: false);
+
+        return redirect()->intended($homeRoute);
     }
 
     /**

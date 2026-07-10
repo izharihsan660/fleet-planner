@@ -5,7 +5,9 @@ namespace App\Services;
 use App\Enums\UserRole;
 use App\Models\HighUsageFlag;
 use App\Models\Notification;
+use App\Models\Site;
 use App\Models\Unit;
+use App\Models\UnitSiteTransfer;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
@@ -66,12 +68,73 @@ class FleetNotificationService
         ), ['url' => route('work-orders.show', $workOrder), 'work_order_id' => $workOrder->id, 'work_order_item_id' => $item->id]);
     }
 
+    public function workOrderItemCompleted(WorkOrderItem $item): void
+    {
+        $item->loadMissing(['workOrder.unit', 'planningItem']);
+
+        $this->notifyRoles([UserRole::PlannerArea], 'work_order_item_completed', 'Item maintenance selesai', sprintf(
+            '%s - %s selesai pada %s di KM %s.',
+            $item->workOrder->unit?->current_plate ?? 'Unit',
+            $item->planningItem?->name ?? 'Item',
+            $item->completed_date?->toDateString() ?? '-',
+            number_format((int) $item->completed_odo, 0, ',', '.')
+        ), [
+            'url' => route('work-orders.show', $item->workOrder),
+            'work_order_id' => $item->work_order_id,
+            'work_order_item_id' => $item->id,
+            'unit_id' => $item->workOrder->unit_id,
+            'planning_item_id' => $item->planning_item_id,
+            'completed_date' => $item->completed_date?->toDateString(),
+            'completed_odo' => $item->completed_odo,
+        ], $item->workOrder->site_id);
+    }
+
     public function unitBreakdown(Unit $unit): void
     {
         $this->notifyRoles([UserRole::SpvHo], 'unit_breakdown', 'Unit Breakdown diinput', sprintf(
             '%s ditandai Breakdown dan perlu dipantau.',
             $unit->current_plate
         ), ['unit_id' => $unit->id]);
+    }
+
+    public function unitSiteTransferRequested(UnitSiteTransfer $transfer): void
+    {
+        $transfer->loadMissing(['unit', 'fromSite', 'toSite']);
+
+        $this->notifyRoles([UserRole::SpvHo], 'unit_site_transfer_requested', 'Pindah Site menunggu approval', sprintf(
+            '%s diajukan pindah dari %s ke %s.',
+            $transfer->unit?->current_plate ?? 'Unit',
+            $transfer->fromSite?->name ?? '-',
+            $transfer->toSite?->name ?? '-'
+        ), [
+            'url' => route('units.history', $transfer->unit_id),
+            'unit_id' => $transfer->unit_id,
+            'unit_site_transfer_id' => $transfer->id,
+        ]);
+    }
+
+    public function unitSiteTransferApproved(UnitSiteTransfer $transfer, int $oldSiteId, int $newSiteId): void
+    {
+        $transfer->loadMissing(['unit', 'fromSite', 'toSite']);
+
+        $data = [
+            'url' => route('units.history', $transfer->unit_id),
+            'unit_id' => $transfer->unit_id,
+            'unit_site_transfer_id' => $transfer->id,
+        ];
+
+        $this->notifyRoles([UserRole::PlannerArea], 'unit_site_transfer_approved_old_region', 'Unit pindah site', sprintf(
+            '%s sudah dipindah dari %s ke %s dan tidak lagi masuk scope area lama.',
+            $transfer->unit?->current_plate ?? 'Unit',
+            $transfer->fromSite?->name ?? '-',
+            $transfer->toSite?->name ?? '-'
+        ), $data, $oldSiteId);
+
+        $this->notifyRoles([UserRole::PlannerArea], 'unit_site_transfer_approved_new_region', 'Unit baru masuk area', sprintf(
+            '%s sudah masuk ke %s. WO aktif ikut berpindah scope.',
+            $transfer->unit?->current_plate ?? 'Unit',
+            $transfer->toSite?->name ?? '-'
+        ), $data, $newSiteId);
     }
 
     /**
@@ -130,20 +193,31 @@ class FleetNotificationService
     private function notifyRoles(array $roles, string $type, string $title, string $message, array $data, ?int $siteId = null): void
     {
         $roleValues = collect($roles)->map(fn (UserRole $role): string => $role->value)->unique()->values()->all();
+        $site = $siteId !== null ? Site::query()->find($siteId) : null;
 
         User::query()
             ->whereIn('role', $roleValues)
-            ->when($siteId !== null, fn (Builder $query) => $query->where(function (Builder $siteQuery) use ($siteId): void {
-                $siteQuery->whereNull('site_id')->orWhere('site_id', $siteId);
+            ->when($siteId !== null, fn (Builder $query) => $query->where(function (Builder $siteQuery) use ($siteId, $site): void {
+                $siteQuery
+                    ->where(fn (Builder $roleQuery) => $roleQuery->where('role', '!=', UserRole::PlannerArea->value)->where(fn (Builder $scopeQuery) => $scopeQuery->whereNull('site_id')->orWhere('site_id', $siteId)))
+                    ->orWhere(fn (Builder $roleQuery) => $roleQuery->where('role', UserRole::PlannerArea->value)->where(function (Builder $plannerQuery) use ($siteId, $site): void {
+                        $plannerQuery->where('site_id', $siteId);
+
+                        if ($site?->region_id !== null) {
+                            $plannerQuery->orWhere('region_id', $site->region_id);
+                        }
+                    }));
             }))
             ->get()
             ->each(function (User $user) use ($type, $title, $message, $data): void {
                 $exists = Notification::query()
                     ->where('user_id', $user->id)
                     ->where('type', $type)
-                    ->when(isset($data['work_order_item_id']), fn (Builder $query) => $query->where('data->work_order_item_id', $data['work_order_item_id']))
+                    ->when(isset($data['unit_site_transfer_id']), fn (Builder $query) => $query->where('data->unit_site_transfer_id', $data['unit_site_transfer_id']))
+                    ->when($type === 'work_order_item_completed' && isset($data['work_order_id']), fn (Builder $query) => $query->where('data->work_order_id', $data['work_order_id']))
+                    ->when($type !== 'work_order_item_completed' && isset($data['work_order_item_id']), fn (Builder $query) => $query->where('data->work_order_item_id', $data['work_order_item_id']))
                     ->when(isset($data['unit_id']), fn (Builder $query) => $query->where('data->unit_id', $data['unit_id']))
-                    ->when(isset($data['planning_item_id']), fn (Builder $query) => $query->where('data->planning_item_id', $data['planning_item_id']))
+                    ->when($type !== 'work_order_item_completed' && isset($data['planning_item_id']), fn (Builder $query) => $query->where('data->planning_item_id', $data['planning_item_id']))
                     ->whereNull('read_at')
                     ->exists();
 

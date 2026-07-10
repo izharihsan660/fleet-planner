@@ -107,9 +107,12 @@ function AssignMechanicForm({ workOrder, mechanics, onCancel }: { workOrder: Wor
     );
 }
 
-function PreviewCard({ item, canCreate }: { item: WorkOrderPreviewItem; canCreate: boolean }) {
+function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewItem; mechanics: User[]; canCreate: boolean }) {
+    const form = useForm({ assigned_mechanic_id: '', scheduled_date: '' });
     const [showConfirm, setShowConfirm] = useState(false);
-    const createTask = () => router.post(route('unit-plannings.create-work-order', item.id), {}, { preserveScroll: true, onFinish: () => setShowConfirm(false) });
+    const [showForm, setShowForm] = useState(false);
+    const siteMechanics = mechanics.filter((mechanic) => mechanic.site_id === item.site_id);
+    const createTask = () => form.post(route('unit-plannings.create-work-order', item.id), { preserveScroll: true, onSuccess: () => { form.reset(); setShowForm(false); }, onFinish: () => setShowConfirm(false) });
 
     return (
         <Card className="gap-3 shadow-xs">
@@ -127,15 +130,58 @@ function PreviewCard({ item, canCreate }: { item: WorkOrderPreviewItem; canCreat
                 </div>
                 {item.approval_status === 'pending_create' && <StatusBadge tone="info">Menunggu Approval</StatusBadge>}
                 {item.approval_status === 'rejected' && <StatusBadge tone="rejected">Rejected</StatusBadge>}
-                {canCreate && item.approval_status !== 'pending_create' && <PrimaryButton type="button" className="w-full text-xs normal-case" onClick={() => setShowConfirm(true)}>Buat Task Sekarang</PrimaryButton>}
+                {canCreate && item.approval_status !== 'pending_create' && <PrimaryButton type="button" className="w-full text-xs normal-case" onClick={() => setShowForm(!showForm)}>Buat Task Sekarang</PrimaryButton>}
+                {showForm && (
+                    <form onSubmit={(event) => { event.preventDefault(); setShowConfirm(true); }} className="space-y-3 rounded-lg border bg-muted/40 p-3">
+                        <select value={form.data.assigned_mechanic_id} onChange={(event) => form.setData('assigned_mechanic_id', event.target.value)} className="w-full rounded-lg border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
+                            <option value="">Mekanik belum ditentukan</option>
+                            {siteMechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}
+                        </select>
+                        {form.errors.assigned_mechanic_id && <p className="text-xs text-destructive">{form.errors.assigned_mechanic_id}</p>}
+                        <Input type="date" min={new Date().toISOString().slice(0, 10)} value={form.data.scheduled_date} onChange={(event) => form.setData('scheduled_date', event.target.value)} />
+                        {form.errors.scheduled_date && <p className="text-xs text-destructive">{form.errors.scheduled_date}</p>}
+                        <div className="flex gap-2">
+                            <PrimaryButton disabled={form.processing}>Ajukan</PrimaryButton>
+                            <SecondaryButton type="button" onClick={() => setShowForm(false)}>Batal</SecondaryButton>
+                        </div>
+                    </form>
+                )}
             </CardContent>
-            <ConfirmDialog show={showConfirm} message={`Buat Task Sekarang untuk ${item.unit_plate} - ${item.planning_item_name}?`} onCancel={() => setShowConfirm(false)} onConfirm={createTask} />
+            <ConfirmDialog show={showConfirm} message={`Buat Task Sekarang untuk ${item.unit_plate} - ${item.planning_item_name}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={createTask} />
         </Card>
     );
 }
 
-function WorkOrderCard({ workOrder, mechanics, canAssign, assignId, setAssignId }: { workOrder: WorkOrder; mechanics: User[]; canAssign: boolean; assignId: number | null; setAssignId: (id: number | null) => void }) {
-    const canShowAssign = canAssign && ['open', 'in_progress'].includes(workOrder.status);
+function WorkOrderProgress({ workOrder }: { workOrder: WorkOrder }) {
+    const totalItems = workOrder.items_count ?? workOrder.items?.length ?? 0;
+    const completedItems = workOrder.completed_items_count ?? 0;
+    const percentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+
+    if (totalItems <= 1) {
+        return null;
+    }
+
+    return (
+        <div className="space-y-1.5">
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percentage}%` }} />
+            </div>
+            <p className="text-xs text-muted-foreground">{completedItems} dari {totalItems} tuntas</p>
+        </div>
+    );
+}
+
+function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove, assignId, setAssignId }: { workOrder: WorkOrder; mechanics: User[]; canAssign: boolean; canReview: boolean; canApprove: boolean; assignId: number | null; setAssignId: (id: number | null) => void }) {
+    const totalItems = workOrder.items_count ?? workOrder.items?.length ?? 0;
+    const visibleItemCount = Math.max(totalItems, 1);
+    const remainingItems = workOrder.remaining_items_count ?? totalItems;
+    const isWaitingApproval = workOrder.sub_status?.key === 'waiting_approval';
+    const isWaitingPart = workOrder.sub_status?.key === 'waiting_part';
+    const hasAssignedMechanic = workOrder.assigned_mechanic_id !== null;
+    const canShowAssign = canAssign && workOrder.status === 'in_progress' && !isWaitingApproval && !isWaitingPart && !hasAssignedMechanic;
+    const canShowReview = canReview && workOrder.status === 'open';
+    const canShowApproval = canApprove && isWaitingApproval;
+    const canShowCompletion = workOrder.status === 'in_progress' && hasAssignedMechanic && !isWaitingApproval && !isWaitingPart;
 
     return (
         <Card className="gap-3 shadow-xs transition hover:border-ring/40 hover:shadow-sm">
@@ -149,15 +195,32 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, assignId, setAssignId 
                         {workOrder.nearest_due && <div className="shrink-0 basis-full sm:basis-auto"><StatusBadge tone={dueTone[workOrder.nearest_due.level]}>{workOrder.nearest_due.label}</StatusBadge></div>}
                     </div>
                     <p className="mt-3 text-sm font-medium text-foreground">{itemSummary(workOrder.planning_item_names)}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{workOrder.items_count ?? workOrder.items?.length ?? 0} item · {workOrder.trigger_type}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{visibleItemCount} item · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
                     <div className="mt-3 flex flex-wrap gap-2">
-                        {workOrder.sub_status && <StatusBadge tone="neutral">{workOrder.sub_status.label}</StatusBadge>}
+                        {workOrder.sub_status && workOrder.sub_status.key !== 'assigned' && <StatusBadge tone="neutral">{workOrder.sub_status.label}</StatusBadge>}
                         {workOrder.has_high_usage_items && <StatusBadge tone="highUsage">High Usage</StatusBadge>}
                         {workOrder.has_overdue_items && <StatusBadge tone="danger">Overdue</StatusBadge>}
                         {workOrder.has_blocked_items && <StatusBadge tone="blocked">Blocked</StatusBadge>}
                         {workOrder.has_rejected_items && <StatusBadge tone="rejected">Rejected</StatusBadge>}
                     </div>
                 </Link>
+                <WorkOrderProgress workOrder={workOrder} />
+                {hasAssignedMechanic && workOrder.assigned_mechanic && (
+                    <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-muted px-3 py-2 text-xs font-medium text-muted-foreground" title={workOrder.assigned_mechanic.name}>
+                        Mekanik: {workOrder.assigned_mechanic.name}
+                    </p>
+                )}
+                {canShowReview && (
+                    <Button asChild variant="secondary" className="w-full text-xs normal-case">
+                        <Link href={route('work-orders.show', workOrder.id)}>Tinjau &amp; Tindak Lanjuti</Link>
+                    </Button>
+                )}
+                {canShowApproval && (
+                    <div className="grid grid-cols-2 gap-2">
+                        <Button type="button" className="text-xs normal-case" onClick={() => router.post(route('work-orders.approve', workOrder.id), {}, { preserveScroll: true })}>Approve</Button>
+                        <Button type="button" variant="destructive" className="text-xs normal-case" onClick={() => router.post(route('work-orders.reject', workOrder.id), {}, { preserveScroll: true })}>Reject</Button>
+                    </div>
+                )}
                 {canShowAssign && (
                     <div>
                         <SecondaryButton type="button" className="w-full text-xs normal-case" onClick={() => setAssignId(assignId === workOrder.id ? null : workOrder.id)}>
@@ -165,6 +228,13 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, assignId, setAssignId 
                         </SecondaryButton>
                         {assignId === workOrder.id && <AssignMechanicForm workOrder={workOrder} mechanics={mechanics} onCancel={() => setAssignId(null)} />}
                     </div>
+                )}
+                {canShowCompletion && (
+                    <Button asChild className="h-auto min-h-8 w-full whitespace-normal px-3 py-2 text-center text-xs leading-snug normal-case">
+                        <Link href={route('work-orders.show', workOrder.id)}>
+                            {totalItems <= 1 ? 'Complete' : `Lihat & Selesaikan (${remainingItems} tersisa) →`}
+                        </Link>
+                    </Button>
                 )}
             </CardContent>
         </Card>
@@ -183,7 +253,7 @@ function EmptyColumn() {
     );
 }
 
-export default function Index({ boardColumns, sites, units, mechanics, planningItems, filters, canCreateUpcomingTask, canAssignMechanic }: PageProps<{ boardColumns: BoardColumns; sites: ResourceCollection<Site>; units: ResourceCollection<Unit>; mechanics: User[]; planningItems: PlanningItem[]; filters: { site_id?: string; status?: string; unit_id?: string; item_id?: string; assignee_id?: string }; canCreateUpcomingTask: boolean; canAssignMechanic: boolean }>) {
+export default function Index({ boardColumns, sites, units, mechanics, planningItems, filters, canCreateUpcomingTask, canAssignMechanic, canReviewWorkOrders, canApproveWorkOrders }: PageProps<{ boardColumns: BoardColumns; sites: ResourceCollection<Site>; units: ResourceCollection<Unit>; mechanics: User[]; planningItems: PlanningItem[]; filters: { site_id?: string; status?: string; unit_id?: string; item_id?: string; assignee_id?: string }; canCreateUpcomingTask: boolean; canAssignMechanic: boolean; canReviewWorkOrders: boolean; canApproveWorkOrders: boolean }>) {
     const [visibleColumns, setVisibleColumns] = useState(boardColumns);
     const [siteId, setSiteId] = useState(filters.site_id ?? '');
     const [status, setStatus] = useState(filters.status ?? '');
@@ -291,9 +361,9 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                         <StatusBadge tone="neutral">{count}</StatusBadge>
                                     </CardHeader>
                                     <CardContent className="space-y-3">
-                                        {column.key === 'upcoming' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} canCreate={canCreateUpcomingTask} />)}
-                                        {column.key === 'preparation' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} canCreate={canCreateUpcomingTask} />)}
-                                        {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrder[]).map((workOrder) => <WorkOrderCard key={workOrder.id} workOrder={workOrder} mechanics={mechanics} canAssign={canAssignMechanic} assignId={assignId} setAssignId={setAssignId} />)}
+                                        {column.key === 'upcoming' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
+                                        {column.key === 'preparation' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
+                                        {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrder[]).map((workOrder) => <WorkOrderCard key={workOrder.id} workOrder={workOrder} mechanics={mechanics} canAssign={canAssignMechanic} canReview={canReviewWorkOrders} canApprove={canApproveWorkOrders} assignId={assignId} setAssignId={setAssignId} />)}
                                         {count === 0 && <EmptyColumn />}
                                         {hasMore && (
                                             <Button type="button" variant="outline" className="w-full" onClick={() => loadMore(columnKey)}>

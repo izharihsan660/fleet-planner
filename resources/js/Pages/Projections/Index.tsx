@@ -55,7 +55,7 @@ function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem
                 <TableRow key={`${item.unit_planning_id}-${item.planning_item_id}`}>
                     <TableCell className="font-medium text-foreground">
                         {item.plate_number}
-                        {item.insufficient_data && <span className="ml-2 text-amber-500" title="Data inspeksi belum cukup">⚠</span>}
+                        {item.insufficient_data && <span className="ml-2 text-amber-500" title={item.data_status_message ?? 'Data inspeksi belum cukup'}>⚠</span>}
                     </TableCell>
                     <TableCell>{item.site_name}</TableCell>
                     {showItem && <TableCell>{item.planning_item_name}</TableCell>}
@@ -88,6 +88,7 @@ function DueTable({ items, showItem = true }: { items: ProjectionLine[]; showIte
 
 export default function Index({ projection, sites, filters, permissions }: ProjectionIndexProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(permissions.default_tab);
+    const [showWarningList, setShowWarningList] = useState(false);
     const tabs = useMemo(() => [
         permissions.can_view_unit ? { key: 'unit' as const, label: 'Per Unit' } : null,
         permissions.can_view_item ? { key: 'item' as const, label: 'Per Item' } : null,
@@ -117,11 +118,11 @@ export default function Index({ projection, sites, filters, permissions }: Proje
                                 </div>
                                 {permissions.can_filter_site && (
                                     <div className="space-y-2">
-                                        <Label>Filter Site</Label>
+                                        <Label>Filter Lokasi</Label>
                                         <Select value={filters.site_id ? String(filters.site_id) : 'all'} onValueChange={(value) => window.location.assign(projectionUrl(filters.months, value === 'all' ? null : Number(value)))}>
                                             <SelectTrigger className="min-w-48"><SelectValue /></SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="all">Semua Site</SelectItem>
+                                                <SelectItem value="all">Semua Lokasi</SelectItem>
                                                 {sites.data.map((site) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}
                                             </SelectContent>
                                         </Select>
@@ -132,8 +133,36 @@ export default function Index({ projection, sites, filters, permissions }: Proje
                     </Card>
 
                     {projection.warnings.length > 0 && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                            <strong>Perhatian:</strong> {projection.warnings.length} unit memiliki data inspeksi belum cukup untuk rata-rata KM yang kuat: {projection.warnings.map((warning) => warning.plate_number).join(', ')}.
+                        <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <strong>Perhatian:</strong> {projection.warnings.length.toLocaleString('id-ID')} unit belum ada data KM — menunggu input Mekanik.
+                                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Daftar plat disembunyikan agar halaman tetap mudah dibaca.</p>
+                                </div>
+                                <button type="button" onClick={() => setShowWarningList((value) => !value)} className="inline-flex min-h-9 items-center justify-center rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900">
+                                    {showWarningList ? 'Sembunyikan daftar' : 'Lihat daftar'}
+                                </button>
+                            </div>
+                            {showWarningList && (
+                                <div className="max-h-80 overflow-y-auto rounded-lg border border-amber-200 bg-white dark:border-amber-900 dark:bg-background">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Plat Nomor</TableHead>
+                                                <TableHead>Status</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {projection.warnings.map((warning) => (
+                                                <TableRow key={warning.plate_number}>
+                                                    <TableCell className="font-medium text-foreground">{warning.plate_number}</TableCell>
+                                                    <TableCell>Data KM belum tersedia — menunggu input Mekanik</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -149,8 +178,9 @@ export default function Index({ projection, sites, filters, permissions }: Proje
                                         <Card key={unit.unit_id} className="shadow-xs">
                                             <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 bg-muted/30">
                                                 <div>
-                                                    <CardTitle className="text-base">{unit.plate_number}{unit.insufficient_data && <span className="ml-2 text-amber-500">⚠</span>}</CardTitle>
+                                                    <CardTitle className="text-base">{unit.plate_number}{unit.insufficient_data && <span className="ml-2 text-amber-500" title={unit.data_status_message ?? 'Data inspeksi belum cukup'}>⚠</span>}</CardTitle>
                                                     <CardDescription>{unit.site_name} · Avg {unit.avg_km_per_day} KM/hari · Est. odo {formatKm(unit.estimated_period_odo)}</CardDescription>
+                                                    {unit.data_status_message && <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-300">{unit.data_status_message}</p>}
                                                 </div>
                                                 <StatusBadge>{unit.items.length} item</StatusBadge>
                                             </CardHeader>

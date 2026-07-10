@@ -18,6 +18,8 @@ class Unit extends Model
         'vehicle_category',
         'year',
         'current_odo',
+        'has_odometer_reading',
+        'needs_document_verification',
         'avg_km_per_day',
         'status',
     ];
@@ -25,6 +27,14 @@ class Unit extends Model
     protected $appends = [
         'is_warranty',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'has_odometer_reading' => 'boolean',
+            'needs_document_verification' => 'boolean',
+        ];
+    }
 
     /**
      * @return BelongsTo<Site, $this>
@@ -40,6 +50,14 @@ class Unit extends Model
     public function plateHistories(): HasMany
     {
         return $this->hasMany(UnitPlateHistory::class);
+    }
+
+    /**
+     * @return HasMany<UnitSiteTransfer, $this>
+     */
+    public function siteTransfers(): HasMany
+    {
+        return $this->hasMany(UnitSiteTransfer::class);
     }
 
     /**

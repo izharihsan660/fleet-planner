@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\UserRole;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -18,7 +19,11 @@ class InspectionLogResource extends JsonResource
             'mechanic_id' => $this->mechanic_id,
             'inspection_date' => $this->inspection_date?->toDateString(),
             'odometer' => $this->odometer,
+            'previous_odo' => $this->previous_odo,
             'insufficient_data' => $this->insufficient_data,
+            'can_cancel_today' => $request->user()?->id === $this->mechanic_id
+                && $request->user()?->hasRole(UserRole::Mekanik)
+                && $this->inspection_date?->isSameDay(now()),
             'unit' => new UnitResource($this->whenLoaded('unit')),
             'mechanic' => $this->whenLoaded('mechanic'),
         ];

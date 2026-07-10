@@ -22,8 +22,12 @@ class BlockedBreakdownController extends Controller
     {
         Gate::authorize('markBlocked', WorkOrder::class);
 
-        $item->load('workOrder');
+        $item->load('workOrder.unit');
         $this->abortIfCannotAccessSite($request->user(), $item->workOrder->site_id);
+
+        if ($item->workOrder->unit?->status === 'breakdown') {
+            return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
+        }
 
         if (! in_array($item->status, ['on_hold', 'in_progress', 'overdue'], true)) {
             return back()->withErrors(['action' => 'Hanya item On Hold, In Progress, atau Overdue yang bisa ditandai Blocked.']);

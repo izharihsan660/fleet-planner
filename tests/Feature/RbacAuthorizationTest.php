@@ -88,6 +88,16 @@ class RbacAuthorizationTest extends TestCase
             );
     }
 
+    public function test_dashboard_copy_is_role_aware_and_indonesian(): void
+    {
+        $dashboardSource = file_get_contents(resource_path('js/Pages/Dashboard.tsx'));
+
+        $this->assertStringNotContainsString("You're logged in!", $dashboardSource);
+        $this->assertStringContainsString('Kamu sudah masuk.', $dashboardSource);
+        $this->assertStringContainsString('planner_area', $dashboardSource);
+        $this->assertStringContainsString('Daftar Kerja', $dashboardSource);
+    }
+
     public function test_reports_can_open_overdue_tab_from_query_string(): void
     {
         $user = User::factory()->create(['role' => UserRole::SpvHo]);
@@ -107,7 +117,7 @@ class RbacAuthorizationTest extends TestCase
 
         $this->post('/login', [
             'email' => 'superadmin@example.com',
-            'password' => 'password',
+            'password' => '123123',
         ])->assertRedirect('/dashboard');
 
         $this->get('/dashboard')

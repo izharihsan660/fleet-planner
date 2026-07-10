@@ -178,6 +178,39 @@ class WorkOrderBoardTest extends TestCase
             );
     }
 
+    public function test_create_task_now_can_include_mechanic_and_schedule_before_approval(): void
+    {
+        $admin = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $unit = $this->unit($admin->site_id, 10000, 100);
+        $planning = $this->planning($unit, 'Hydraulic Filter', 12000, today()->addDays(10)->toDateString());
+        $scheduledDate = today()->addDays(3)->toDateString();
+
+        $this->actingAs($admin)
+            ->post(route('unit-plannings.create-work-order', $planning), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => $scheduledDate,
+            ])
+            ->assertRedirect();
+
+        $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
+
+        $this->assertSame($mechanic->id, $workOrder->assigned_mechanic_id);
+        $this->assertSame($scheduledDate, $workOrder->scheduled_date->toDateString());
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
+        $this->assertDatabaseHas('work_order_items', [
+            'unit_planning_id' => $planning->id,
+            'status' => 'in_progress',
+            'approved_by' => $spv->id,
+        ]);
+    }
+
     public function test_planner_area_can_assign_same_site_mechanic_to_approved_in_progress_work_order(): void
     {
         $admin = $this->adminSite();
@@ -271,7 +304,7 @@ class WorkOrderBoardTest extends TestCase
         $this->assertSame('breakdown', $breakdownItem->refresh()->status);
     }
 
-    public function test_work_order_card_count_excludes_completed_items(): void
+    public function test_work_order_card_exposes_total_and_remaining_item_counts(): void
     {
         $planner = $this->adminSite();
         $unit = $this->unit($planner->site_id, 10000, 100);
@@ -302,8 +335,134 @@ class WorkOrderBoardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('boardColumns.open.data.0.id', $workOrder->id)
-                ->where('boardColumns.open.data.0.items_count', 1)
+                ->where('boardColumns.open.data.0.items_count', 2)
+                ->where('boardColumns.open.data.0.completed_items_count', 1)
+                ->where('boardColumns.open.data.0.remaining_items_count', 1)
             );
+    }
+
+    public function test_work_order_board_exposes_multi_item_progress_and_assigned_mechanic_meta(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create([
+            'role' => UserRole::Mekanik,
+            'site_id' => $planner->site_id,
+            'name' => 'Mekanik Dengan Nama Sangat Panjang Untuk Uji Ellipsis',
+        ]);
+        $unit = $this->unit($planner->site_id, 10000, 100);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'in_progress',
+            'trigger_type' => 'normal',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+        ]);
+
+        foreach ([
+            'Complete A' => 'complete',
+            'Complete B' => 'complete',
+            'Postpone C' => 'postponed',
+            'Blocked D' => 'blocked',
+            'Belum Disentuh E' => 'in_progress',
+        ] as $name => $status) {
+            $planning = $this->planning($unit, $name, 12000, today()->addDays(10)->toDateString());
+
+            WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => $status,
+                'action' => $status === 'postponed' ? 'postpone' : null,
+            ]);
+        }
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.in_progress.data.0.id', $workOrder->id)
+                ->where('boardColumns.in_progress.data.0.items_count', 5)
+                ->where('boardColumns.in_progress.data.0.completed_items_count', 3)
+                ->where('boardColumns.in_progress.data.0.remaining_items_count', 2)
+                ->where('boardColumns.in_progress.data.0.sub_status.key', 'assigned')
+                ->where('boardColumns.in_progress.data.0.sub_status.label', 'Mekanik: '.$mechanic->name)
+                ->where('boardColumns.in_progress.data.0.assigned_mechanic.name', $mechanic->name)
+            );
+    }
+
+    public function test_complete_column_keeps_total_item_count_instead_of_zero(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 10000, 100);
+        $planning = $this->planning($unit, 'Greasing', 12000, today()->addDays(10)->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'complete',
+            'trigger_type' => 'normal',
+        ]);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'complete',
+        ]);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.complete.data.0.id', $workOrder->id)
+                ->where('boardColumns.complete.data.0.items_count', 1)
+                ->where('boardColumns.complete.data.0.completed_items_count', 1)
+                ->where('boardColumns.complete.data.0.remaining_items_count', 0)
+            );
+    }
+
+    public function test_mismatched_complete_work_order_is_excluded_from_complete_column_and_audit_command_can_fix_it(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 10000, 100);
+        $completePlanning = $this->planning($unit, 'Completed Service', 12000, today()->addDays(10)->toDateString());
+        $overduePlanning = $this->planning($unit, 'Overdue Service', 9000, today()->subDay()->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'complete',
+            'trigger_type' => 'normal',
+        ]);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $completePlanning->id,
+            'planning_item_id' => $completePlanning->planning_item_id,
+            'status' => 'complete',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $overduePlanning->id,
+            'planning_item_id' => $overduePlanning->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.complete.data', 0)
+            );
+
+        $this->artisan('work-orders:audit-statuses')
+            ->expectsOutput('Mismatched work orders: 1')
+            ->assertSuccessful();
+
+        $this->artisan('work-orders:audit-statuses --fix')
+            ->expectsOutput('Mismatched work orders: 1')
+            ->assertSuccessful();
+
+        $this->assertSame('open', $workOrder->refresh()->status);
     }
 
     private function adminSite(): User

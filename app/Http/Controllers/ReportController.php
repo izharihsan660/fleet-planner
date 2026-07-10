@@ -9,6 +9,7 @@ use App\Http\Resources\SiteResource;
 use App\Models\Site;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Support\AccessScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -38,7 +39,7 @@ class ReportController extends Controller
             'sites' => SiteResource::collection($this->visibleSites($request)),
             'filters' => $filters,
             'permissions' => [
-                'can_filter_site' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
+                'can_filter_site' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]),
                 'can_view_wo_summary' => Gate::allows('view-reports.wo-summary'),
                 'can_view_by_item' => Gate::allows('view-reports.by-item'),
                 'can_view_by_unit' => Gate::allows('view-reports.by-unit'),
@@ -83,12 +84,12 @@ class ReportController extends Controller
     {
         $validated = $request->validated();
         $user = $request->user();
-        $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]);
+        $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]);
 
         return [
             'month' => (int) ($validated['month'] ?? now()->month),
             'year' => (int) ($validated['year'] ?? now()->year),
-            'site_id' => $user->hasRole(UserRole::PlannerArea) ? $user->site_id : ($canFilterSite ? ($validated['site_id'] ?? null) : null),
+            'site_id' => $canFilterSite ? ($validated['site_id'] ?? null) : null,
             'tab' => $validated['tab'] ?? 'wo',
         ];
     }
@@ -98,7 +99,7 @@ class ReportController extends Controller
         $user = $request->user();
 
         return WorkOrder::query()
-            ->when($user->hasRole(UserRole::PlannerArea), fn (Builder $query) => $query->where('work_orders.site_id', $user->site_id))
+            ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $user, 'work_orders.site_id'))
             ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereHas('items', fn (Builder $itemQuery) => $itemQuery->where('work_order_items.submitted_by', $user->id)));
     }
 
@@ -108,7 +109,7 @@ class ReportController extends Controller
 
         return WorkOrderItem::query()
             ->whereHas('workOrder', function (Builder $query) use ($user): void {
-                $query->when($user->hasRole(UserRole::PlannerArea), fn (Builder $siteQuery) => $siteQuery->where('work_orders.site_id', $user->site_id));
+                AccessScope::applySiteScope($query, $user, 'work_orders.site_id');
             })
             ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->where('work_order_items.submitted_by', $user->id));
     }
@@ -232,7 +233,7 @@ class ReportController extends Controller
         $user = $request->user();
 
         return Site::query()
-            ->when($user->hasRole(UserRole::PlannerArea), fn (Builder $query) => $query->whereKey($user->site_id))
+            ->tap(fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
             ->orderBy('name')
             ->get();
     }

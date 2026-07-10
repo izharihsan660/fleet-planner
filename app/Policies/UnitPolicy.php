@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Models\Unit;
 use App\Models\User;
 use App\Policies\Concerns\AuthorizesMasterData;
+use App\Support\AccessScope;
 
 class UnitPolicy
 {
@@ -14,7 +15,9 @@ class UnitPolicy
     public function view(User $user, Unit $unit): bool
     {
         if ($user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik])) {
-            return $user->site_id === $unit->site_id;
+            $unit->loadMissing('site:id,region_id');
+
+            return AccessScope::canAccessSite($user, $unit->site_id, $unit->site?->region_id);
         }
 
         return true;

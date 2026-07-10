@@ -1,16 +1,17 @@
-import { ButtonHTMLAttributes } from 'react';
+import { ButtonHTMLAttributes, forwardRef } from 'react';
 
 import { Button } from '@/Components/ui/button';
 import { cn } from '@/lib/utils';
 
-export default function PrimaryButton({
+const PrimaryButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(function PrimaryButton({
     className = '',
     disabled,
     children,
     ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}, ref) {
     return (
         <Button
+            ref={ref}
             {...props}
             className={cn('uppercase tracking-widest', className)}
             disabled={disabled}
@@ -18,4 +19,6 @@ export default function PrimaryButton({
             {children}
         </Button>
     );
-}
+});
+
+export default PrimaryButton;

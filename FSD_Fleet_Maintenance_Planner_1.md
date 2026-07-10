@@ -163,7 +163,9 @@ Setiap hari, Mekanik input:
 **Validasi:**
 - KM baru harus lebih besar dari KM terakhir yang tercatat
 - Jika KM lebih kecil → sistem tampilkan warning, input ditolak
-- Jika ada dua input untuk unit yang sama di hari yang sama → ambil nilai KM terbesar
+- Satu unit hanya boleh diinput 1 kali per hari
+- Jika mekanik salah input, mekanik yang bersangkutan boleh membatalkan input miliknya sendiri di hari yang sama, lalu input ulang
+- Unit yang sudah diinput hari ini tidak muncul lagi di daftar pilihan Input KM sampai input tersebut dibatalkan
 - Jika jumlah inspeksi untuk unit tersebut kurang dari threshold minimum → sistem tampilkan warning "Data inspeksi unit ini masih sedikit, perhitungan avg KM/hari belum akurat"
 
 ### 4.2 Trigger Kalkulasi
@@ -437,7 +439,8 @@ Semua role dapat mengakses laporan dengan level detail yang berbeda:
 
 ### 11.1 Input KM
 - KM baru harus > KM terakhir yang tercatat → jika tidak, warning + tolak input
-- Jika dua input KM untuk unit yang sama di hari yang sama → ambil nilai terbesar
+- Satu unit hanya boleh diinput 1 kali per hari
+- Input hari ini bisa dibatalkan dan diinput ulang oleh mekanik yang bersangkutan di hari yang sama
 - Jika jumlah inspeksi < threshold minimum → warning "Data inspeksi masih sedikit"
 
 ### 11.2 Breakdown Detection
@@ -451,7 +454,7 @@ Semua role dapat mengakses laporan dengan level detail yang berbeda:
 - 5 hari dihitung sejak pertama kali flag High Usage muncul
 
 ### 11.4 Concurrency
-- Input KM oleh beberapa mekanik untuk unit yang sama → ambil nilai terbesar
+- Jika unit sudah memiliki input KM pada tanggal yang sama, input berikutnya ditolak sampai input hari itu dibatalkan
 
 ### 11.5 Warranty
 - Flag Warranty otomatis aktif saat KM < 50.000
@@ -484,12 +487,17 @@ Semua role dapat mengakses laporan dengan level detail yang berbeda:
 ```sql
 -- User dan role
 users
-  id, name, email, password, role, site_id,
+  id, name, email, password, role, site_id, region_id,
+  created_at, updated_at
+
+-- Planner region operasional
+regions
+  id, name,
   created_at, updated_at
 
 -- Lokasi/site
 sites
-  id, name, region,
+  id, name, region, region_id,
   created_at, updated_at
 
 -- Master unit kendaraan
@@ -565,3 +573,15 @@ notifications
 *Dokumen ini adalah hasil diskusi dan belum final. Setiap business logic perlu dikonfirmasi ulang sebelum development dimulai.*
 
 *Versi: 1.0 — Juni 2026*
+
+---
+
+## Update 2026-07-09 — Region Planner Area
+
+- Planner Area sekarang di-scope per Region, bukan per Site.
+- Region awal: Kalimantan dan Sulawesi.
+- Kalimantan mencakup BPN, SMD, M. LAWA, LOREH, LOAJANAN, LOA KULU, SANGA SANGA, TGR, TJ. REDEB, ADARO, TABANG, dan SANGATTA.
+- Sulawesi mencakup MANADO, SOROAKO, KENDARI, GORONTALO, MAKASSAR, dan MKS.
+- User Planner Area memakai `users.region_id`; `users.site_id` tetap dipakai untuk Mekanik.
+- Mekanik tetap scoped 1 site seperti desain sebelumnya.
+- Superadmin dan Spv HO tetap dapat melihat semua region dan site.

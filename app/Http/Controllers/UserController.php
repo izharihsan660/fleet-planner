@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\UserRole;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
+use App\Models\Region;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -19,7 +20,7 @@ class UserController extends Controller
     {
         Gate::authorize('viewAny', User::class);
 
-        return Inertia::render('Users/Index', ['users' => User::query()->with('site:id,name')->latest()->paginate(25)->withQueryString()]);
+        return Inertia::render('Users/Index', ['users' => User::query()->with(['site:id,name', 'area:id,name'])->latest()->paginate(25)->withQueryString()]);
     }
 
     public function create(): Response
@@ -40,7 +41,7 @@ class UserController extends Controller
     {
         Gate::authorize('update', $user);
 
-        return Inertia::render('Users/Edit', [...$this->formOptions(), 'managedUser' => $user->load('site:id,name')]);
+        return Inertia::render('Users/Edit', [...$this->formOptions(), 'managedUser' => $user->load(['site:id,name', 'area:id,name'])]);
     }
 
     public function update(UpdateUserRequest $request, User $user): RedirectResponse
@@ -68,6 +69,7 @@ class UserController extends Controller
     {
         return [
             'sites' => Site::query()->orderBy('name')->get(['id', 'name', 'region']),
+            'regions' => Region::query()->orderBy('name')->get(['id', 'name']),
             'roles' => collect(UserRole::cases())->map(fn (UserRole $role): array => ['value' => $role->value, 'label' => $role->label()])->values(),
         ];
     }

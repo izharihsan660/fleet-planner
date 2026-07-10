@@ -11,6 +11,7 @@ use App\Models\User;
 use Database\Seeders\PlanningItemSeeder;
 use Database\Seeders\SystemThresholdSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class MasterDataAccessTest extends TestCase
@@ -85,5 +86,34 @@ class MasterDataAccessTest extends TestCase
         $this->actingAs($mekanik)->get(route('planning-items.index'))->assertForbidden();
         $this->actingAs($superadmin)->get(route('users.index'))->assertOk();
         $this->actingAs($plannerHo)->get(route('users.index'))->assertForbidden();
+    }
+
+    public function test_units_index_is_paginated_and_exposes_total_count(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $user = User::factory()->create(['role' => UserRole::SpvHo]);
+
+        foreach (range(1, 30) as $number) {
+            Unit::query()->create([
+                'site_id' => $site->id,
+                'customer' => 'Customer A',
+                'current_plate' => 'KT '.str_pad((string) $number, 4, '0', STR_PAD_LEFT).' AA',
+                'type' => 'Pickup',
+                'brand' => 'Toyota',
+                'year' => 2024,
+                'current_odo' => 0,
+                'status' => 'active',
+            ]);
+        }
+
+        $this->actingAs($user)->get(route('units.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Units/Index')
+                ->has('units.data', 25)
+                ->where('units.meta.total', 30)
+                ->where('units.meta.per_page', 25)
+                ->where('totalUnits', 30)
+            );
     }
 }

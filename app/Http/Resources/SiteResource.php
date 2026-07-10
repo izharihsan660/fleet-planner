@@ -18,6 +18,8 @@ class SiteResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'region' => $this->region,
+            'region_id' => $this->region_id,
+            'area' => RegionResource::make($this->whenLoaded('area')),
         ];
     }
 }

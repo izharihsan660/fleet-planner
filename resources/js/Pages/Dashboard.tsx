@@ -12,6 +12,12 @@ type DashboardProps = PageProps<{
 
 export default function Dashboard({ auth, overdueBanner }: DashboardProps) {
     const canSeeOverdueBanner = ['superadmin', 'spv_ho'].includes(auth.user.role) && overdueBanner.count > overdueBanner.threshold;
+    const menuSuggestions = {
+        superadmin: 'Gunakan menu di sisi kiri untuk membuka Work Orders, Daftar Kerja, Antrian Approval, Laporan, Master Data, dan Manajemen Pengguna.',
+        spv_ho: 'Gunakan menu di sisi kiri untuk membuka Antrian Approval, Work Orders, Pemakaian Tinggi, Proyeksi, Laporan, dan Master Data.',
+        planner_area: 'Gunakan menu di sisi kiri untuk membuka Work Orders, Daftar Kerja, Input KM, Riwayat Inspeksi, Pemakaian Tinggi, Proyeksi, dan Laporan.',
+        mekanik: 'Kamu akan diarahkan ke Tugas Saya untuk melihat pekerjaan yang perlu diselesaikan.',
+    }[auth.user.role] ?? 'Gunakan menu di sisi kiri untuk membuka halaman yang tersedia untuk akun kamu.';
 
     return (
         <AuthenticatedLayout
@@ -45,7 +51,7 @@ export default function Dashboard({ auth, overdueBanner }: DashboardProps) {
                             <CardDescription>Ringkasan operasional maintenance harian.</CardDescription>
                         </CardHeader>
                         <CardContent className="text-sm text-muted-foreground">
-                            You're logged in! Gunakan menu di sisi kiri untuk membuka Work Orders, High Usage, Projections, dan Reports.
+                            Kamu sudah masuk. {menuSuggestions}
                         </CardContent>
                     </Card>
                     <Card>

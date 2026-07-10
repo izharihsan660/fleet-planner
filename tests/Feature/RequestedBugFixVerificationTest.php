@@ -89,7 +89,7 @@ class RequestedBugFixVerificationTest extends TestCase
                 'inspection_date' => today()->toDateString(),
                 'odometer' => '9500',
             ])
-            ->assertRedirect(route('inspections.index'));
+            ->assertRedirect(route('inspections.create'));
 
         $this->assertSame(9500, InspectionLog::query()->where('unit_id', $unit->id)->firstOrFail()->odometer);
         $this->assertSame(9500, $unit->refresh()->current_odo);

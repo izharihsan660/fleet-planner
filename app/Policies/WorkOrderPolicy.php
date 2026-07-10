@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\UserRole;
 use App\Models\User;
 use App\Models\WorkOrder;
+use App\Support\AccessScope;
 
 class WorkOrderPolicy
 {
@@ -70,10 +71,8 @@ class WorkOrderPolicy
 
     private function canAccessSite(User $user, WorkOrder $workOrder): bool
     {
-        if ($user->isOneOf([UserRole::PlannerArea, UserRole::Mekanik])) {
-            return $user->site_id === $workOrder->site_id;
-        }
+        $workOrder->loadMissing('site:id,region_id');
 
-        return true;
+        return AccessScope::canAccessSite($user, $workOrder->site_id, $workOrder->site?->region_id);
     }
 }

@@ -1,0 +1,98 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fleet-planner-frankenphp:latest
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - app_storage:/app/storage
+      - app_cache:/app/bootstrap/cache
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=workspace_local-dev
+      - traefik.http.routers.fleet-planner.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.fleet-planner.entrypoints=websecure
+      - traefik.http.routers.fleet-planner.tls=true
+      - traefik.http.routers.fleet-planner.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.services.fleet-planner.loadbalancer.server.port=8080
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/up || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+      - workspace_local-dev
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
+  queue:
+    image: fleet-planner-frankenphp:latest
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_started
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=120
+    volumes:
+      - app_storage:/app/storage
+      - app_cache:/app/bootstrap/cache
+    networks:
+      - internal
+
+  scheduler:
+    image: fleet-planner-frankenphp:latest
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    depends_on:
+      mysql:
+        condition: service_healthy
+      app:
+        condition: service_started
+    command: sh -c 'while true; do php artisan schedule:run --no-interaction; sleep 60; done'
+    volumes:
+      - app_storage:/app/storage
+      - app_cache:/app/bootstrap/cache
+    networks:
+      - internal
+
+volumes:
+  mysql_data:
+  app_storage:
+  app_cache:
+
+networks:
+  internal:
+    driver: bridge
+  workspace_local-dev:
+    external: true

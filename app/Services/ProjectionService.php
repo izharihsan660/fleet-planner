@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\SystemThreshold;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
+use App\Models\WorkOrderItem;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -13,22 +14,27 @@ class ProjectionService
     /**
      * @return array{period_months: int, period_end: string, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
      */
-    public function calculate(int $months, ?int $siteId = null): array
+    public function calculate(int $months, ?int $siteId = null, ?int $regionId = null): array
     {
         $periodStart = CarbonImmutable::today();
         $periodEnd = $periodStart->addMonthsNoOverflow($months);
         $remainingDays = max(0, $periodStart->diffInDays($periodEnd));
-        $minimumInspectionData = (int) (SystemThreshold::query()
-            ->where('key', 'min_inspection_data')
-            ->value('value') ?? 0);
+
+        $thresholds = SystemThreshold::query()
+            ->whereIn('key', ['min_inspection_data', 'rolling_window_days'])
+            ->pluck('value', 'key');
+
+        $minimumInspectionData = (int) ($thresholds->get('min_inspection_data') ?? 0);
+        $rollingWindowDays = max(1, (int) ($thresholds->get('rolling_window_days') ?? 30));
 
         $units = Unit::query()
             ->with([
                 'site:id,name,region',
-                'inspectionLogs:id,unit_id,inspection_date,odometer',
+                'inspectionLogs:id,unit_id,inspection_date,odometer,previous_odo',
                 'unitPlannings.planningItem:id,name,interval_km,interval_days',
             ])
             ->when($siteId !== null, fn ($query) => $query->where('site_id', $siteId))
+            ->when($siteId === null && $regionId !== null, fn ($query) => $query->whereHas('site', fn ($siteQuery) => $siteQuery->where('region_id', $regionId)))
             ->orderBy('current_plate')
             ->get();
 
@@ -38,13 +44,14 @@ class ProjectionService
 
         foreach ($units as $unit) {
             $inspectionCount = $unit->inspectionLogs->count();
-            $insufficientData = $inspectionCount < $minimumInspectionData;
-            $averageKmPerDay = $this->averageKmPerDay($unit->inspectionLogs);
+            $hasProjectionOdometerData = $unit->has_odometer_reading && $inspectionCount >= $minimumInspectionData;
+            $insufficientData = ! $hasProjectionOdometerData;
+            $averageKmPerDay = $hasProjectionOdometerData ? $this->averageKmPerDayForProjection($unit->id, $unit->inspectionLogs, $rollingWindowDays) : 0.0;
             $estimatedPeriodOdometer = (int) round($unit->current_odo + ($averageKmPerDay * $remainingDays));
             $unitItems = collect();
 
             foreach ($unit->unitPlannings as $unitPlanning) {
-                if (! $this->isDueInPeriod($unitPlanning, $estimatedPeriodOdometer, $periodEnd)) {
+                if (! $this->isDueInPeriod($unitPlanning, $estimatedPeriodOdometer, $periodEnd, $hasProjectionOdometerData)) {
                     continue;
                 }
 
@@ -63,6 +70,7 @@ class ProjectionService
                     'estimated_due_km' => $estimatedDueKm,
                     'estimated_quantity' => 1,
                     'insufficient_data' => $insufficientData,
+                    'data_status_message' => $insufficientData ? $this->insufficientDataMessage() : null,
                 ];
 
                 $unitItems->push($projectionItem);
@@ -76,6 +84,8 @@ class ProjectionService
                     'site_name' => $unit->site?->name ?? '-',
                     'inspection_count' => $inspectionCount,
                     'minimum_required' => $minimumInspectionData,
+                    'has_odometer_reading' => $unit->has_odometer_reading,
+                    'message' => $this->insufficientDataMessage(),
                 ];
             }
 
@@ -89,6 +99,7 @@ class ProjectionService
                     'avg_km_per_day' => $averageKmPerDay,
                     'estimated_period_odo' => $estimatedPeriodOdometer,
                     'insufficient_data' => $insufficientData,
+                    'data_status_message' => $insufficientData ? $this->insufficientDataMessage() : null,
                     'items' => $unitItems->values()->all(),
                 ];
             }
@@ -107,7 +118,7 @@ class ProjectionService
     /**
      * @param  Collection<int, mixed>  $inspectionLogs
      */
-    private function averageKmPerDay(Collection $inspectionLogs): float
+    private function averageKmPerDayForProjection(int $unitId, Collection $inspectionLogs, int $windowDays): float
     {
         $logs = $inspectionLogs->sortBy('inspection_date')->values();
 
@@ -115,16 +126,66 @@ class ProjectionService
             return 0.0;
         }
 
-        $first = $logs->first();
-        $last = $logs->last();
-        $days = max(1, CarbonImmutable::parse($first->inspection_date)->diffInDays(CarbonImmutable::parse($last->inspection_date)));
+        $today = CarbonImmutable::today();
+        $windowStart = $today->subDays($windowDays);
 
-        return round(max(0, $last->odometer - $first->odometer) / $days, 2);
+        $windowLogs = $logs->filter(
+            fn ($log): bool => CarbonImmutable::parse($log->inspection_date)->greaterThanOrEqualTo($windowStart)
+        )->values();
+
+        if ($windowLogs->count() < 2) {
+            $windowLogs = $logs;
+        }
+
+        if ($windowLogs->count() < 2) {
+            return 0.0;
+        }
+
+        $first = $windowLogs->first();
+        $last = $windowLogs->last();
+        $totalKm = max(0, $last->odometer - $first->odometer);
+
+        $firstDate = CarbonImmutable::parse($first->inspection_date);
+        $lastDate = CarbonImmutable::parse($last->inspection_date);
+        $totalDays = max(1, $firstDate->diffInDays($lastDate));
+
+        $blockedDays = $this->countBlockedOrBreakdownDays($unitId, $firstDate, $lastDate);
+        $effectiveDays = max(1, $totalDays - $blockedDays);
+
+        return round($totalKm / $effectiveDays, 2);
     }
 
-    private function isDueInPeriod(UnitPlanning $unitPlanning, int $estimatedPeriodOdometer, CarbonImmutable $periodEnd): bool
+    private function countBlockedOrBreakdownDays(int $unitId, CarbonImmutable $from, CarbonImmutable $to): int
     {
-        $dueByKm = $unitPlanning->next_due_km !== null && $unitPlanning->next_due_km <= $estimatedPeriodOdometer;
+        $items = WorkOrderItem::query()
+            ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unitId))
+            ->whereIn('status', ['blocked', 'breakdown', 'complete'])
+            ->whereIn('action', ['blocked', 'breakdown'])
+            ->whereNotNull('freeze_start')
+            ->get(['freeze_start', 'freeze_end']);
+
+        $days = 0;
+
+        foreach ($items as $item) {
+            $freezeStart = CarbonImmutable::parse($item->freeze_start)->startOfDay();
+            $freezeEnd = $item->freeze_end
+                ? CarbonImmutable::parse($item->freeze_end)->startOfDay()
+                : $to;
+
+            $overlapStart = $freezeStart->max($from);
+            $overlapEnd = $freezeEnd->min($to);
+
+            if ($overlapStart->lessThan($overlapEnd)) {
+                $days += (int) $overlapStart->diffInDays($overlapEnd);
+            }
+        }
+
+        return $days;
+    }
+
+    private function isDueInPeriod(UnitPlanning $unitPlanning, int $estimatedPeriodOdometer, CarbonImmutable $periodEnd, bool $canUseOdometerProjection): bool
+    {
+        $dueByKm = $canUseOdometerProjection && $unitPlanning->next_due_km !== null && $unitPlanning->next_due_km <= $estimatedPeriodOdometer;
         $dueByDate = $unitPlanning->next_due_date !== null && CarbonImmutable::parse($unitPlanning->next_due_date)->lessThanOrEqualTo($periodEnd);
 
         return $dueByKm || $dueByDate;
@@ -167,5 +228,10 @@ class ProjectionService
             ->sortBy('planning_item_name')
             ->values()
             ->all();
+    }
+
+    private function insufficientDataMessage(): string
+    {
+        return 'Data KM belum tersedia — menunggu input mekanik';
     }
 }

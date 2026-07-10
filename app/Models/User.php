@@ -27,6 +27,7 @@ class User extends Authenticatable
         'password',
         'role',
         'site_id',
+        'region_id',
     ];
 
     /**
@@ -59,6 +60,14 @@ class User extends Authenticatable
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class);
+    }
+
+    /**
+     * @return BelongsTo<Region, $this>
+     */
+    public function area(): BelongsTo
+    {
+        return $this->belongsTo(Region::class, 'region_id');
     }
 
     /**

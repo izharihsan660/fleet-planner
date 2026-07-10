@@ -217,6 +217,41 @@ class ReportHistoryTest extends TestCase
             });
     }
 
+    public function test_check_overdue_command_does_not_mark_null_due_date_when_km_is_below_due(): void
+    {
+        [$unit, $item] = $this->createNullDueDateScenario(currentOdo: 0, nextDueKm: 10000);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame(0, $unit->refresh()->current_odo);
+        $this->assertSame('on_hold', $item->refresh()->status);
+    }
+
+    public function test_check_overdue_command_marks_null_due_date_when_km_reaches_due(): void
+    {
+        [, $item] = $this->createNullDueDateScenario(currentOdo: 12000, nextDueKm: 10000);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame('overdue', $item->refresh()->status);
+    }
+
+    public function test_check_overdue_command_restores_stale_overdue_with_null_due_date_and_km_below_due(): void
+    {
+        [, $item] = $this->createNullDueDateScenario(currentOdo: 0, nextDueKm: 10000, status: 'overdue');
+
+        $this->artisan('maintenance:check-overdue --dry-run')
+            ->assertSuccessful()
+            ->expectsOutput('0 work order item akan ditandai overdue.')
+            ->expectsOutput('1 work order item overdue stale akan dikembalikan ke on_hold.');
+
+        $this->assertSame('overdue', $item->refresh()->status);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+    }
+
     /**
      * @return array{0: Site, 1: Unit}
      */
@@ -279,5 +314,41 @@ class ReportHistoryTest extends TestCase
         ]);
 
         return [$site, $unit];
+    }
+
+    /**
+     * @return array{0: Unit, 1: WorkOrderItem}
+     */
+    private function createNullDueDateScenario(int $currentOdo, int $nextDueKm, string $status = 'on_hold'): array
+    {
+        $site = Site::query()->create(['name' => 'Site Null Due', 'region' => 'Region Test']);
+        $unit = Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'Customer Test',
+            'current_plate' => 'KT 8994 YS',
+            'type' => 'Dump Truck',
+            'brand' => 'Hino',
+            'year' => 2023,
+            'current_odo' => $currentOdo,
+            'status' => 'active',
+        ]);
+        $planningItem = PlanningItem::query()->create(['name' => 'Filter Oli', 'interval_km' => 10000, 'interval_days' => 90]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => $nextDueKm,
+            'next_due_date' => null,
+        ]);
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);
+        $item = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => $status,
+        ]);
+
+        return [$unit, $item];
     }
 }

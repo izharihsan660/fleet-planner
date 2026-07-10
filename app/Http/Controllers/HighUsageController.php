@@ -8,6 +8,7 @@ use App\Http\Requests\TakeHighUsageActionRequest;
 use App\Http\Resources\HighUsageFlagResource;
 use App\Models\HighUsageFlag;
 use App\Services\HighUsageService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -25,7 +26,9 @@ class HighUsageController extends Controller
         $flags = HighUsageFlag::query()
             ->with(['unit.site', 'planningItem', 'unitPlanning', 'actionTakenBy'])
             ->whereNull('resolved_at')
-            ->when(! $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]), fn ($query) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('site_id', $user->site_id)))
+            ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)))
+            ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id !== null, fn (Builder $query) => $query->whereHas('unit.site', fn (Builder $siteQuery) => $siteQuery->where('region_id', $user->region_id)))
+            ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id === null, fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)))
             ->latest('flagged_at')
             ->paginate(25)
             ->withQueryString();

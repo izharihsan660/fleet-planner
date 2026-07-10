@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Models\HighUsageFlag;
 use App\Models\InspectionLog;
 use App\Models\PlanningItem;
+use App\Models\Region;
 use App\Models\Site;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
@@ -31,7 +32,8 @@ class DemoDataSeeder extends Seeder
         ]);
 
         $today = CarbonImmutable::today();
-        $sites = $this->sites();
+        $regions = $this->regions();
+        $sites = $this->sites($regions);
         $users = $this->users($sites);
         $units = $this->units($sites);
 
@@ -39,33 +41,42 @@ class DemoDataSeeder extends Seeder
         $this->specials($units, $users, $today);
     }
 
-    private function sites(): array
+    private function regions(): array
+    {
+        foreach (['kalimantan' => 'Kalimantan', 'sulawesi' => 'Sulawesi'] as $slug => $name) {
+            $regions[$slug] = Region::query()->updateOrCreate(['name' => $name]);
+        }
+
+        return $regions ?? [];
+    }
+
+    private function sites(array $regions): array
     {
         $rows = [
-            'adaro' => ['ADARO', 'Kalimantan Selatan'],
-            'bpn' => ['BPN', 'Kalimantan Timur'],
-            'gorontalo' => ['GORONTALO', 'Gorontalo'],
-            'kendari' => ['KENDARI', 'Sulawesi Tenggara'],
-            'loa-kulu' => ['LOA KULU', 'Kalimantan Timur'],
-            'loajanan' => ['LOAJANAN', 'Kalimantan Timur'],
-            'loreh' => ['LOREH', 'Kalimantan Utara'],
-            'm-lawa' => ['M. LAWA', 'Kalimantan Timur'],
-            'makassar' => ['MAKASSAR', 'Sulawesi Selatan'],
-            'manado' => ['MANADO', 'Sulawesi Utara'],
-            'mks' => ['MKS', 'Sulawesi Selatan'],
-            'sanga-sanga' => ['SANGA SANGA', 'Kalimantan Timur'],
-            'sangatta' => ['SANGATTA', 'Kalimantan Timur'],
-            'smd' => ['SMD', 'Kalimantan Timur'],
-            'soroako' => ['SOROAKO', 'Sulawesi Selatan'],
-            'tabang' => ['TABANG', 'Kalimantan Timur'],
-            'tgr' => ['TGR', 'Banten'],
-            'tj-redeb' => ['TJ. REDEB', 'Kalimantan Timur'],
+            'adaro' => ['ADARO', 'Kalimantan Selatan', 'kalimantan'],
+            'bpn' => ['BPN', 'Kalimantan Timur', 'kalimantan'],
+            'gorontalo' => ['GORONTALO', 'Gorontalo', 'sulawesi'],
+            'kendari' => ['KENDARI', 'Sulawesi Tenggara', 'sulawesi'],
+            'loa-kulu' => ['LOA KULU', 'Kalimantan Timur', 'kalimantan'],
+            'loajanan' => ['LOAJANAN', 'Kalimantan Timur', 'kalimantan'],
+            'loreh' => ['LOREH', 'Kalimantan Utara', 'kalimantan'],
+            'm-lawa' => ['M. LAWA', 'Kalimantan Timur', 'kalimantan'],
+            'makassar' => ['MAKASSAR', 'Sulawesi Selatan', 'sulawesi'],
+            'manado' => ['MANADO', 'Sulawesi Utara', 'sulawesi'],
+            'mks' => ['MKS', 'Sulawesi Selatan', 'sulawesi'],
+            'sanga-sanga' => ['SANGA SANGA', 'Kalimantan Timur', 'kalimantan'],
+            'sangatta' => ['SANGATTA', 'Kalimantan Timur', 'kalimantan'],
+            'smd' => ['SMD', 'Kalimantan Timur', 'kalimantan'],
+            'soroako' => ['SOROAKO', 'Sulawesi Selatan', 'sulawesi'],
+            'tabang' => ['TABANG', 'Kalimantan Timur', 'kalimantan'],
+            'tgr' => ['TGR', 'Banten', 'kalimantan'],
+            'tj-redeb' => ['TJ. REDEB', 'Kalimantan Timur', 'kalimantan'],
         ];
 
         Site::query()->whereNotIn('name', array_column($rows, 0))->delete();
 
-        foreach ($rows as $slug => [$name, $region]) {
-            $sites[$slug] = Site::query()->updateOrCreate(['name' => $name], ['region' => $region]);
+        foreach ($rows as $slug => [$name, $region, $regionSlug]) {
+            $sites[$slug] = Site::query()->updateOrCreate(['name' => $name], ['region' => $region, 'region_id' => $regions[$regionSlug]->id]);
         }
 
         return $sites ?? [];
@@ -73,24 +84,31 @@ class DemoDataSeeder extends Seeder
 
     private function users(array $sites): array
     {
+        User::query()->where('role', UserRole::PlannerArea)->where('email', 'like', 'planner.%@example.com')->delete();
+
         User::query()->updateOrCreate(
             ['email' => 'superadmin@example.com'],
-            ['name' => 'Superadmin Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Superadmin, 'site_id' => null],
+            ['name' => 'Superadmin Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Superadmin, 'site_id' => null, 'region_id' => null],
         );
         User::query()->updateOrCreate(
             ['email' => 'spv_ho@example.com'],
-            ['name' => 'Spv HO Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::SpvHo, 'site_id' => null],
+            ['name' => 'Spv HO Demo', 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::SpvHo, 'site_id' => null, 'region_id' => null],
         );
+
+        foreach (Region::query()->whereIn('name', ['Kalimantan', 'Sulawesi'])->get() as $region) {
+            $slug = Str::of($region->name)->lower()->toString();
+            $users[$slug]['admin'] = User::query()->updateOrCreate(
+                ['email' => "planner.{$slug}@example.com"],
+                ['name' => "Planner {$region->name}", 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::PlannerArea, 'site_id' => null, 'region_id' => $region->id],
+            );
+        }
 
         foreach ($sites as $slug => $site) {
             $label = Str::of($slug)->replace('-', ' ')->headline()->toString();
-            $users[$slug]['admin'] = User::query()->updateOrCreate(
-                ['email' => "planner.{$slug}@example.com"],
-                ['name' => "Planner {$label}", 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::PlannerArea, 'site_id' => $site->id],
-            );
+            $users[$slug]['admin'] = User::query()->where('role', UserRole::PlannerArea)->where('region_id', $site->region_id)->firstOrFail();
             $users[$slug]['mechanic'] = User::query()->updateOrCreate(
                 ['email' => "mekanik.{$slug}@example.com"],
-                ['name' => "Mekanik {$label}", 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Mekanik, 'site_id' => $site->id],
+                ['name' => "Mekanik {$label}", 'password' => Hash::make(self::PASSWORD), 'role' => UserRole::Mekanik, 'site_id' => $site->id, 'region_id' => null],
             );
         }
 

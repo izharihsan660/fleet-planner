@@ -96,3 +96,13 @@
 - Planning item standar berjumlah 20; item Ban lama dipisah menjadi Ban Depan, Ban Belakang, dan Ban Serep.
 - Interval maintenance dapat dioverride per kategori kendaraan: pickup_suv, truk_ringan, bus.
 - Import data existing tersedia untuk Units dan Unit Plannings dari CSV; Unit Plannings diproses melalui queue job.
+
+## Update 2026-07-09 — Region di atas Site
+
+- PT NAJ hanya memakai 2 Planner Area operasional: Kalimantan dan Sulawesi.
+- Planner Area tidak lagi 1 user per site; scope Planner Area adalah semua site dalam `regions` melalui `users.region_id`.
+- Mekanik tetap 1 user per site melalui `users.site_id`.
+- Pembagian site Region:
+  - Kalimantan: BPN, SMD, M. LAWA, LOREH, LOAJANAN, LOA KULU, SANGA SANGA, TGR, TJ. REDEB, ADARO, TABANG, SANGATTA.
+  - Sulawesi: MANADO, SOROAKO, KENDARI, GORONTALO, MAKASSAR, MKS.
+- User demo Planner Area: `planner.kalimantan@example.com` dan `planner.sulawesi@example.com`, password `123123`.

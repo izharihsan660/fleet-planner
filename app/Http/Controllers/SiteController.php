@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreSiteRequest;
 use App\Http\Requests\UpdateSiteRequest;
+use App\Models\Region;
 use App\Models\Site;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Gate;
@@ -16,14 +17,14 @@ class SiteController extends Controller
     {
         Gate::authorize('viewAny', Site::class);
 
-        return Inertia::render('Sites/Index', ['sites' => Site::query()->withCount(['units', 'users'])->latest()->paginate(25)->withQueryString()]);
+        return Inertia::render('Sites/Index', ['sites' => Site::query()->with('area:id,name')->withCount(['units', 'users'])->latest()->paginate(25)->withQueryString()]);
     }
 
     public function create(): Response
     {
         Gate::authorize('create', Site::class);
 
-        return Inertia::render('Sites/Create');
+        return Inertia::render('Sites/Create', $this->formOptions());
     }
 
     public function store(StoreSiteRequest $request): RedirectResponse
@@ -37,7 +38,7 @@ class SiteController extends Controller
     {
         Gate::authorize('update', $site);
 
-        return Inertia::render('Sites/Edit', ['site' => $site]);
+        return Inertia::render('Sites/Edit', [...$this->formOptions(), 'site' => $site->load('area:id,name')]);
     }
 
     public function update(UpdateSiteRequest $request, Site $site): RedirectResponse
@@ -53,5 +54,10 @@ class SiteController extends Controller
         $site->delete();
 
         return redirect()->route('sites.index');
+    }
+
+    private function formOptions(): array
+    {
+        return ['regions' => Region::query()->orderBy('name')->get(['id', 'name'])];
     }
 }

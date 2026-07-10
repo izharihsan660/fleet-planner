@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Models\InspectionLog;
 use App\Models\PlanningItem;
 use App\Models\Site;
 use App\Models\SystemThreshold;
@@ -40,7 +41,7 @@ class MaintenanceTriggerTest extends TestCase
             'unit_id' => $unit->id,
             'inspection_date' => now()->toDateString(),
             'odometer' => 1500,
-        ])->assertRedirect(route('inspections.index'));
+        ])->assertRedirect(route('inspections.create'));
 
         $workOrder = WorkOrder::query()->firstOrFail();
 
@@ -72,17 +73,20 @@ class MaintenanceTriggerTest extends TestCase
         $firstPlanning = $this->createPlanning($unit, 'Ganti Oli', 2000);
         $secondPlanning = $this->createPlanning($unit, 'Filter Solar', 1900);
 
-        $this->actingAs($mechanic)->post(route('inspections.store'), [
+        InspectionLog::query()->create([
             'unit_id' => $unit->id,
+            'mechanic_id' => $mechanic->id,
             'inspection_date' => now()->subDay()->toDateString(),
             'odometer' => 1500,
-        ])->assertRedirect(route('inspections.index'));
+            'previous_odo' => 1000,
+        ]);
+        $unit->update(['current_odo' => 1500]);
 
         $this->actingAs($mechanic)->post(route('inspections.store'), [
             'unit_id' => $unit->id,
             'inspection_date' => now()->toDateString(),
             'odometer' => 1600,
-        ])->assertRedirect(route('inspections.index'));
+        ])->assertRedirect(route('inspections.create'));
 
         $this->assertSame(1, WorkOrder::query()->count());
         $this->assertSame(2, WorkOrderItem::query()->count());
@@ -121,7 +125,7 @@ class MaintenanceTriggerTest extends TestCase
         $this->actingAs($mechanic)->post(route('work-orders.items.complete', [$workOrder, $item]), [
             'completed_odo' => 3200,
             'completed_date' => now()->toDateString(),
-        ])->assertRedirect(route('work-orders.show', $workOrder));
+        ])->assertRedirect(route('mechanic.tasks'));
 
         $this->assertSame('complete', $item->refresh()->status);
         $this->assertSame('complete', $workOrder->refresh()->status);

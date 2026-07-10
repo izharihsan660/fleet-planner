@@ -34,7 +34,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
         permissions.can_view_wo_summary ? { key: 'wo', label: 'Rekap WO' } : null,
         permissions.can_view_by_item ? { key: 'item', label: 'Per Item' } : null,
         permissions.can_view_by_unit ? { key: 'unit', label: 'Per Unit' } : null,
-        permissions.can_view_overdue ? { key: 'overdue', label: `Overdue — ${(summary.total_overdue ?? 0).toLocaleString('id-ID')}` } : null,
+        permissions.can_view_overdue ? { key: 'overdue', label: `Terlambat — ${(summary.total_overdue ?? 0).toLocaleString('id-ID')}` } : null,
     ].filter(Boolean) as { key: 'wo' | 'item' | 'unit' | 'overdue'; label: string }[], [permissions, summary.total_overdue]);
     const [activeTab, setActiveTab] = useState(tabs.find((tab) => tab.key === permissions.default_tab)?.key ?? tabs[0]?.key ?? 'item');
 
@@ -50,7 +50,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                         <SummaryCard label="Total WO" value={summary.total_wo ?? 0} />
                         <SummaryCard label="Total Item" value={summary.total_items ?? 0} />
                         <SummaryCard label="Complete" value={summary.total_complete ?? 0} />
-                        <SummaryCard label="Overdue" value={summary.total_overdue ?? 0} tone="danger" />
+                        <SummaryCard label="Terlambat" value={summary.total_overdue ?? 0} tone="danger" />
                     </div>
 
                     <Card>
@@ -69,10 +69,10 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                                 <TabsList>
                                     {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
                                 </TabsList>
-                                <TabsContent value="wo"><DataTable headers={['Site', 'Total WO', 'Total Item', 'Complete', 'Overdue', 'In Progress']} rows={woSummary.data.map((row) => [row.site, row.total_wo, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></TabsContent>
-                                <TabsContent value="item"><DataTable headers={['Item', 'Total WO', 'Complete', 'Overdue', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></TabsContent>
-                                <TabsContent value="unit"><DataTable headers={['Plat Nomor', 'Site', 'Total WO', 'Complete', 'Overdue']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></TabsContent>
-                                <TabsContent value="overdue"><DataTable headers={['Site', 'Total Overdue', 'Item Overdue']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></TabsContent>
+                                <TabsContent value="wo"><DataTable headers={['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan']} rows={woSummary.data.map((row) => [row.site, row.total_wo, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></TabsContent>
+                                <TabsContent value="item"><DataTable headers={['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></TabsContent>
+                                <TabsContent value="unit"><DataTable headers={['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></TabsContent>
+                                <TabsContent value="overdue"><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></TabsContent>
                             </Tabs>
                         </CardContent>
                     </Card>

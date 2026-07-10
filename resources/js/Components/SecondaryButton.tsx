@@ -1,17 +1,18 @@
-import { ButtonHTMLAttributes } from 'react';
+import { ButtonHTMLAttributes, forwardRef } from 'react';
 
 import { Button } from '@/Components/ui/button';
 import { cn } from '@/lib/utils';
 
-export default function SecondaryButton({
+const SecondaryButton = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement>>(function SecondaryButton({
     type = 'button',
     className = '',
     disabled,
     children,
     ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}, ref) {
     return (
         <Button
+            ref={ref}
             {...props}
             type={type}
             variant="outline"
@@ -21,4 +22,6 @@ export default function SecondaryButton({
             {children}
         </Button>
     );
-}
+});
+
+export default SecondaryButton;

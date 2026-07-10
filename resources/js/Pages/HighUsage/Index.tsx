@@ -60,8 +60,8 @@ export default function Index({ flags, canTakeAction }: PageProps<{ flags: Pagin
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">High Usage</h2>}>
-            <Head title="High Usage" />
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Pemakaian Tinggi</h2>}>
+            <Head title="Pemakaian Tinggi" />
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                     <Card>
@@ -70,7 +70,7 @@ export default function Index({ flags, canTakeAction }: PageProps<{ flags: Pagin
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            {['Unit', 'Site', 'Item', 'Avg KM/Hari', 'Estimasi Due', 'Flagged At', 'Window', 'Aksi'].map((header) => <TableHead key={header}>{header}</TableHead>)}
+                                            {['Unit', 'Lokasi', 'Item', 'Avg KM/Hari', 'Estimasi Due', 'Terdeteksi Pada', 'Periode', 'Aksi'].map((header) => <TableHead key={header}>{header}</TableHead>)}
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -84,7 +84,7 @@ export default function Index({ flags, canTakeAction }: PageProps<{ flags: Pagin
                                                 <TableCell>{flag.flagged_at?.slice(0, 10)}</TableCell>
                                                 <TableCell>
                                                     <StatusBadge tone={flag.window === 1 ? 'info' : 'highUsage'}>
-                                                        {flag.window === 1 ? 'Window 1' : 'Window 2'} · hari ke-{flag.days_since_flagged}
+                                                        {flag.window === 1 ? 'Periode 1' : 'Periode 2'} · hari ke-{flag.days_since_flagged}
                                                     </StatusBadge>
                                                 </TableCell>
                                                 <TableCell>
@@ -128,12 +128,12 @@ export default function Index({ flags, canTakeAction }: PageProps<{ flags: Pagin
                             <InputError message={scheduleForm.errors.available_date} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="new_due_km">New Due KM</Label>
+                            <Label htmlFor="new_due_km">KM Jatuh Tempo Baru</Label>
                             <Input id="new_due_km" type="number" value={scheduleForm.data.new_due_km} onChange={(event) => scheduleForm.setData('new_due_km', event.target.value)} />
                             <InputError message={scheduleForm.errors.new_due_km} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="new_due_date">New Due Date</Label>
+                            <Label htmlFor="new_due_date">Tanggal Jatuh Tempo Baru</Label>
                             <Input id="new_due_date" type="date" value={scheduleForm.data.new_due_date} onChange={(event) => scheduleForm.setData('new_due_date', event.target.value)} />
                             <InputError message={scheduleForm.errors.new_due_date} />
                         </div>

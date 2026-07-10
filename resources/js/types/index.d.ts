@@ -11,10 +11,18 @@ export interface VehicleCategoryOption {
     label: string;
 }
 
+export interface Region {
+    id: number;
+    name: string;
+    sites_count?: number;
+}
+
 export interface Site {
     id: number;
     name: string;
     region: string;
+    region_id: number | null;
+    area?: Region | null;
     units_count?: number;
     users_count?: number;
 }
@@ -26,7 +34,9 @@ export interface User {
     email_verified_at?: string;
     role: UserRole;
     site_id: number | null;
+    region_id: number | null;
     site?: Site | null;
+    area?: Region | null;
 }
 
 export interface UnitPlateHistory {
@@ -35,6 +45,21 @@ export interface UnitPlateHistory {
     plate_number: string;
     active_from: string;
     active_until: string | null;
+}
+
+export interface UnitSiteTransfer {
+    id: number;
+    unit_id: number;
+    unit_plate: string | null;
+    from_site: string | null;
+    to_site: string | null;
+    reason: string | null;
+    decision_reason: string | null;
+    status: 'pending' | 'approved' | 'rejected';
+    requested_by: string | null;
+    approved_by: string | null;
+    requested_at: string | null;
+    approved_at: string | null;
 }
 
 export interface Unit {
@@ -47,6 +72,8 @@ export interface Unit {
     vehicle_category: VehicleCategory;
     year: number;
     current_odo: number;
+    has_odometer_reading: boolean;
+    needs_document_verification: boolean;
     avg_km_per_day?: number | null;
     status: string;
     is_warranty: boolean;
@@ -141,6 +168,8 @@ export interface WorkOrder {
     site?: Site;
     items?: WorkOrderItem[];
     items_count?: number;
+    completed_items_count?: number;
+    remaining_items_count?: number;
     has_blocked_items?: boolean;
     has_high_usage_items?: boolean;
     has_overdue_items?: boolean;
@@ -156,6 +185,7 @@ export interface WorkOrder {
 export interface WorkOrderPreviewItem {
     id: number;
     unit_id: number;
+    site_id: number;
     planning_item_id: number;
     unit_plate: string;
     site_name: string | null;
@@ -197,6 +227,7 @@ export interface ProjectionLine {
     estimated_due_km: number | null;
     estimated_quantity: number;
     insufficient_data: boolean;
+    data_status_message: string | null;
 }
 
 export interface ProjectionUnit {
@@ -208,6 +239,7 @@ export interface ProjectionUnit {
     avg_km_per_day: number;
     estimated_period_odo: number;
     insufficient_data: boolean;
+    data_status_message: string | null;
     items: ProjectionLine[];
 }
 
@@ -231,6 +263,8 @@ export interface ProjectionWarning {
     site_name: string;
     inspection_count: number;
     minimum_required: number;
+    has_odometer_reading: boolean;
+    message: string;
 }
 
 export interface ProjectionResult {
@@ -248,7 +282,9 @@ export interface InspectionLog {
     mechanic_id: number;
     inspection_date: string;
     odometer: number;
+    previous_odo: number | null;
     insufficient_data: boolean;
+    can_cancel_today: boolean;
     unit?: Unit;
     mechanic?: User;
 }
@@ -343,12 +379,18 @@ export interface UnitHistory {
         brand: string;
         year: number;
         current_odo: number;
+        needs_document_verification: boolean;
         status: string;
     };
     replacements: PaginatedCollection<UnitHistoryItem>;
     plate_histories: PaginatedCollection<UnitPlateHistory>;
+    site_transfers: PaginatedCollection<UnitSiteTransfer>;
     blocked_breakdowns: PaginatedCollection<UnitHistoryItem>;
     postpones: PaginatedCollection<UnitHistoryItem>;
+    transfer_sites: Site[];
+    can_request_transfer: boolean;
+    can_approve_transfer: boolean;
+    pending_transfers: UnitSiteTransfer[];
 }
 
 export type PageProps<
@@ -356,5 +398,8 @@ export type PageProps<
 > = T & {
     auth: {
         user: User;
+    };
+    flash?: {
+        status?: string | null;
     };
 };

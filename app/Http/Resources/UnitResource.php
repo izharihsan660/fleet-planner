@@ -21,6 +21,8 @@ class UnitResource extends JsonResource
             'brand' => $this->brand,
             'year' => $this->year,
             'current_odo' => $this->current_odo,
+            'has_odometer_reading' => $this->has_odometer_reading,
+            'needs_document_verification' => $this->needs_document_verification,
             'avg_km_per_day' => $this->avg_km_per_day,
             'status' => $this->status,
             'is_warranty' => $this->is_warranty,

@@ -7,6 +7,13 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StoreInspectionRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'inspection_date' => today()->toDateString(),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return $this->user()?->can('store', InspectionLog::class) ?? false;
