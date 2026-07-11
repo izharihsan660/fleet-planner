@@ -48,6 +48,7 @@ class AuthServiceProvider extends ServiceProvider
         Gate::define('view-reports.by-item', fn (User $user): bool => app(ReportPolicy::class)->viewByItem($user));
         Gate::define('view-reports.by-unit', fn (User $user): bool => app(ReportPolicy::class)->viewByUnit($user));
         Gate::define('view-reports.overdue', fn (User $user): bool => app(ReportPolicy::class)->viewOverdue($user));
+        Gate::define('view-reports.accuracy', fn (User $user): bool => app(ReportPolicy::class)->viewAccuracy($user));
 
         Gate::define('manage-users', fn (User $user): bool => $user->hasRole(UserRole::Superadmin));
 

@@ -30,4 +30,9 @@ class ReportPolicy
     {
         return true;
     }
+
+    public function viewAccuracy(User $user): bool
+    {
+        return true;
+    }
 }

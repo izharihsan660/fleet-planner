@@ -10,6 +10,7 @@ use App\Http\Resources\SiteResource;
 use App\Models\Site;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Services\ProjectionAccuracyService;
 use App\Support\AccessScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -41,6 +42,9 @@ class ReportController extends Controller
             'byItem' => Gate::allows('view-reports.by-item') ? $this->paginatedReport($this->byItemData($request, $filters)) : $this->emptyReportPage(),
             'byUnit' => Gate::allows('view-reports.by-unit') ? $this->paginatedReport($this->byUnitData($request, $filters)) : $this->emptyReportPage(),
             'overdueByArea' => Gate::allows('view-reports.overdue') ? $this->paginatedReport($this->overdueByAreaData($request, $filters)) : $this->emptyReportPage(),
+            'accuracy' => Gate::allows('view-reports.accuracy')
+                ? app(ProjectionAccuracyService::class)->report($filters['month'], $filters['year'], $filters['site_id'], $request->user())
+                : null,
             'sites' => SiteResource::collection($this->visibleSites($request)),
             'filters' => $filters,
             'permissions' => [
@@ -49,6 +53,7 @@ class ReportController extends Controller
                 'can_view_by_item' => Gate::allows('view-reports.by-item'),
                 'can_view_by_unit' => Gate::allows('view-reports.by-unit'),
                 'can_view_overdue' => Gate::allows('view-reports.overdue'),
+                'can_view_accuracy' => Gate::allows('view-reports.accuracy'),
                 'default_tab' => $filters['tab'],
             ],
         ]);
@@ -107,7 +112,7 @@ class ReportController extends Controller
     }
 
     /**
-     * @return array{month: int, year: int, site_id: int|null, tab: 'wo'|'item'|'unit'|'overdue'}
+     * @return array{month: int, year: int, site_id: int|null, tab: 'wo'|'item'|'unit'|'overdue'|'accuracy'}
      */
     private function filters(ReportFilterRequest $request): array
     {

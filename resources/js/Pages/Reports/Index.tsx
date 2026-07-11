@@ -10,33 +10,52 @@ import { PageProps, PaginatedCollection, ReportSummary, Site } from '@/types';
 import { Head, Link } from '@inertiajs/react';
 import { ReactNode, useMemo, useState } from 'react';
 
+type AccuracyReport = {
+    formula: {
+        evaluated: number;
+        not_measurable: number;
+        avg_deviation_days: number | null;
+        within_week_pct: number | null;
+        rows: Array<{ item_name: string; evaluated: number; avg_deviation_days: number; within_week_pct: number }>;
+    };
+    execution: {
+        evaluated: number;
+        rows: Array<{ site_name: string; evaluated: number; avg_late_days: number; avg_approval_days: number | null; avg_execution_days: number | null }>;
+    };
+};
+
+type ReportTabKey = 'wo' | 'item' | 'unit' | 'overdue' | 'accuracy';
+
 type ReportsPageProps = PageProps<{
     summary: ReportSummary;
     woSummary: PaginatedCollection<ReportSummary>;
     byItem: PaginatedCollection<ReportSummary>;
     byUnit: PaginatedCollection<ReportSummary>;
     overdueByArea: PaginatedCollection<ReportSummary>;
+    accuracy: AccuracyReport | null;
     sites: { data: Site[] };
-    filters: { month: number; year: number; site_id: number | null; tab: 'wo' | 'item' | 'unit' | 'overdue' };
+    filters: { month: number; year: number; site_id: number | null; tab: ReportTabKey };
     permissions: {
         can_filter_site: boolean;
         can_view_wo_summary: boolean;
         can_view_by_item: boolean;
         can_view_by_unit: boolean;
         can_view_overdue: boolean;
-        default_tab: 'wo' | 'item' | 'unit' | 'overdue';
+        can_view_accuracy: boolean;
+        default_tab: ReportTabKey;
     };
 }>;
 
 const months = Array.from({ length: 12 }, (_, index) => index + 1);
 
-export default function Index({ summary, woSummary, byItem, byUnit, overdueByArea, sites, filters, permissions }: ReportsPageProps) {
+export default function Index({ summary, woSummary, byItem, byUnit, overdueByArea, accuracy, sites, filters, permissions }: ReportsPageProps) {
     const tabs = useMemo(() => [
         permissions.can_view_wo_summary ? { key: 'wo', label: 'Rekap WO' } : null,
         permissions.can_view_by_item ? { key: 'item', label: 'Per Item' } : null,
         permissions.can_view_by_unit ? { key: 'unit', label: 'Per Unit' } : null,
         permissions.can_view_overdue ? { key: 'overdue', label: `Terlambat — ${(summary.total_overdue ?? 0).toLocaleString('id-ID')}` } : null,
-    ].filter(Boolean) as { key: 'wo' | 'item' | 'unit' | 'overdue'; label: string }[], [permissions, summary.total_overdue]);
+        permissions.can_view_accuracy && accuracy ? { key: 'accuracy', label: 'Akurasi Proyeksi' } : null,
+    ].filter(Boolean) as { key: ReportTabKey; label: string }[], [permissions, summary.total_overdue, accuracy]);
     const [activeTab, setActiveTab] = useState(tabs.find((tab) => tab.key === permissions.default_tab)?.key ?? tabs[0]?.key ?? 'item');
 
     const reportUrl = (month: number, year: number, siteId: string) => `${route('reports.index')}?month=${month}&year=${year}${siteId ? `&site_id=${siteId}` : ''}`;
@@ -75,6 +94,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                                 <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="unit"><ReportTab exportHref={exportUrl('unit')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="overdue"><ReportTab exportHref={exportUrl('overdue')}><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></ReportTab></TabsContent>
+                                {accuracy && <TabsContent value="accuracy"><AccuracyTab accuracy={accuracy} /></TabsContent>}
                             </Tabs>
                         </CardContent>
                     </Card>
@@ -86,6 +106,62 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
 
 function ReportTab({ exportHref, children }: { exportHref: string; children: ReactNode }) {
     return <div className="space-y-4"><div className="mt-4 flex justify-end"><Button asChild variant="outline"><a href={exportHref}>Export Excel</a></Button></div>{children}</div>;
+}
+
+function AccuracyTab({ accuracy }: { accuracy: AccuracyReport }) {
+    const formatDays = (value: number) => `${value > 0 ? '+' : ''}${value.toLocaleString('id-ID', { maximumFractionDigits: 1 })} hari`;
+
+    return (
+        <div className="mt-4 space-y-6">
+            <section className="space-y-3">
+                <div>
+                    <h3 className="text-base font-semibold text-foreground">Rapor rumus — tebakan vs KM tercapai</h3>
+                    <p className="text-sm text-muted-foreground">Membandingkan perkiraan tanggal due (dari laju KM saat task dibuat) dengan tanggal odometer benar-benar menyentuh due KM. Tidak terpengaruh keterlambatan part atau approval.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <SummaryCard label="Item terukur" value={accuracy.formula.evaluated} />
+                    <Card><CardContent><div className="text-sm text-muted-foreground">Rata-rata meleset</div><div className="mt-2 text-3xl font-semibold text-foreground">{accuracy.formula.avg_deviation_days !== null ? formatDays(accuracy.formula.avg_deviation_days) : '-'}</div><p className="mt-1 text-xs text-muted-foreground">positif = KM tercapai lebih lambat dari tebakan</p></CardContent></Card>
+                    <Card><CardContent><div className="text-sm text-muted-foreground">Akurat (±7 hari)</div><div className="mt-2 text-3xl font-semibold text-foreground">{accuracy.formula.within_week_pct !== null ? `${accuracy.formula.within_week_pct}%` : '-'}</div>{accuracy.formula.not_measurable > 0 && <p className="mt-1 text-xs text-muted-foreground">{accuracy.formula.not_measurable.toLocaleString('id-ID')} item tidak terukur (data KM kurang / diganti sebelum due tercapai)</p>}</CardContent></Card>
+                </div>
+                <UiTable>
+                    <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Terukur</TableHead><TableHead>Rata-rata Meleset</TableHead><TableHead>Akurat ±7 Hari</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                        {accuracy.formula.rows.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-muted-foreground">Belum ada item complete yang bisa diukur pada periode ini.</TableCell></TableRow>}
+                        {accuracy.formula.rows.map((row) => (
+                            <TableRow key={row.item_name}>
+                                <TableCell className="font-medium text-foreground">{row.item_name}</TableCell>
+                                <TableCell>{row.evaluated.toLocaleString('id-ID')}</TableCell>
+                                <TableCell>{formatDays(row.avg_deviation_days)}</TableCell>
+                                <TableCell className={row.within_week_pct < 70 ? 'font-semibold text-destructive' : undefined}>{row.within_week_pct}%</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </UiTable>
+            </section>
+
+            <section className="space-y-3">
+                <div>
+                    <h3 className="text-base font-semibold text-foreground">Rapor eksekusi — jatuh tempo vs selesai</h3>
+                    <p className="text-sm text-muted-foreground">Mengukur keterlambatan operasional per site: berapa lama item menunggu setelah jatuh tempo, diurai per tahap. Di sinilah keterlambatan part, approval, dan kesibukan mekanik terlihat.</p>
+                </div>
+                <UiTable>
+                    <TableHeader><TableRow><TableHead>Site</TableHead><TableHead>Terukur</TableHead><TableHead>Rata-rata Telat dari Due</TableHead><TableHead>Rata-rata Menunggu Approval</TableHead><TableHead>Rata-rata Eksekusi Setelah Approve</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                        {accuracy.execution.rows.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-muted-foreground">Belum ada item complete dengan tanggal due pada periode ini.</TableCell></TableRow>}
+                        {accuracy.execution.rows.map((row) => (
+                            <TableRow key={row.site_name}>
+                                <TableCell className="font-medium text-foreground">{row.site_name}</TableCell>
+                                <TableCell>{row.evaluated.toLocaleString('id-ID')}</TableCell>
+                                <TableCell className={row.avg_late_days > 7 ? 'font-semibold text-destructive' : undefined}>{formatDays(row.avg_late_days)}</TableCell>
+                                <TableCell>{row.avg_approval_days !== null ? `${row.avg_approval_days.toLocaleString('id-ID', { maximumFractionDigits: 1 })} hari` : '-'}</TableCell>
+                                <TableCell>{row.avg_execution_days !== null ? `${row.avg_execution_days.toLocaleString('id-ID', { maximumFractionDigits: 1 })} hari` : '-'}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </UiTable>
+            </section>
+        </div>
+    );
 }
 
 function SummaryCard({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'danger' }) {
