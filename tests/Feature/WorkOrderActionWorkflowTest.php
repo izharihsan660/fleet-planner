@@ -275,6 +275,42 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame(today()->addDays(10)->toDateString(), $plannings[2]->next_due_date->toDateString());
     }
 
+    public function test_spv_approve_auto_work_order_only_approves_submitted_items_not_untriaged_on_hold(): void
+    {
+        [$site, $unit, $plannings] = $this->makeMultiplePlanningContext(75000, 3);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+
+        // Auto-generated work order: no submitted_by, all items start on_hold.
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+        ]);
+
+        $items = collect($plannings)->map(fn (UnitPlanning $planning): WorkOrderItem => WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'on_hold',
+        ]))->values();
+
+        // Planner triages only the first item.
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$workOrder, $items[0]]), ['reason' => 'Ganti part item pertama'])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('in_progress', $items[0]->refresh()->status);
+        $this->assertSame('on_hold', $items[1]->refresh()->status);
+        $this->assertSame('on_hold', $items[2]->refresh()->status);
+    }
+
     public function test_spv_cannot_approve_work_order_without_submitted_action(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);

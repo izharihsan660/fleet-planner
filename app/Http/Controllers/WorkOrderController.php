@@ -265,8 +265,8 @@ class WorkOrderController extends Controller
 
             $submittedItems = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
 
-            if ($wo->submitted_by === null) {
-                $submittedItems = $submittedItems->merge($wo->items->where('status', 'on_hold'));
+            if ($submittedItems->isEmpty() && $wo->submitted_by === null) {
+                $submittedItems = $wo->items->where('status', 'on_hold');
             }
 
             if ($submittedItems->isEmpty()) {

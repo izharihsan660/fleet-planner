@@ -10,7 +10,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, PaginatedCollection, PlanningItem, Site, Unit, User, WorkOrder, WorkOrderPreviewItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { ClipboardList, Inbox } from 'lucide-react';
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 
 interface ResourceCollection<T> {
     data: T[];
@@ -41,6 +41,15 @@ const columnPageParam: Record<ColumnKey, string> = {
     in_progress: 'in_progress_page',
     complete: 'complete_page',
 };
+
+function appendColumn<T extends { id: number }>(previous: PaginatedCollection<T>, next: PaginatedCollection<T>): PaginatedCollection<T> {
+    const seenIds = new Set(previous.data.map((entry) => entry.id));
+
+    return {
+        ...next,
+        data: [...previous.data, ...next.data.filter((entry) => !seenIds.has(entry.id))],
+    };
+}
 
 const dueTone = {
     green: 'safe',
@@ -262,7 +271,15 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
     const [assigneeId, setAssigneeId] = useState(filters.assignee_id ?? '');
     const [assignId, setAssignId] = useState<number | null>(null);
 
+    const isLoadingMore = useRef(false);
+
     useEffect(() => {
+        if (isLoadingMore.current) {
+            isLoadingMore.current = false;
+
+            return;
+        }
+
         setVisibleColumns(boardColumns);
     }, [boardColumns]);
 
@@ -273,6 +290,7 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
 
     const loadMore = (column: ColumnKey) => {
         const currentColumn = visibleColumns[column];
+        isLoadingMore.current = true;
 
         router.get(route('work-orders.index'), {
             site_id: siteId || undefined,
@@ -290,11 +308,14 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
 
                 setVisibleColumns((previousColumns) => ({
                     ...previousColumns,
-                    [column]: {
-                        ...nextColumns[column],
-                        data: [...previousColumns[column].data, ...nextColumns[column].data],
-                    },
-                }));
+                    [column]: appendColumn(
+                        previousColumns[column] as PaginatedCollection<{ id: number }>,
+                        nextColumns[column] as PaginatedCollection<{ id: number }>,
+                    ),
+                }) as BoardColumns);
+            },
+            onError: () => {
+                isLoadingMore.current = false;
             },
         });
     };

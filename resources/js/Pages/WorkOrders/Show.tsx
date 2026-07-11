@@ -111,7 +111,7 @@ export default function Show({ auth, workOrder, planningItems, mechanics }: Page
     const [confirmAction, setConfirmAction] = useState<'approve' | 'reject' | 'blocked' | 'breakdown' | null>(null);
     const [blockedConfirmItemId, setBlockedConfirmItemId] = useState<number | null>(null);
     const hasSubmittedAction = (workOrderData.items ?? []).some((item) => ['pending_create', 'replace', 'postpone'].includes(item.status));
-    const canApprove = auth.user.role === 'spv_ho' && hasSubmittedAction;
+    const canApprove = ['spv_ho', 'superadmin'].includes(auth.user.role) && hasSubmittedAction;
     const canCondition = ['superadmin', 'planner_area', 'mekanik'].includes(auth.user.role);
     const canSubmitAction = ['superadmin', 'planner_area'].includes(auth.user.role);
     const canReportFinding = ['planner_area', 'mekanik'].includes(auth.user.role);
