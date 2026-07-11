@@ -66,6 +66,52 @@ class DashboardAndReportExportTest extends TestCase
             );
     }
 
+    public function test_dashboard_reports_daily_km_input_compliance_within_scope(): void
+    {
+        [$insideSite, $outsideSite] = $this->createRegionScenario();
+        $planner = User::factory()->create([
+            'role' => UserRole::PlannerArea,
+            'region_id' => $insideSite->region_id,
+            'site_id' => null,
+        ]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $insideSite->id]);
+
+        $inputUnit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($insideSite, 'KT 2001 AA')));
+        Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($insideSite, 'KT 2002 AA')));
+        $outsideUnit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($outsideSite, 'KT 2999 ZZ')));
+
+        // Log hari ini hanya untuk satu unit di dalam region; log unit luar region tidak boleh ikut dihitung.
+        foreach ([$inputUnit, $outsideUnit] as $unit) {
+            \App\Models\InspectionLog::query()->create([
+                'unit_id' => $unit->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => now()->toDateString(),
+                'odometer' => 500,
+            ]);
+        }
+
+        // Log kemarin tidak dihitung sebagai kepatuhan hari ini.
+        \App\Models\InspectionLog::query()->create([
+            'unit_id' => $inputUnit->id,
+            'mechanic_id' => $mechanic->id,
+            'inspection_date' => now()->subDay()->toDateString(),
+            'odometer' => 400,
+        ]);
+
+        $this->actingAs($planner)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Dashboard')
+                ->where('plannerDashboard.km_input_today.input_count', 1)
+                ->where('plannerDashboard.km_input_today.total_units', 2)
+                ->where('plannerDashboard.km_input_today.missing_count', 1)
+                ->where('plannerDashboard.km_input_today.percentage', 50)
+                ->where('plannerDashboard.site_rows.0.km_input_count', 1)
+                ->where('plannerDashboard.site_rows.0.unit_count', 2)
+            );
+    }
+
     public function test_superadmin_dashboard_shows_all_regions_by_default(): void
     {
         [$firstSite, $secondSite] = $this->createRegionScenario();

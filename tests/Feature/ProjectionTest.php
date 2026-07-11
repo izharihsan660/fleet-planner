@@ -15,6 +15,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\HighUsageService;
 use App\Services\ProjectionService;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -178,6 +179,81 @@ class ProjectionTest extends TestCase
         $this->assertNotNull($byUnit);
         $this->assertFalse($byUnit['insufficient_data']);
         $this->assertSame(round(300 / 10, 2), $byUnit['avg_km_per_day']);
+    }
+
+    public function test_projection_matches_manual_km_calculation_for_one_and_two_month_periods(): void
+    {
+        CarbonImmutable::setTestNow('2026-07-01 08:00:00');
+
+        try {
+            SystemThreshold::query()->updateOrCreate(['key' => 'min_inspection_data'], ['value' => '2']);
+            SystemThreshold::query()->updateOrCreate(['key' => 'rolling_window_days'], ['value' => '30']);
+
+            $site = Site::query()->create(['name' => 'Site Projection Accuracy', 'region' => 'Region Test']);
+            $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+            $unit = Unit::query()->create([
+                'site_id' => $site->id,
+                'customer' => 'Customer Projection',
+                'current_plate' => 'DD 1000 KM',
+                'type' => 'Pickup',
+                'brand' => 'Toyota',
+                'year' => 2024,
+                'current_odo' => 10000,
+                'status' => 'active',
+            ]);
+
+            InspectionLog::query()->create([
+                'unit_id' => $unit->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => '2026-06-21',
+                'odometer' => 9000,
+            ]);
+            InspectionLog::query()->create([
+                'unit_id' => $unit->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => '2026-07-01',
+                'odometer' => 10000,
+            ]);
+
+            $julyItem = PlanningItem::query()->create(['name' => 'Service July', 'interval_km' => 2000, 'interval_days' => 3650]);
+            $augustItem = PlanningItem::query()->create(['name' => 'Service August', 'interval_km' => 4500, 'interval_days' => 3650]);
+
+            foreach ([[$julyItem, 12000], [$augustItem, 14500]] as [$planningItem, $nextDueKm]) {
+                UnitPlanning::query()->create([
+                    'unit_id' => $unit->id,
+                    'planning_item_id' => $planningItem->id,
+                    'last_done_km' => 10000,
+                    'last_done_date' => '2026-07-01',
+                    'next_due_km' => $nextDueKm,
+                    'next_due_date' => null,
+                ]);
+            }
+
+            $oneMonth = app(ProjectionService::class)->calculate(1);
+            $twoMonths = app(ProjectionService::class)->calculate(2);
+            $oneMonthUnit = collect($oneMonth['by_unit'])->firstWhere('unit_id', $unit->id);
+            $twoMonthUnit = collect($twoMonths['by_unit'])->firstWhere('unit_id', $unit->id);
+
+            $this->assertSame('2026-08-01', $oneMonth['period_end']);
+            $this->assertSame(100.0, $oneMonthUnit['avg_km_per_day']);
+            $this->assertSame(13100, $oneMonthUnit['estimated_period_odo']);
+            $this->assertSame(['Service July'], collect($oneMonthUnit['items'])->pluck('planning_item_name')->all());
+            $this->assertSame('2026-07-21', $oneMonthUnit['items'][0]['estimated_due_date']);
+
+            $this->assertSame('2026-09-01', $twoMonths['period_end']);
+            $this->assertSame(100.0, $twoMonthUnit['avg_km_per_day']);
+            $this->assertSame(16200, $twoMonthUnit['estimated_period_odo']);
+            $this->assertEqualsCanonicalizing(
+                ['Service July', 'Service August'],
+                collect($twoMonthUnit['items'])->pluck('planning_item_name')->all(),
+            );
+            $this->assertSame(
+                '2026-08-15',
+                collect($twoMonthUnit['items'])->firstWhere('planning_item_name', 'Service August')['estimated_due_date'],
+            );
+        } finally {
+            CarbonImmutable::setTestNow();
+        }
     }
 
     public function test_projection_excludes_breakdown_days_from_effective_divisor(): void

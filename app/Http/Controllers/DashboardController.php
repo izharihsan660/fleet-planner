@@ -84,11 +84,19 @@ class DashboardController extends Controller
             'overdue' => $this->visibleItems($request, $regionId)->where('status', 'overdue')->count(),
         ];
 
-        $siteRows = $sites->map(function (Site $site): array {
+        $inputTodayBySite = Unit::query()
+            ->whereIn('site_id', $sites->pluck('id'))
+            ->whereHas('inspectionLogs', fn (Builder $query) => $query->whereDate('inspection_date', $now->toDateString()))
+            ->selectRaw('site_id, COUNT(*) as aggregate')
+            ->groupBy('site_id')
+            ->pluck('aggregate', 'site_id');
+
+        $siteRows = $sites->map(function (Site $site) use ($inputTodayBySite): array {
             return [
                 'site_id' => $site->id,
                 'site_name' => $site->name,
                 'unit_count' => $site->units_count,
+                'km_input_count' => (int) ($inputTodayBySite[$site->id] ?? 0),
                 'overdue_count' => WorkOrderItem::query()
                     ->where('status', 'overdue')
                     ->whereHas('workOrder', fn (Builder $query) => $query->where('site_id', $site->id))
@@ -96,10 +104,19 @@ class DashboardController extends Controller
             ];
         })->values();
 
+        $totalUnits = Unit::query()
+            ->whereIn('site_id', $sites->pluck('id'))
+            ->count();
+        $unitsInputToday = (int) $inputTodayBySite->sum();
+
         return [
-            'total_units' => Unit::query()
-                ->whereIn('site_id', $sites->pluck('id'))
-                ->count(),
+            'total_units' => $totalUnits,
+            'km_input_today' => [
+                'input_count' => $unitsInputToday,
+                'total_units' => $totalUnits,
+                'missing_count' => max(0, $totalUnits - $unitsInputToday),
+                'percentage' => $totalUnits > 0 ? (int) round(($unitsInputToday / $totalUnits) * 100) : 0,
+            ],
             'can_filter_region' => $canFilterRegion,
             'selected_region_id' => $regionId,
             'region_options' => $canFilterRegion ? Region::query()

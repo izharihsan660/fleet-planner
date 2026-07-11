@@ -20,12 +20,18 @@ type PlannerStatusCounts = {
 
 type PlannerDashboard = {
     total_units: number;
+    km_input_today: {
+        input_count: number;
+        total_units: number;
+        missing_count: number;
+        percentage: number;
+    };
     can_filter_region: boolean;
     selected_region_id: number | null;
     region_options: Array<{ id: number; name: string }>;
     status_counts: PlannerStatusCounts;
     status_chart: Array<{ key: keyof PlannerStatusCounts; label: string; value: number; color: string }>;
-    site_rows: Array<{ site_id: number; site_name: string; unit_count: number; overdue_count: number }>;
+    site_rows: Array<{ site_id: number; site_name: string; unit_count: number; km_input_count: number; overdue_count: number }>;
     overdue_by_site_chart: Array<{ site_name: string; overdue_count: number }>;
 };
 
@@ -156,6 +162,20 @@ function PlannerDashboardSummary({ dashboard }: { dashboard: PlannerDashboard })
                     <div className="mt-2 text-3xl font-semibold text-foreground">{dashboard.total_units.toLocaleString('id-ID')}</div>
                 </CardContent>
             </Card>
+            <Card className={dashboard.km_input_today.missing_count > 0 ? 'border-amber-300/60 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-500/10' : undefined}>
+                <CardContent>
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="text-sm text-muted-foreground">Input KM Hari Ini</div>
+                        {dashboard.km_input_today.missing_count > 0 && (
+                            <Badge variant="outline" className="border-amber-400 text-amber-700 dark:border-amber-500/60 dark:text-amber-300">
+                                {dashboard.km_input_today.missing_count.toLocaleString('id-ID')} unit belum
+                            </Badge>
+                        )}
+                    </div>
+                    <div className="mt-2 text-3xl font-semibold text-foreground">{dashboard.km_input_today.percentage}%</div>
+                    <p className="mt-1 text-xs text-muted-foreground">{dashboard.km_input_today.input_count.toLocaleString('id-ID')} dari {dashboard.km_input_today.total_units.toLocaleString('id-ID')} unit sudah diinput mekanik.</p>
+                </CardContent>
+            </Card>
             {statusEntries.map(([key, value]) => (
                 <Card key={key} className={key === 'overdue' && hasOverdue ? 'border-destructive/40 bg-destructive/5' : undefined}>
                     <CardContent>
@@ -226,6 +246,7 @@ function PlannerDashboardSummary({ dashboard }: { dashboard: PlannerDashboard })
                             <TableRow>
                                 <TableHead>Site</TableHead>
                                 <TableHead>Jumlah Unit</TableHead>
+                                <TableHead>Input KM Hari Ini</TableHead>
                                 <TableHead>Item Overdue</TableHead>
                             </TableRow>
                         </TableHeader>
@@ -234,12 +255,15 @@ function PlannerDashboardSummary({ dashboard }: { dashboard: PlannerDashboard })
                                 <TableRow key={site.site_id}>
                                     <TableCell className="font-medium text-foreground">{site.site_name}</TableCell>
                                     <TableCell>{site.unit_count.toLocaleString('id-ID')}</TableCell>
+                                    <TableCell className={site.unit_count > 0 && site.km_input_count < site.unit_count ? 'font-medium text-amber-700 dark:text-amber-300' : undefined}>
+                                        {site.km_input_count.toLocaleString('id-ID')}/{site.unit_count.toLocaleString('id-ID')}
+                                    </TableCell>
                                     <TableCell className={site.overdue_count > 0 ? 'font-semibold text-destructive' : undefined}>{site.overdue_count.toLocaleString('id-ID')}</TableCell>
                                 </TableRow>
                             ))}
                             {dashboard.site_rows.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={3} className="py-6 text-muted-foreground">Belum ada site dalam scope akun ini.</TableCell>
+                                    <TableCell colSpan={4} className="py-6 text-muted-foreground">Belum ada site dalam scope akun ini.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
