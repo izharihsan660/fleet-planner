@@ -28,8 +28,8 @@ function SuccessNotice({ show }: { show: boolean }) {
     }
 
     return (
-        <div className="fixed inset-x-4 top-6 z-50 mx-auto max-w-sm rounded-3xl border border-green-200 bg-green-50 p-6 text-center text-green-800 shadow-xl">
-            <CheckCircle2 className="mx-auto size-16 text-green-600" />
+        <div className="fixed inset-x-4 top-6 z-50 mx-auto max-w-sm rounded-3xl border border-green-200 bg-green-50 p-6 text-center text-green-800 shadow-xl dark:border-green-500/40 dark:bg-green-500/15 dark:text-green-100">
+            <CheckCircle2 className="mx-auto size-16 text-green-600 dark:text-green-300" />
             <p className="mt-3 text-xl font-bold">Berhasil disimpan</p>
         </div>
     );

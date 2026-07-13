@@ -50,6 +50,22 @@ class ApprovalQueueTest extends TestCase
         $this->assertStringContainsString('dan {hiddenVerificationCount} lainnya', $pageSource);
     }
 
+    public function test_colored_action_panels_have_dark_mode_contrast_variants(): void
+    {
+        $sources = collect([
+            file_get_contents(resource_path('js/Pages/WorkOrders/Show.tsx')),
+            file_get_contents(resource_path('js/Pages/ApprovalQueue/Index.tsx')),
+            file_get_contents(resource_path('js/Pages/Inspections/Create.tsx')),
+            file_get_contents(resource_path('js/Pages/Mechanic/Tasks.tsx')),
+        ])->implode('\n');
+
+        $this->assertStringContainsString('dark:bg-sky-500/15', $sources);
+        $this->assertStringContainsString('dark:bg-orange-500/15', $sources);
+        $this->assertStringContainsString('dark:bg-violet-500/15', $sources);
+        $this->assertStringContainsString('dark:bg-green-500/15', $sources);
+        $this->assertStringContainsString('dark:text-indigo-200', $sources);
+    }
+
     public function test_batch_approve_works_for_multiple_items_across_regions(): void
     {
         [$spv, $replaceItem, $postponeItem] = $this->createApprovalScenario();

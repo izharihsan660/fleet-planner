@@ -38,7 +38,7 @@ export default function Login({
             </div>
 
             {status && (
-                <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm font-medium text-emerald-700">
+                <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200">
                     {status}
                 </div>
             )}

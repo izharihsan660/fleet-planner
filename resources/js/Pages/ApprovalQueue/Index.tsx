@@ -137,7 +137,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                 <h3 className="font-semibold text-foreground">Item menunggu keputusan</h3>
                                 <p className="text-sm text-muted-foreground">{items.length} item menunggu approval. Urutan paling lama menunggu ada di atas.</p>
                             </div>
-                            {selectedItems.length > 0 && <span className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700">{selectedItems.length} dipilih</span>}
+                            {selectedItems.length > 0 && <span className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200">{selectedItems.length} dipilih</span>}
                         </div>
 
                         <div>
@@ -156,7 +156,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                 </TableHeader>
                                 <TableBody className="divide-y">
                                     {items.map((item) => (
-                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50' : 'bg-card'}>
+                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-indigo-50/50 dark:bg-indigo-500/10' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
                                                 <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
@@ -168,7 +168,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}<span className="block text-sm">{item.region_name}</span></TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.submitted_by_name}</TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <span className={item.is_warning ? 'rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700' : 'rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-sm font-semibold text-yellow-700'}>{item.waiting_label}</span>
+                                                <span className={item.is_warning ? 'rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-200' : 'rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-sm font-semibold text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/15 dark:text-yellow-200'}>{item.waiting_label}</span>
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -221,12 +221,12 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                                 {visibleVerificationItems.map((item) => <li key={item.id}>{item.plate_number} — {item.item_name}</li>)}
                                             </ul>
                                             {hiddenVerificationCount > 0 && (
-                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => setIsVerificationExpanded(true)}>
+                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700 dark:text-indigo-300" onClick={() => setIsVerificationExpanded(true)}>
                                                     dan {hiddenVerificationCount} lainnya
                                                 </Button>
                                             )}
                                             {isVerificationExpanded && selectedItems.length > 4 && (
-                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700" onClick={() => setIsVerificationExpanded(false)}>
+                                                <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700 dark:text-indigo-300" onClick={() => setIsVerificationExpanded(false)}>
                                                     Tampilkan lebih sedikit
                                                 </Button>
                                             )}
