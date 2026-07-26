@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Carbon\CarbonImmutable;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use SplFileObject;
@@ -44,6 +45,17 @@ class MaintenanceImportReader
             ->toString();
 
         return ['reason' => $reason !== '' ? $reason : null];
+    }
+
+    public function parseLastDoneDate(string $value): ?CarbonImmutable
+    {
+        $normalized = str($value)->trim()->squish()->toString();
+
+        if ($normalized === '' || preg_match('/^[-–—]+$/u', $normalized)) {
+            return null;
+        }
+
+        return CarbonImmutable::parse($normalized)->startOfDay();
     }
 
     /**

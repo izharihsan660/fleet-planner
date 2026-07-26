@@ -262,6 +262,83 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertSame(1, MaintenanceImport::query()->firstOrFail()->estimated_rows);
     }
 
+    public function test_unit_planning_import_handles_valid_missing_and_excluded_dates_together(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        Unit::withoutEvents(fn () => Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 7777 AA', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 50000, 'has_odometer_reading' => true, 'status' => 'active']));
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $xlsx = $this->makeMixedPlanningDatesUpload();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $xlsx])
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('preview.total_rows', 3)
+                ->where('preview.valid_rows', 3)
+                ->where('preview.invalid_rows', 0)
+                ->where('preview.excluded_rows', 1));
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), [
+                'type' => 'unit_plannings',
+                'path' => $path,
+                'original_filename' => 'mixed-planning-dates.xlsx',
+            ])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        Queue::assertPushed(ImportUnitPlanningsJob::class, function (ImportUnitPlanningsJob $job): bool {
+            $job->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
+
+            return true;
+        });
+
+        $plannings = UnitPlanning::query()->with('planningItem')->get()->keyBy(fn (UnitPlanning $planning): string => $planning->planningItem->name);
+        $validDatePlanning = $plannings->get('Service A');
+        $missingDatePlanning = $plannings->get('Service B');
+        $excludedPlanning = $plannings->get('Kampas Kopling Set');
+        $import = MaintenanceImport::query()->firstOrFail();
+
+        $this->assertSame('2026-01-01', $validDatePlanning?->last_done_date?->toDateString());
+        $this->assertSame('2026-04-07', $validDatePlanning?->next_due_date?->toDateString());
+        $this->assertNull($missingDatePlanning?->last_done_date);
+        $this->assertSame($import->created_at->copy()->startOfDay()->addDays(180)->toDateString(), $missingDatePlanning?->next_due_date?->toDateString());
+        $this->assertTrue($excludedPlanning?->is_excluded);
+        $this->assertSame('MATIC', $excludedPlanning?->excluded_reason);
+        $this->assertNull($excludedPlanning?->last_done_date);
+        $this->assertNull($excludedPlanning?->next_due_date);
+        $this->assertSame('finished', $import->status);
+        $this->assertSame(3, $import->success_rows);
+        $this->assertSame(0, $import->failed_rows);
+    }
+
+    public function test_unit_planning_preview_rejects_an_unparseable_date(): void
+    {
+        Storage::fake('local');
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 7778 AB', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 50000, 'has_odometer_reading' => true, 'status' => 'active']);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $csv = UploadedFile::fake()->createWithContent(
+            'invalid-planning-date.csv',
+            "plat_nomor,nama_item,last_done_km,last_done_date\nDD 7778 AB,Service A,40000,bukan tanggal\n",
+        );
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $csv])
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('preview.valid_rows', 0)
+                ->where('preview.invalid_rows', 1)
+                ->where('preview.rows.0.errors.0', 'Tanggal terakhir diganti tidak valid.'));
+    }
+
     public function test_import_units_reads_xlsx_data_unit_sheet_with_formula_values(): void
     {
         Storage::fake('local');
@@ -444,5 +521,23 @@ class MaintenanceMasterDataImportTest extends TestCase
         copy(base_path("data-migration/{$filename}"), $path);
 
         return new UploadedFile($path, $filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    private function makeMixedPlanningDatesUpload(): UploadedFile
+    {
+        $spreadsheet = new Spreadsheet;
+        $spreadsheet->getActiveSheet()->setTitle('SETUP AWAL ITEM');
+        $spreadsheet->getActiveSheet()->fromArray([
+            ['Plat Nomor (otomatis)', 'Nama Item (otomatis)', 'Kapan Terakhir Diganti (Tanggal)', 'KM Saat Diganti (opsional)', 'catatan'],
+            ['DD 7777 AA', 'Service A', '2026-01-01', 40000, ''],
+            ['DD 7777 AA', 'Service B', '-', 35000, ''],
+            ['DD 7777 AA', 'Kampas Kopling Set', 'TIDAK PERLU (MATIC)', '', ''],
+        ]);
+
+        $path = tempnam(sys_get_temp_dir(), 'mixed-planning-dates-').'.xlsx';
+        (new Xlsx($spreadsheet))->save($path);
+        $spreadsheet->disconnectWorksheets();
+
+        return new UploadedFile($path, 'mixed-planning-dates.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 }

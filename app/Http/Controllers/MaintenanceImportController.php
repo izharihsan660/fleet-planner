@@ -11,6 +11,7 @@ use App\Models\PlanningItem;
 use App\Models\Site;
 use App\Models\Unit;
 use App\Services\MaintenanceImportReader;
+use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -139,7 +140,8 @@ class MaintenanceImportController extends Controller
             $item = strtoupper($row['nama_item'] ?? '');
             $lastDoneKm = $this->parseInteger($row['last_done_km'] ?? '0');
             $unit = $units->get($plate);
-            $exclusion = $reader->parseExclusionMarker($row['last_done_date'] ?? '');
+            $lastDoneDateValue = $row['last_done_date'] ?? '';
+            $exclusion = $reader->parseExclusionMarker($lastDoneDateValue);
             $isExcluded = $exclusion !== null;
 
             if (! $unit) {
@@ -152,6 +154,14 @@ class MaintenanceImportController extends Controller
 
             if (! $isExcluded && $unit && $unit->has_odometer_reading && $lastDoneKm > $unit->current_odo) {
                 $errors[] = 'Last done KM melebihi odometer unit.';
+            }
+
+            if (! $isExcluded) {
+                try {
+                    $reader->parseLastDoneDate($lastDoneDateValue);
+                } catch (InvalidFormatException) {
+                    $errors[] = 'Tanggal terakhir diganti tidak valid.';
+                }
             }
 
             return [
