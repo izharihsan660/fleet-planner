@@ -171,6 +171,7 @@ class MaintenanceImportReader
         return array_map(function (mixed $header): string {
             $normalized = str((string) $header)
                 ->replace("\xEF\xBB\xBF", '')
+                ->replaceMatches('/\(.*?\)/u', '')
                 ->trim()
                 ->lower()
                 ->replaceMatches('/[^a-z0-9]+/', '_')
@@ -181,8 +182,9 @@ class MaintenanceImportReader
                 'plat', 'plate', 'plate_number', 'no_polisi', 'nomor_polisi' => 'plat_nomor',
                 'item', 'item_maintenance', 'planning_item' => 'nama_item',
                 'kategori', 'vehicle_category' => 'kategori_kendaraan',
-                'tipe', 'merk', 'type_brand' => 'tipe_merk',
+                'tipe', 'merk', 'type_brand', 'tipe_merk_unit' => 'tipe_merk',
                 'odometer', 'current_odo', 'odo_saat_ini' => 'odometer_saat_ini',
+                'km_saat_diganti' => 'last_done_km',
                 'kapan_terakhir_diganti', 'tanggal_terakhir_diganti' => 'last_done_date',
                 default => $normalized,
             };

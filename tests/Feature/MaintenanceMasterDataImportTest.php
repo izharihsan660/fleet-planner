@@ -246,8 +246,35 @@ class MaintenanceMasterDataImportTest extends TestCase
 
         $planning = UnitPlanning::query()->whereHas('planningItem', fn ($query) => $query->where('name', 'Service A'))->firstOrFail();
         $this->assertSame(50000, $planning->last_done_km);
+        $this->assertSame('2026-01-01', $planning->last_done_date?->toDateString());
         $this->assertSame(60000, $planning->next_due_km);
         $this->assertTrue($planning->is_estimated);
+    }
+
+    public function test_official_prefilled_templates_preview_all_setup_awal_item_rows(): void
+    {
+        Storage::fake('local');
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $templates = [
+            ['Template_Data_Fleet_Planner_Kalimantan_PREFILLED.xlsx', 2660, 'B 2444 UIL'],
+            ['Template_Data_Fleet_Planner_Sulawesi_PREFILLED.xlsx', 800, 'KT 8037 YV'],
+        ];
+
+        foreach ($templates as [$filename, $expectedRows, $firstPlate]) {
+            $response = $this->actingAs($user)
+                ->post(route('maintenance-imports.preview'), [
+                    'type' => 'unit_plannings',
+                    'file' => $this->makeOfficialTemplateUpload($filename),
+                ])
+                ->assertOk();
+
+            $response->assertInertia(fn ($page) => $page
+                ->where('preview.total_rows', $expectedRows)
+                ->where('preview.rows.0.data.plat_nomor', $firstPlate)
+                ->where('preview.rows.0.data.nama_item', 'PM Check / Reguler Services')
+                ->where('preview.rows.0.data.last_done_date', '')
+                ->where('preview.rows.0.data.last_done_km', ''));
+        }
     }
 
     public function test_import_unit_planning_marks_tidak_perlu_date_as_excluded(): void
@@ -322,20 +349,28 @@ class MaintenanceMasterDataImportTest extends TestCase
         $dataUnit = $spreadsheet->createSheet();
         $dataUnit->setTitle('Data Unit');
         $dataUnit->fromArray([
-            ['site', 'plat_nomor', 'tipe_merk', 'kategori_kendaraan', 'tahun', 'customer', 'odometer_saat_ini', 'helper_formula'],
+            ['Site', 'Plat Nomor', 'Tipe/Merk Unit', 'Kategori Kendaraan', 'Tahun', 'Customer', 'Odometer Saat Ini', 'helper_formula'],
             ['BPN', '=CONCAT("DD ","3333"," XX")', 'HINO 300', 'truk_ringan', 2024, 'PT NAJ', 45678, '=CONCAT(B2," - helper")'],
         ]);
 
         $setupAwalItem = $spreadsheet->createSheet();
         $setupAwalItem->setTitle('SETUP AWAL ITEM');
         $setupAwalItem->fromArray([
-            ['plat_nomor', 'nama_item', 'last_done_km', 'last_done_date', 'catatan', 'helper_formula'],
-            ['=\'Data Unit\'!B2', 'Service A', 50000, '2026-01-01', 'TIDAK ADA RIWAYAT COMPLETE - formula dari template', '=CONCAT(A2,"|",B2)'],
+            ['Plat Nomor (otomatis)', 'Nama Item (otomatis)', 'Kapan Terakhir Diganti (Tanggal)', 'KM Saat Diganti (opsional)', 'catatan', 'helper_formula'],
+            ['=\'Data Unit\'!B2', 'Service A', '2026-01-01', 50000, 'TIDAK ADA RIWAYAT COMPLETE - formula dari template', '=CONCAT(A2,"|",B2)'],
         ]);
 
         $path = tempnam(sys_get_temp_dir(), 'fleet-template-').'.xlsx';
         (new Xlsx($spreadsheet))->save($path);
         $spreadsheet->disconnectWorksheets();
+
+        return new UploadedFile($path, $filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    private function makeOfficialTemplateUpload(string $filename): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'official-fleet-template-').'.xlsx';
+        copy(base_path("data-migration/{$filename}"), $path);
 
         return new UploadedFile($path, $filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
