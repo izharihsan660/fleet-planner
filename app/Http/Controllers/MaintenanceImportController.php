@@ -175,18 +175,25 @@ class MaintenanceImportController extends Controller
             $sites = Site::query()->pluck('id', 'name')->mapWithKeys(fn (int $id, string $name): array => [strtoupper($name) => $id]);
 
             foreach ($rows as $row) {
-                $data = $row['data'];
-                $typeBrand = trim((string) $data['tipe_merk']);
+                $data = $row['data'] ?? [];
+                $site = strtoupper((string) ($data['site'] ?? ''));
+                $plate = strtoupper((string) ($data['plat_nomor'] ?? ''));
+                $typeBrand = trim((string) ($data['tipe_merk'] ?? '')) ?: '-';
+                $customer = trim((string) ($data['customer'] ?? '')) ?: '-';
+                $category = (string) ($data['kategori_kendaraan'] ?? '');
+                $year = trim((string) ($data['tahun'] ?? ''));
+                $odometer = $this->parseOptionalInteger($data['odometer_saat_ini'] ?? null);
 
                 Unit::query()->create([
-                    'site_id' => $sites[strtoupper($data['site'])],
-                    'customer' => $data['customer'] ?: '-',
-                    'current_plate' => strtoupper($data['plat_nomor']),
+                    'site_id' => $sites->get($site),
+                    'customer' => $customer,
+                    'current_plate' => $plate,
                     'type' => $typeBrand,
                     'brand' => str($typeBrand)->before(' ')->toString() ?: $typeBrand,
-                    'vehicle_category' => $data['kategori_kendaraan'],
-                    'year' => $this->parseInteger($data['tahun'] ?: (string) now()->year),
-                    'current_odo' => $this->parseInteger($data['odometer_saat_ini']),
+                    'vehicle_category' => $category,
+                    'year' => $this->parseInteger($year !== '' ? $year : (string) now()->year),
+                    'current_odo' => $odometer ?? 0,
+                    'has_odometer_reading' => $odometer !== null,
                     'status' => 'active',
                 ]);
             }
@@ -198,5 +205,18 @@ class MaintenanceImportController extends Controller
     private function parseInteger(string $value): int
     {
         return (int) preg_replace('/\D/', '', $value);
+    }
+
+    private function parseOptionalInteger(mixed $value): ?int
+    {
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/\D/', '', $value);
+
+        return $digits === '' ? null : (int) $digits;
     }
 }
