@@ -50,7 +50,7 @@ class ImportUnitPlanningsJob implements ShouldQueue
                 $isExcluded = $exclusion !== null;
                 $isEstimated = ! $isExcluded && str_contains(strtoupper($row['catatan'] ?? ''), 'TIDAK ADA RIWAYAT COMPLETE');
 
-                if (! $unit || ! $planningItem || (! $isExcluded && $lastDoneKm > ($unit?->current_odo ?? 0))) {
+                if (! $unit || ! $planningItem || (! $isExcluded && $unit->has_odometer_reading && $lastDoneKm > $unit->current_odo)) {
                     $failedRows++;
                     $failures[] = ['line' => $line, 'plate' => $row['plat_nomor'] ?? '', 'item' => $row['nama_item'] ?? '', 'message' => 'Plat/item tidak valid atau KM melebihi odometer.'];
 

@@ -130,7 +130,7 @@ class MaintenanceImportController extends Controller
      */
     private function validatePlanningRows(array $rows, MaintenanceImportReader $reader): array
     {
-        $units = Unit::query()->get(['id', 'current_plate', 'current_odo'])->keyBy(fn (Unit $unit): string => strtoupper($unit->current_plate));
+        $units = Unit::query()->get(['id', 'current_plate', 'current_odo', 'has_odometer_reading'])->keyBy(fn (Unit $unit): string => strtoupper($unit->current_plate));
         $items = PlanningItem::query()->pluck('id', 'name')->mapWithKeys(fn (int $id, string $name): array => [strtoupper($name) => $id]);
 
         return collect($rows)->map(function (array $row, int $index) use ($units, $items, $reader): array {
@@ -150,7 +150,7 @@ class MaintenanceImportController extends Controller
                 $errors[] = 'Planning item tidak ditemukan.';
             }
 
-            if (! $isExcluded && $unit && $lastDoneKm > $unit->current_odo) {
+            if (! $isExcluded && $unit && $unit->has_odometer_reading && $lastDoneKm > $unit->current_odo) {
                 $errors[] = 'Last done KM melebihi odometer unit.';
             }
 

@@ -121,6 +121,77 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertSame(0, $unit->unitPlannings()->whereNotNull('next_due_km')->count());
     }
 
+    public function test_unit_planning_km_validation_only_uses_confirmed_odometer_readings(): void
+    {
+        Storage::fake('local');
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 5001 AA', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 0, 'has_odometer_reading' => false, 'status' => 'active']);
+        Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 5002 BB', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 50000, 'has_odometer_reading' => true, 'status' => 'active']);
+        Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 5003 CC', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 80000, 'has_odometer_reading' => true, 'status' => 'active']);
+
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $csv = UploadedFile::fake()->createWithContent(
+            'planning-odometer-validation.csv',
+            "plat_nomor,nama_item,last_done_km\nDD 5001 AA,Service A,70078\nDD 5002 BB,Service A,70078\nDD 5003 CC,Service A,70078\n",
+        );
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $csv])
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('preview.total_rows', 3)
+                ->where('preview.valid_rows', 2)
+                ->where('preview.invalid_rows', 1)
+                ->where('preview.rows.0.valid', true)
+                ->where('preview.rows.0.errors', [])
+                ->where('preview.rows.1.valid', false)
+                ->where('preview.rows.1.errors.0', 'Last done KM melebihi odometer unit.')
+                ->where('preview.rows.2.valid', true)
+                ->where('preview.rows.2.errors', []));
+    }
+
+    public function test_unit_planning_job_only_compares_km_with_confirmed_odometer_readings(): void
+    {
+        Storage::fake('local');
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        $unknownOdometerUnit = Unit::withoutEvents(fn () => Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 6001 AA', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 0, 'has_odometer_reading' => false, 'status' => 'active']));
+        $exceededOdometerUnit = Unit::withoutEvents(fn () => Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 6002 BB', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 50000, 'has_odometer_reading' => true, 'status' => 'active']));
+        $validOdometerUnit = Unit::withoutEvents(fn () => Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 6003 CC', 'type' => 'Truck', 'brand' => 'Hino', 'vehicle_category' => 'truk_ringan', 'year' => 2024, 'current_odo' => 80000, 'has_odometer_reading' => true, 'status' => 'active']));
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $path = 'imports/planning-job-odometer-validation.csv';
+
+        Storage::disk('local')->put(
+            $path,
+            "plat_nomor,nama_item,last_done_km\nDD 6001 AA,Service A,70078\nDD 6002 BB,Service A,70078\nDD 6003 CC,Service A,70078\n",
+        );
+
+        $import = MaintenanceImport::query()->create([
+            'type' => 'unit_plannings',
+            'status' => 'queued',
+            'original_filename' => 'planning-job-odometer-validation.csv',
+            'stored_path' => $path,
+            'total_rows' => 3,
+            'created_by' => $user->id,
+        ]);
+
+        (new ImportUnitPlanningsJob($import->id))->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
+
+        $import->refresh();
+        $serviceA = PlanningItem::query()->where('name', 'Service A')->firstOrFail();
+
+        $this->assertSame('finished', $import->status);
+        $this->assertSame(2, $import->success_rows);
+        $this->assertSame(1, $import->failed_rows);
+        $this->assertSame('DD 6002 BB', $import->summary['failures'][0]['plate']);
+        $this->assertDatabaseHas('unit_plannings', ['unit_id' => $unknownOdometerUnit->id, 'planning_item_id' => $serviceA->id, 'last_done_km' => 70078]);
+        $this->assertDatabaseMissing('unit_plannings', ['unit_id' => $exceededOdometerUnit->id, 'planning_item_id' => $serviceA->id]);
+        $this->assertDatabaseHas('unit_plannings', ['unit_id' => $validOdometerUnit->id, 'planning_item_id' => $serviceA->id, 'last_done_km' => 70078]);
+    }
+
     public function test_commit_rejects_import_path_traversal(): void
     {
         Storage::fake('local');
