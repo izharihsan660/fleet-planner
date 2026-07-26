@@ -44,6 +44,7 @@ class WorkOrderController extends Controller
         abort_unless($user->hasRole(UserRole::Mekanik), 403);
 
         $items = WorkOrderItem::query()
+            ->applicable()
             ->with(['planningItem:id,name', 'workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name'])
             ->whereIn('work_order_items.status', ['in_progress', 'overdue'])
             ->whereHas('workOrder', fn ($query) => $query
@@ -80,23 +81,29 @@ class WorkOrderController extends Controller
         $thresholds = $this->maintenanceThresholds();
 
         $workOrderQuery = WorkOrder::query()
-            ->with(['unit.site', 'site', 'items.planningItem', 'items.unitPlanning', 'assignedMechanic:id,name'])
-            ->withCount('items')
-            ->withExists(['items as has_blocked_items' => fn ($query) => $query->where('status', 'blocked')])
-            ->withExists(['items as has_high_usage_items' => fn ($query) => $query->where('triggered_by_high_usage', true)])
-            ->whereDoesntHave('items', fn ($query) => $query->where('status', 'pending_create'))
+            ->with([
+                'unit.site',
+                'site',
+                'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
+                'assignedMechanic:id,name',
+            ])
+            ->withCount(['items' => fn ($query) => $query->applicable()])
+            ->withExists(['items as has_blocked_items' => fn ($query) => $query->applicable()->where('status', 'blocked')])
+            ->withExists(['items as has_high_usage_items' => fn ($query) => $query->applicable()->where('triggered_by_high_usage', true)])
+            ->whereHas('items', fn ($query) => $query->applicable())
+            ->whereDoesntHave('items', fn ($query) => $query->applicable()->where('status', 'pending_create'))
             ->tap(fn ($query) => $this->applyCurrentUnitSiteScope($query, $user))
             ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('site_id', $siteId)))
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
-            ->when($filters['item_id'] ?? null, fn ($query, string $itemId) => $query->whereHas('items', fn ($items) => $items->where('planning_item_id', $itemId)))
+            ->when($filters['item_id'] ?? null, fn ($query, string $itemId) => $query->whereHas('items', fn ($items) => $items->applicable()->where('planning_item_id', $itemId)))
             ->when($filters['assignee_id'] ?? null, fn ($query, string $assigneeId) => $query->where('assigned_mechanic_id', $assigneeId));
 
         $openWorkOrders = (clone $workOrderQuery)->where('status', 'open')->latest()->paginate(20, ['*'], 'open_page')->withQueryString();
         $inProgressWorkOrders = (clone $workOrderQuery)->where('status', 'in_progress')->latest()->paginate(20, ['*'], 'in_progress_page')->withQueryString();
         $completeWorkOrders = (clone $workOrderQuery)
             ->where('status', 'complete')
-            ->whereDoesntHave('items', fn ($query) => $query->whereNotIn('status', ['complete', 'postponed']))
+            ->whereDoesntHave('items', fn ($query) => $query->applicable()->whereNotIn('status', ['complete', 'postponed']))
             ->latest()
             ->paginate(20, ['*'], 'complete_page')
             ->withQueryString();
@@ -130,16 +137,24 @@ class WorkOrderController extends Controller
         Gate::authorize('view', $wo);
         $this->abortIfCannotAccessSite($request, $wo);
 
+        $wo->load([
+            'unit.site',
+            'site',
+            'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
+            'approvedBy:id,name',
+            'assignedMechanic:id,name',
+        ]);
+
+        abort_if($wo->items->isEmpty(), 404);
+
         return Inertia::render('WorkOrders/Show', [
-            'workOrder' => WorkOrderResource::make($wo->load([
-                'unit.site',
-                'site',
-                'items.planningItem',
-                'items.unitPlanning',
-                'approvedBy:id,name',
-                'assignedMechanic:id,name',
-            ])),
-            'planningItems' => PlanningItem::query()->orderBy('name')->get(['id', 'name']),
+            'workOrder' => WorkOrderResource::make($wo),
+            'planningItems' => PlanningItem::query()
+                ->whereDoesntHave('unitPlannings', fn ($query) => $query
+                    ->where('unit_id', $wo->unit_id)
+                    ->where('is_excluded', true))
+                ->orderBy('name')
+                ->get(['id', 'name']),
             'mechanics' => User::query()
                 ->where('role', UserRole::Mekanik->value)
                 ->where('site_id', $wo->site_id)
@@ -158,6 +173,10 @@ class WorkOrderController extends Controller
 
         if (! AccessScope::canAccessSite($request->user(), $planning->unit->site_id, $planning->unit->site?->region_id)) {
             abort(403);
+        }
+
+        if ($planning->is_excluded) {
+            return back()->withErrors(['planning' => 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.']);
         }
 
         if ($this->hasActiveItem($planning)) {
@@ -199,6 +218,21 @@ class WorkOrderController extends Controller
             ->whereIn('id', $request->validated('planning_item_ids'))
             ->get()
             ->keyBy('id');
+        $excludedItemNames = UnitPlanning::query()
+            ->where('unit_id', $unit->id)
+            ->whereIn('planning_item_id', $request->validated('planning_item_ids'))
+            ->where('is_excluded', true)
+            ->with('planningItem:id,name')
+            ->get()
+            ->pluck('planningItem.name')
+            ->filter()
+            ->values();
+
+        if ($excludedItemNames->isNotEmpty()) {
+            return back()->withErrors([
+                'planning_item_ids' => 'Item Tidak Berlaku tidak dapat dibuatkan task: '.$excludedItemNames->implode(', ').'.',
+            ]);
+        }
         $assignment = $this->optionalAssignmentPayload($request, $unit->site_id);
 
         DB::transaction(function () use ($request, $unit, $planningItems, $notifications, $assignment): void {
@@ -220,6 +254,8 @@ class WorkOrderController extends Controller
                         'last_done_date' => now()->toDateString(),
                     ],
                 );
+
+                abort_if($planning->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
 
                 $item = WorkOrderItem::query()->create([
                     'work_order_id' => $workOrder->id,
@@ -261,7 +297,10 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
 
         DB::transaction(function () use ($request, $wo, $notifications): void {
-            $wo->load(['items.unitPlanning', 'items.planningItem', 'unit']);
+            $wo->load([
+                'items' => fn ($query) => $query->applicable()->with(['unitPlanning', 'planningItem']),
+                'unit',
+            ]);
 
             $submittedItems = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
 
@@ -328,7 +367,7 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
 
         DB::transaction(function () use ($request, $wo): void {
-            $wo->load('items');
+            $wo->load(['items' => fn ($query) => $query->applicable()]);
 
             $pendingItems = $wo->items->whereIn('status', ['pending_create', 'replace', 'postpone']);
 
@@ -358,6 +397,7 @@ class WorkOrderController extends Controller
     {
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
+        $this->abortIfPlanningIsExcluded($item);
 
         if ($this->unitIsStillBreakdown($wo)) {
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
@@ -393,6 +433,7 @@ class WorkOrderController extends Controller
     {
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
+        $this->abortIfPlanningIsExcluded($item);
 
         if ($this->unitIsStillBreakdown($wo)) {
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
@@ -425,6 +466,8 @@ class WorkOrderController extends Controller
         if ($item->work_order_id !== $wo->id) {
             abort(404);
         }
+
+        $this->abortIfPlanningIsExcluded($item);
 
         if (! in_array($item->status, ['in_progress', 'overdue'], true)) {
             return back()->withErrors(['action' => 'Item harus In Progress atau Overdue sebelum bisa diselesaikan.']);
@@ -583,6 +626,7 @@ class WorkOrderController extends Controller
         $pageName = $zone.'_page';
 
         $items = UnitPlanning::query()
+            ->applicable()
             ->with(['unit.site', 'planningItem'])
             ->join('units', 'units.id', '=', 'unit_plannings.unit_id')
             ->select('unit_plannings.*')
@@ -738,7 +782,7 @@ class WorkOrderController extends Controller
 
     private function syncWorkOrderStatusFromItems(WorkOrder $workOrder): void
     {
-        $workOrder->loadMissing('items');
+        $workOrder->setRelation('items', $workOrder->items()->applicable()->get());
 
         if ($this->workOrderIsFullyResolved($workOrder)) {
             $workOrder->update(['status' => 'complete']);
@@ -757,7 +801,7 @@ class WorkOrderController extends Controller
 
     private function workOrderIsFullyResolved(WorkOrder $workOrder): bool
     {
-        $workOrder->loadMissing('items');
+        $workOrder->setRelation('items', $workOrder->items()->applicable()->get());
 
         return $workOrder->items->isNotEmpty()
             && $workOrder->items->every(fn (WorkOrderItem $item): bool => in_array($item->status, ['complete', 'postponed'], true));
@@ -821,6 +865,13 @@ class WorkOrderController extends Controller
         if ($item->work_order_id !== $workOrder->id) {
             abort(404);
         }
+    }
+
+    private function abortIfPlanningIsExcluded(WorkOrderItem $item): void
+    {
+        $item->loadMissing('unitPlanning:id,is_excluded');
+
+        abort_if($item->unitPlanning?->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
     }
 
     private function unitIsStillBreakdown(WorkOrder $workOrder): bool

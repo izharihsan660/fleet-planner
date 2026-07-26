@@ -133,8 +133,9 @@ class ReportController extends Controller
         $user = $request->user();
 
         return WorkOrder::query()
+            ->whereHas('items', fn (Builder $query) => $query->applicable())
             ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $user, 'work_orders.site_id'))
-            ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereHas('items', fn (Builder $itemQuery) => $itemQuery->where('work_order_items.submitted_by', $user->id)));
+            ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereHas('items', fn (Builder $itemQuery) => $itemQuery->applicable()->where('work_order_items.submitted_by', $user->id)));
     }
 
     private function visibleWorkOrderItems(ReportFilterRequest $request): Builder
@@ -142,6 +143,7 @@ class ReportController extends Controller
         $user = $request->user();
 
         return WorkOrderItem::query()
+            ->applicable()
             ->whereHas('workOrder', function (Builder $query) use ($user): void {
                 AccessScope::applySiteScope($query, $user, 'work_orders.site_id');
             })
@@ -166,6 +168,7 @@ class ReportController extends Controller
     {
         return $this->visibleWorkOrders($request)
             ->leftJoin('work_order_items', 'work_order_items.work_order_id', '=', 'work_orders.id')
+            ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
             ->leftJoin('sites', 'sites.id', '=', 'work_orders.site_id')
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(DISTINCT work_orders.id) as total_wo')
@@ -175,6 +178,7 @@ class ReportController extends Controller
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
+            ->where('unit_plannings.is_excluded', false)
             ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_orders.site_id', 'sites.name')
             ->orderBy('sites.name');
@@ -237,6 +241,7 @@ class ReportController extends Controller
     {
         return $this->visibleWorkOrders($request)
             ->leftJoin('work_order_items', 'work_order_items.work_order_id', '=', 'work_orders.id')
+            ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
             ->leftJoin('units', 'units.id', '=', 'work_orders.unit_id')
             ->leftJoin('sites', 'sites.id', '=', 'work_orders.site_id')
             ->selectRaw('work_orders.unit_id as unit_id')
@@ -247,6 +252,7 @@ class ReportController extends Controller
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as total_overdue")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
+            ->where('unit_plannings.is_excluded', false)
             ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_orders.unit_id', 'units.current_plate', 'sites.name')
             ->orderBy('units.current_plate');

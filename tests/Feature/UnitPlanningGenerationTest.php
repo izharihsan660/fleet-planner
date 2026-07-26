@@ -28,6 +28,7 @@ class UnitPlanningGenerationTest extends TestCase
             'brand' => 'Toyota',
             'year' => 2024,
             'current_odo' => 9500,
+            'has_odometer_reading' => true,
             'status' => 'active',
         ]);
 
@@ -43,6 +44,29 @@ class UnitPlanningGenerationTest extends TestCase
         $this->assertSame(today()->toDateString(), $unitPlanning->last_done_date->toDateString());
         $this->assertSame(14500, $unitPlanning->next_due_km);
         $this->assertSame(today()->addDays(90)->toDateString(), $unitPlanning->next_due_date->toDateString());
+    }
+
+    public function test_unit_without_odometer_reading_has_only_date_due_baselines(): void
+    {
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'Site Missing Odo', 'region' => 'Makassar']);
+
+        $unit = Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'Customer Missing Odo',
+            'current_plate' => 'DD 1002 AB',
+            'type' => 'MPV',
+            'brand' => 'Toyota',
+            'year' => 2024,
+            'current_odo' => 0,
+            'has_odometer_reading' => false,
+            'status' => 'active',
+        ]);
+
+        $this->assertSame(20, $unit->unitPlannings()->count());
+        $this->assertSame(0, $unit->unitPlannings()->whereNotNull('next_due_km')->count());
+        $this->assertSame(20, $unit->unitPlannings()->whereNotNull('next_due_date')->count());
     }
 
     public function test_backfill_command_creates_only_missing_unit_plannings(): void

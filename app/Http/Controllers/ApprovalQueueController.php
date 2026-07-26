@@ -31,6 +31,7 @@ class ApprovalQueueController extends Controller
         $now = CarbonImmutable::now();
 
         $items = WorkOrderItem::query()
+            ->applicable()
             ->with([
                 'planningItem:id,name',
                 'workOrder.unit:id,current_plate,site_id',
@@ -90,6 +91,7 @@ class ApprovalQueueController extends Controller
         DB::transaction(function () use ($payload, $request, $notifications, &$processedCount): void {
             foreach ($payload['item_ids'] as $itemId) {
                 $item = WorkOrderItem::query()
+                    ->applicable()
                     ->with(['workOrder.items', 'workOrder.unit', 'unitPlanning', 'planningItem'])
                     ->lockForUpdate()
                     ->findOrFail($itemId);
@@ -186,7 +188,7 @@ class ApprovalQueueController extends Controller
 
     private function syncWorkOrderStatusFromItems(WorkOrder $workOrder): void
     {
-        $workOrder->load('items');
+        $workOrder->setRelation('items', $workOrder->items()->applicable()->get());
 
         if ($workOrder->items->isNotEmpty() && $workOrder->items->every(fn (WorkOrderItem $item): bool => in_array($item->status, ['complete', 'postponed'], true))) {
             $workOrder->update(['status' => 'complete']);

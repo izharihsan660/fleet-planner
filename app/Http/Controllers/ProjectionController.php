@@ -74,6 +74,7 @@ class ProjectionController extends Controller
         $end = $month->endOfMonth();
 
         $items = WorkOrderItem::query()
+            ->applicable()
             ->with(['planningItem:id,name', 'unitPlanning:id,next_due_date,next_due_km', 'workOrder.unit:id,current_plate,current_odo,site_id', 'workOrder.site:id,name,region,region_id'])
             ->whereNotIn('work_order_items.status', ['complete', 'cancelled'])
             ->whereHas('workOrder', fn (Builder $query) => $query->whereNotIn('status', ['complete', 'cancelled']))

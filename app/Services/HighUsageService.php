@@ -46,6 +46,7 @@ class HighUsageService
             $today = CarbonImmutable::today();
 
             return $unit->unitPlannings()
+                ->applicable()
                 ->with('planningItem:id,name')
                 ->get()
                 ->filter(fn (UnitPlanning $unitPlanning): bool => $this->shouldFlag($unit, $unitPlanning, $averageKmPerDay, $thresholdPercentage, $today))
@@ -71,6 +72,8 @@ class HighUsageService
     {
         DB::transaction(function () use ($flag, $actor, $action, $data): void {
             $flag->loadMissing('unit', 'unitPlanning');
+
+            abort_if($flag->unitPlanning?->is_excluded, 422, 'Planning item ini sudah ditandai Tidak Berlaku.');
 
             if ($action === 'triggered') {
                 $this->createWorkOrderItem($flag, $actor, true);
@@ -112,11 +115,13 @@ class HighUsageService
     public function checkPendingFlags(): void
     {
         $pendingFlags = HighUsageFlag::query()
+            ->whereHas('unitPlanning', fn ($query) => $query->applicable())
             ->whereNull('action_taken')
             ->where('flagged_at', '<=', now()->subDays(5))
             ->get();
 
         $deferredFlags = HighUsageFlag::query()
+            ->whereHas('unitPlanning', fn ($query) => $query->applicable())
             ->where('action_taken', 'deferred')
             ->where('action_taken_at', '<=', now()->subDays(5))
             ->get();

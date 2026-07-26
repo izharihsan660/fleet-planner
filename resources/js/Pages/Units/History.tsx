@@ -3,11 +3,12 @@ import PaginationLinks from '@/Components/PaginationLinks';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import StatusBadge from '@/Components/StatusBadge';
+import TextInput from '@/Components/TextInput';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Textarea } from '@/Components/ui/textarea';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, UnitHistory, UnitHistoryItem, UnitPlateHistory, UnitSiteTransfer } from '@/types';
+import { PageProps, UnitHistory, UnitHistoryItem, UnitPlanningReference, UnitPlateHistory, UnitSiteTransfer } from '@/types';
 import { Head, Link, useForm } from '@inertiajs/react';
 import { FormEvent, ReactNode } from 'react';
 
@@ -37,6 +38,8 @@ export default function History({ history }: UnitHistoryPageProps) {
                     {history.can_request_transfer && <TransferRequestForm history={history} />}
                     {history.can_approve_transfer && history.pending_transfers.length > 0 && <PendingTransferApprovals transfers={history.pending_transfers} />}
 
+                    <PlanningItemsSection history={history} />
+
                     <Section title="Riwayat Penggantian" empty="Belum ada penggantian complete." meta={history.replacements.meta}>
                         {history.replacements.data.map((item) => <HistoryCard key={item.id} item={item} />)}
                     </Section>
@@ -59,6 +62,92 @@ export default function History({ history }: UnitHistoryPageProps) {
                 </div>
             </div>
         </AuthenticatedLayout>
+    );
+}
+
+function PlanningItemsSection({ history }: { history: UnitHistory }) {
+    return (
+        <Card>
+            <CardContent>
+                <div>
+                    <h3 className="text-base font-semibold text-foreground">Planning Item Unit</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">Item Tidak Berlaku tetap ditampilkan sebagai referensi, tetapi tidak masuk perhitungan atau task maintenance.</p>
+                </div>
+
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    {history.planning_items.map((item) => (
+                        <PlanningItemCard
+                            key={item.id}
+                            unitId={history.unit.id}
+                            item={item}
+                            canManage={history.can_manage_planning_exclusions}
+                        />
+                    ))}
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+function PlanningItemCard({ unitId, item, canManage }: { unitId: number; item: UnitPlanningReference; canManage: boolean }) {
+    const form = useForm({
+        is_excluded: item.is_excluded,
+        excluded_reason: item.excluded_reason ?? '',
+    });
+
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.patch(route('units.plannings.exclusion.update', [unitId, item.id]), { preserveScroll: true });
+    };
+
+    return (
+        <Card className={item.is_excluded ? 'border-rose-200 bg-rose-50/60 dark:border-rose-500/40 dark:bg-rose-500/10' : 'bg-muted/20'}>
+            <CardContent className="p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                        <div className="font-medium text-foreground">{item.planning_item_name}</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            {item.is_excluded
+                                ? <StatusBadge tone="danger">Tidak Berlaku{item.excluded_reason ? `: ${item.excluded_reason}` : ''}</StatusBadge>
+                                : <StatusBadge tone="safe">Aktif</StatusBadge>}
+                            {item.is_estimated && <StatusBadge tone="warning">Estimated</StatusBadge>}
+                        </div>
+                    </div>
+                    <div className="text-sm text-muted-foreground sm:text-right">
+                        <div>Terakhir: {item.last_done_km.toLocaleString('id-ID')} KM · {item.last_done_date ?? '-'}</div>
+                        <div className="mt-1">Due: {item.next_due_km?.toLocaleString('id-ID') ?? '-'} KM · {item.next_due_date ?? '-'}</div>
+                    </div>
+                </div>
+
+                {canManage && (
+                    <form onSubmit={submit} className="mt-4 space-y-3 border-t border-border pt-4">
+                        <label className="flex items-center gap-3 text-sm font-medium text-foreground">
+                            <input
+                                type="checkbox"
+                                checked={form.data.is_excluded}
+                                onChange={(event) => form.setData('is_excluded', event.target.checked)}
+                                className="size-4 rounded border-input text-primary focus:ring-ring"
+                            />
+                            Tandai sebagai Tidak Berlaku
+                        </label>
+
+                        {form.data.is_excluded && (
+                            <div>
+                                <TextInput
+                                    value={form.data.excluded_reason}
+                                    onChange={(event) => form.setData('excluded_reason', event.target.value)}
+                                    placeholder="Alasan, contoh: METIC"
+                                    className="w-full"
+                                />
+                                <InputError className="mt-2" message={form.errors.excluded_reason} />
+                            </div>
+                        )}
+
+                        <PrimaryButton disabled={form.processing}>Simpan Status</PrimaryButton>
+                    </form>
+                )}
+            </CardContent>
+        </Card>
     );
 }
 

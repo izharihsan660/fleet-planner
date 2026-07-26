@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\InspectionLog;
 use App\Models\SystemThreshold;
 use App\Models\Unit;
+use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
@@ -28,7 +29,9 @@ class InspectionService
             throw new InvalidArgumentException('Odometer baru harus lebih besar dari odometer unit saat ini.');
         }
 
-        return DB::transaction(function () use ($unit, $odometer, $mechanic, $date): InspectionLog {
+        $isFirstOdometerReading = ! $unit->has_odometer_reading;
+
+        return DB::transaction(function () use ($unit, $odometer, $mechanic, $date, $isFirstOdometerReading): InspectionLog {
             if ($unit->status === 'breakdown') {
                 $this->blockedBreakdownService->unfreezeBreakdown($unit);
                 $unit->refresh();
@@ -44,7 +47,10 @@ class InspectionService
                 'previous_odo' => $unit->current_odo,
             ]);
 
-            $insufficientData = $this->refreshUnitAfterInspectionChange($unit->refresh());
+            $insufficientData = $this->refreshUnitAfterInspectionChange(
+                $unit->refresh(),
+                initializeMissingOdometerDueKm: $isFirstOdometerReading,
+            );
 
             $log->setAttribute('insufficient_data', $insufficientData);
 
@@ -64,8 +70,12 @@ class InspectionService
         });
     }
 
-    private function refreshUnitAfterInspectionChange(Unit $unit, bool $pruneStaleTriggers = false, ?int $fallbackOdometer = null): bool
-    {
+    private function refreshUnitAfterInspectionChange(
+        Unit $unit,
+        bool $pruneStaleTriggers = false,
+        ?int $fallbackOdometer = null,
+        bool $initializeMissingOdometerDueKm = false,
+    ): bool {
         $logs = InspectionLog::query()
             ->where('unit_id', $unit->id)
             ->orderBy('inspection_date')
@@ -88,14 +98,21 @@ class InspectionService
 
         $unit->forceFill([
             'current_odo' => $latestLog?->odometer ?? $fallbackOdometer ?? $unit->current_odo,
+            'has_odometer_reading' => $latestLog !== null || $unit->has_odometer_reading,
             'avg_km_per_day' => $averageKmPerDay,
         ])->save();
 
+        if ($initializeMissingOdometerDueKm && $latestLog !== null) {
+            $this->initializeMissingOdometerDueKm($unit->refresh());
+        }
+
         $unit->unitPlannings()
-            ->with(['planningItem:id,interval_km,interval_days', 'unit'])
+            ->applicable()
+            ->whereNotNull('next_due_km')
+            ->with('planningItem:id,interval_km,interval_days')
             ->get()
-            ->each(function ($unitPlanning): void {
-                $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
+            ->each(function (UnitPlanning $unitPlanning) use ($unit): void {
+                $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unit);
                 $nextDueKm = $unitPlanning->last_done_km + $interval['interval_km'];
 
                 $unitPlanning->update([
@@ -113,6 +130,22 @@ class InspectionService
         return $insufficientData;
     }
 
+    private function initializeMissingOdometerDueKm(Unit $unit): void
+    {
+        $unit->unitPlannings()
+            ->applicable()
+            ->whereNull('next_due_km')
+            ->with('planningItem:id,interval_km,interval_days')
+            ->get()
+            ->each(function (UnitPlanning $unitPlanning) use ($unit): void {
+                $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unit);
+
+                $unitPlanning->update([
+                    'next_due_km' => $unit->current_odo + $interval['interval_km'],
+                ]);
+            });
+    }
+
     private function pruneStaleNormalTriggers(Unit $unit): void
     {
         $warningKm = (int) (SystemThreshold::query()->where('key', 'warning_km')->value('value') ?? 500);
@@ -120,6 +153,7 @@ class InspectionService
         $today = CarbonImmutable::today();
 
         $staleItems = WorkOrderItem::query()
+            ->applicable()
             ->where('status', 'on_hold')
             ->whereHas('workOrder', fn ($query) => $query
                 ->where('unit_id', $unit->id)

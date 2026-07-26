@@ -72,6 +72,33 @@ class InspectionInputTest extends TestCase
         $this->assertSame(20, $unit->unitPlannings()->count());
     }
 
+    public function test_first_mechanic_odometer_input_initializes_missing_km_due_baselines(): void
+    {
+        $this->seed([SystemThresholdSeeder::class, PlanningItemSeeder::class]);
+
+        $site = Site::query()->create(['name' => 'Site First Odo', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 0, false));
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $this->assertSame(0, $unit->unitPlannings()->whereNotNull('next_due_km')->count());
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 45000,
+        ])->assertRedirect(route('inspections.create'));
+
+        $unit->refresh();
+        $planningItem = PlanningItem::query()->where('name', 'PM Check / Reguler Services')->firstOrFail();
+        $unitPlanning = $unit->unitPlannings()->where('planning_item_id', $planningItem->id)->firstOrFail();
+
+        $this->assertTrue($unit->has_odometer_reading);
+        $this->assertSame(45000, $unit->current_odo);
+        $this->assertSame(50000, $unitPlanning->next_due_km);
+        $this->assertSame(0, WorkOrder::query()->count());
+        $this->assertSame(0, WorkOrderItem::query()->count());
+    }
+
     public function test_input_km_submission_ignores_manipulated_inspection_date_and_uses_today(): void
     {
         $this->seed(SystemThresholdSeeder::class);
@@ -469,7 +496,7 @@ class InspectionInputTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function unitPayload(int $siteId, int $currentOdo = 0): array
+    private function unitPayload(int $siteId, int $currentOdo = 0, bool $hasOdometerReading = true): array
     {
         return [
             'site_id' => $siteId,
@@ -479,6 +506,7 @@ class InspectionInputTest extends TestCase
             'brand' => 'Toyota',
             'year' => 2024,
             'current_odo' => $currentOdo,
+            'has_odometer_reading' => $hasOdometerReading,
             'status' => 'active',
         ];
     }

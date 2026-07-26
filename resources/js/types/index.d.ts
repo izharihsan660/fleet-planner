@@ -110,6 +110,8 @@ export interface UnitPlanning {
     next_due_km: number | null;
     next_due_date: string | null;
     is_estimated: boolean;
+    is_excluded: boolean;
+    excluded_reason: string | null;
     freeze_start: string | null;
     unit?: Unit;
     planning_item?: PlanningItem;
@@ -372,6 +374,18 @@ export interface UnitHistoryItem {
     created_at: string | null;
 }
 
+export interface UnitPlanningReference {
+    id: number;
+    planning_item_name: string;
+    last_done_km: number;
+    last_done_date: string | null;
+    next_due_km: number | null;
+    next_due_date: string | null;
+    is_estimated: boolean;
+    is_excluded: boolean;
+    excluded_reason: string | null;
+}
+
 export interface UnitHistory {
     unit: {
         id: number;
@@ -385,6 +399,7 @@ export interface UnitHistory {
         needs_document_verification: boolean;
         status: string;
     };
+    planning_items: UnitPlanningReference[];
     replacements: PaginatedCollection<UnitHistoryItem>;
     plate_histories: PaginatedCollection<UnitPlateHistory>;
     site_transfers: PaginatedCollection<UnitSiteTransfer>;
@@ -393,6 +408,7 @@ export interface UnitHistory {
     transfer_sites: Site[];
     can_request_transfer: boolean;
     can_approve_transfer: boolean;
+    can_manage_planning_exclusions: boolean;
     pending_transfers: UnitSiteTransfer[];
 }
 

@@ -46,6 +46,7 @@ class ProjectionAccuracyService
     private function completedItems(int $month, int $year, ?int $siteId, User $user): Collection
     {
         return WorkOrderItem::query()
+            ->applicable()
             ->with(['planningItem:id,name', 'workOrder:id,unit_id,site_id', 'workOrder.site:id,name'])
             ->where('status', 'complete')
             ->where('action', '!=', 'breakdown')

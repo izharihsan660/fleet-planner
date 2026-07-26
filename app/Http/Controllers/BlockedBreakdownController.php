@@ -71,6 +71,7 @@ class BlockedBreakdownController extends Controller
         $this->abortIfCannotAccessSite($request->user(), $unit->site_id);
 
         $unitPlanning = UnitPlanning::query()
+            ->applicable()
             ->where('unit_id', $unit->id)
             ->findOrFail($request->integer('unit_planning_id'));
 
@@ -87,6 +88,7 @@ class BlockedBreakdownController extends Controller
         ]);
 
         WorkOrderItem::query()
+            ->applicable()
             ->where('unit_planning_id', $unitPlanning->id)
             ->where('status', 'breakdown')
             ->update([
@@ -97,7 +99,7 @@ class BlockedBreakdownController extends Controller
                 'freeze_end' => now(),
             ]);
 
-        if (! WorkOrderItem::query()->where('status', 'breakdown')->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))->exists()) {
+        if (! WorkOrderItem::query()->applicable()->where('status', 'breakdown')->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))->exists()) {
             $unit->update(['status' => 'active']);
         }
 

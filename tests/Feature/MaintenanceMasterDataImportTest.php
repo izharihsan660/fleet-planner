@@ -203,6 +203,66 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertTrue($planning->is_estimated);
     }
 
+    public function test_import_unit_planning_marks_tidak_perlu_date_as_excluded(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        Unit::withoutEvents(fn () => Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'PT NAJ',
+            'current_plate' => 'DD 4444 XX',
+            'type' => 'Automatic',
+            'brand' => 'Toyota',
+            'vehicle_category' => 'mpv',
+            'year' => 2024,
+            'current_odo' => 60000,
+            'status' => 'active',
+        ]));
+        PlanningItem::query()->create(['name' => 'Kampas Kopling Set', 'interval_km' => 40000, 'interval_days' => 365]);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $file = UploadedFile::fake()->createWithContent(
+            'setup-awal-item.csv',
+            "plat_nomor,nama_item,last_done_km,Kapan Terakhir Diganti,catatan\nDD 4444 XX,Kampas Kopling Set,,  TIDAK   PERLU (METIC)  ,TIDAK ADA RIWAYAT COMPLETE\n",
+        );
+
+        $preview = $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $file])
+            ->assertOk();
+
+        $preview->assertInertia(fn ($page) => $page
+            ->where('preview.invalid_rows', 0)
+            ->where('preview.estimated_rows', 0)
+            ->where('preview.excluded_rows', 1)
+            ->where('preview.rows.0.is_excluded', true)
+            ->where('preview.rows.0.excluded_reason', 'METIC'));
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), [
+                'type' => 'unit_plannings',
+                'path' => $path,
+                'original_filename' => 'setup-awal-item.csv',
+            ])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        Queue::assertPushed(ImportUnitPlanningsJob::class, function (ImportUnitPlanningsJob $job): bool {
+            $job->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
+
+            return true;
+        });
+
+        $planning = UnitPlanning::query()->firstOrFail();
+
+        $this->assertTrue($planning->is_excluded);
+        $this->assertSame('METIC', $planning->excluded_reason);
+        $this->assertFalse($planning->is_estimated);
+        $this->assertNull($planning->next_due_km);
+        $this->assertNull($planning->next_due_date);
+    }
+
     private function makeFleetTemplateUpload(string $filename): UploadedFile
     {
         $spreadsheet = new Spreadsheet;

@@ -33,6 +33,7 @@ class WorkListController extends Controller
         $today = CarbonImmutable::today();
 
         $items = WorkOrderItem::query()
+            ->applicable()
             ->with(['planningItem:id,name', 'unitPlanning:id,next_due_date,next_due_km', 'workOrder.unit:id,current_plate,current_odo,site_id', 'workOrder.site:id,name,region,region_id'])
             ->whereIn('work_order_items.status', ['on_hold', 'overdue'])
             ->whereHas('workOrder', fn (Builder $query) => $query->whereIn('status', ['open', 'in_progress']))
@@ -97,6 +98,7 @@ class WorkListController extends Controller
             foreach ($payload['groups'] as $group) {
                 foreach ($group['item_ids'] as $itemId) {
                     $item = WorkOrderItem::query()
+                        ->applicable()
                         ->with(['workOrder.site:id,region_id', 'workOrder.unit:id,status', 'unitPlanning', 'planningItem'])
                         ->lockForUpdate()
                         ->findOrFail($itemId);

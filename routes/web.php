@@ -17,6 +17,7 @@ use App\Http\Controllers\SiteController;
 use App\Http\Controllers\SystemThresholdController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\UnitHistoryController;
+use App\Http\Controllers\UnitPlanningExclusionController;
 use App\Http\Controllers\UnitSiteTransferController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WorkListController;
@@ -82,6 +83,7 @@ Route::middleware('auth')->group(function () {
         Route::get('maintenance-imports', [MaintenanceImportController::class, 'index'])->name('maintenance-imports.index');
         Route::post('maintenance-imports/preview', [MaintenanceImportController::class, 'preview'])->name('maintenance-imports.preview');
         Route::post('maintenance-imports/commit', [MaintenanceImportController::class, 'commit'])->name('maintenance-imports.commit');
+        Route::patch('units/{unit}/plannings/{unitPlanning}/exclusion', UnitPlanningExclusionController::class)->name('units.plannings.exclusion.update');
         Route::resource('system-thresholds', SystemThresholdController::class)->except('show');
     });
 

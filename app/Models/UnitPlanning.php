@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,6 +17,8 @@ class UnitPlanning extends Model
         'next_due_km',
         'next_due_date',
         'is_estimated',
+        'is_excluded',
+        'excluded_reason',
         'freeze_start',
     ];
 
@@ -25,8 +28,18 @@ class UnitPlanning extends Model
             'last_done_date' => 'date',
             'next_due_date' => 'date',
             'is_estimated' => 'boolean',
+            'is_excluded' => 'boolean',
             'freeze_start' => 'datetime',
         ];
+    }
+
+    /**
+     * @param  Builder<UnitPlanning>  $query
+     * @return Builder<UnitPlanning>
+     */
+    public function scopeApplicable(Builder $query): Builder
+    {
+        return $query->where('is_excluded', false);
     }
 
     /**

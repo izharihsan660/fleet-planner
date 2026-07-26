@@ -31,7 +31,7 @@ class MaintenanceImportController extends Controller
         $path = $request->file('file')->store('imports');
         $type = $request->string('type')->toString();
         $rows = $reader->rows(Storage::path($path), $type);
-        $validatedRows = $this->validateRows($type, $rows);
+        $validatedRows = $this->validateRows($type, $rows, $reader);
 
         return Inertia::render('MaintenanceImports/Index', [
             'imports' => MaintenanceImport::query()->latest()->take(20)->get(),
@@ -43,6 +43,7 @@ class MaintenanceImportController extends Controller
                 'valid_rows' => collect($validatedRows)->where('valid', true)->count(),
                 'invalid_rows' => collect($validatedRows)->where('valid', false)->count(),
                 'estimated_rows' => collect($validatedRows)->where('is_estimated', true)->count(),
+                'excluded_rows' => collect($validatedRows)->where('is_excluded', true)->count(),
                 'rows' => array_slice($validatedRows, 0, 25),
             ],
         ]);
@@ -53,7 +54,7 @@ class MaintenanceImportController extends Controller
         $type = $request->string('type')->toString();
         $path = $request->string('path')->toString();
         $rows = $reader->rows(Storage::path($path), $type);
-        $validatedRows = $this->validateRows($type, $rows);
+        $validatedRows = $this->validateRows($type, $rows, $reader);
 
         if (collect($validatedRows)->contains(fn (array $row): bool => ! $row['valid'])) {
             return redirect()->route('maintenance-imports.index')->withErrors(['file' => 'Masih ada baris tidak valid. Perbaiki CSV lalu upload ulang.']);
@@ -83,9 +84,9 @@ class MaintenanceImportController extends Controller
      * @param  array<int, array<string, string>>  $rows
      * @return array<int, array<string, mixed>>
      */
-    private function validateRows(string $type, array $rows): array
+    private function validateRows(string $type, array $rows, MaintenanceImportReader $reader): array
     {
-        return $type === 'units' ? $this->validateUnitRows($rows) : $this->validatePlanningRows($rows);
+        return $type === 'units' ? $this->validateUnitRows($rows) : $this->validatePlanningRows($rows, $reader);
     }
 
     /**
@@ -127,17 +128,19 @@ class MaintenanceImportController extends Controller
      * @param  array<int, array<string, string>>  $rows
      * @return array<int, array<string, mixed>>
      */
-    private function validatePlanningRows(array $rows): array
+    private function validatePlanningRows(array $rows, MaintenanceImportReader $reader): array
     {
         $units = Unit::query()->get(['id', 'current_plate', 'current_odo'])->keyBy(fn (Unit $unit): string => strtoupper($unit->current_plate));
         $items = PlanningItem::query()->pluck('id', 'name')->mapWithKeys(fn (int $id, string $name): array => [strtoupper($name) => $id]);
 
-        return collect($rows)->map(function (array $row, int $index) use ($units, $items): array {
+        return collect($rows)->map(function (array $row, int $index) use ($units, $items, $reader): array {
             $errors = [];
             $plate = strtoupper($row['plat_nomor'] ?? '');
             $item = strtoupper($row['nama_item'] ?? '');
             $lastDoneKm = $this->parseInteger($row['last_done_km'] ?? '0');
             $unit = $units->get($plate);
+            $exclusion = $reader->parseExclusionMarker($row['last_done_date'] ?? '');
+            $isExcluded = $exclusion !== null;
 
             if (! $unit) {
                 $errors[] = 'Plat belum ada di master unit.';
@@ -147,7 +150,7 @@ class MaintenanceImportController extends Controller
                 $errors[] = 'Planning item tidak ditemukan.';
             }
 
-            if ($unit && $lastDoneKm > $unit->current_odo) {
+            if (! $isExcluded && $unit && $lastDoneKm > $unit->current_odo) {
                 $errors[] = 'Last done KM melebihi odometer unit.';
             }
 
@@ -156,7 +159,9 @@ class MaintenanceImportController extends Controller
                 'valid' => $errors === [],
                 'errors' => $errors,
                 'data' => $row,
-                'is_estimated' => str_contains(strtoupper($row['catatan'] ?? ''), 'TIDAK ADA RIWAYAT COMPLETE'),
+                'is_estimated' => ! $isExcluded && str_contains(strtoupper($row['catatan'] ?? ''), 'TIDAK ADA RIWAYAT COMPLETE'),
+                'is_excluded' => $isExcluded,
+                'excluded_reason' => $exclusion['reason'] ?? null,
             ];
         })->all();
     }

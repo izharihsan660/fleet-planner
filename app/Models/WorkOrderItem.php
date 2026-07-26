@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -42,6 +43,15 @@ class WorkOrderItem extends Model
             'approved_at' => 'datetime',
             'triggered_by_high_usage' => 'boolean',
         ];
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    public function scopeApplicable(Builder $query): Builder
+    {
+        return $query->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->applicable());
     }
 
     /**

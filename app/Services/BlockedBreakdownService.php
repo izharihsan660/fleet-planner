@@ -12,6 +12,10 @@ class BlockedBreakdownService
 {
     public function markBlocked(WorkOrderItem $item, User $actor, string $reason): WorkOrderItem
     {
+        $item->loadMissing('unitPlanning:id,is_excluded');
+
+        abort_if($item->unitPlanning?->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
+
         $item->update([
             'status' => 'blocked',
             'action' => 'blocked',
@@ -32,6 +36,7 @@ class BlockedBreakdownService
             $unit->update(['status' => 'breakdown']);
 
             WorkOrderItem::query()
+                ->applicable()
                 ->whereIn('status', ['on_hold', 'in_progress', 'overdue'])
                 ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))
                 ->update([
@@ -43,7 +48,7 @@ class BlockedBreakdownService
                     'updated_at' => $freezeStart,
                 ]);
 
-            $unit->unitPlannings()->update([
+            $unit->unitPlannings()->applicable()->update([
                 'freeze_start' => $freezeStart,
                 'updated_at' => $freezeStart,
             ]);
@@ -59,6 +64,7 @@ class BlockedBreakdownService
             $today = CarbonImmutable::today();
 
             $unit->unitPlannings()
+                ->applicable()
                 ->whereNotNull('freeze_start')
                 ->get()
                 ->each(function ($unitPlanning) use ($today, $now): void {
@@ -73,6 +79,7 @@ class BlockedBreakdownService
                 });
 
             WorkOrderItem::query()
+                ->applicable()
                 ->where('status', 'breakdown')
                 ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))
                 ->update([

@@ -9,6 +9,7 @@ use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use Database\Seeders\PlanningItemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -66,6 +67,8 @@ class SyncUnitsFromRegisterCommandTest extends TestCase
 
     public function test_new_unit_is_created_with_zero_odometer_and_no_reading(): void
     {
+        $this->seed(PlanningItemSeeder::class);
+
         $csv = $this->writeRegisterCsv([
             ['TARAKAN', 'KT 5678 BB', 'MITSUBISHI CANTER', 'truk_ringan', '2023', 'PT. NAJR', ''],
         ]);
@@ -86,6 +89,12 @@ class SyncUnitsFromRegisterCommandTest extends TestCase
             'current_odo' => 0,
             'has_odometer_reading' => false,
         ]);
+
+        $unit = Unit::query()->where('current_plate', 'KT 5678 BB')->firstOrFail();
+
+        $this->assertSame(20, $unit->unitPlannings()->count());
+        $this->assertSame(0, $unit->unitPlannings()->whereNotNull('next_due_km')->count());
+        $this->assertSame(20, $unit->unitPlannings()->whereNotNull('next_due_date')->count());
     }
 
     public function test_dry_run_does_not_change_data(): void

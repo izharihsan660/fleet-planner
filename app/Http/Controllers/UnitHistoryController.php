@@ -22,7 +22,12 @@ class UnitHistoryController extends Controller
         Gate::authorize('view-reports.by-unit');
         $this->abortIfCannotAccessUnit($request, $unit);
 
-        $unit->load('site:id,name,region');
+        $unit->load([
+            'site:id,name,region',
+            'unitPlannings' => fn ($query) => $query
+                ->with('planningItem:id,name')
+                ->orderBy('planning_item_id'),
+        ]);
 
         return Inertia::render('Units/History', [
             'history' => UnitHistoryResource::make([
@@ -39,6 +44,17 @@ class UnitHistoryController extends Controller
                     'status' => $unit->status,
                 ],
                 'replacements' => $this->historyPage($this->itemsFor($unit, ['complete'])->where('action', 'replace')->latest('completed_date')->paginate(25, ['*'], 'replacements_page')->withQueryString()),
+                'planning_items' => $unit->unitPlannings->map(fn ($unitPlanning): array => [
+                    'id' => $unitPlanning->id,
+                    'planning_item_name' => $unitPlanning->planningItem?->name ?? '-',
+                    'last_done_km' => $unitPlanning->last_done_km,
+                    'last_done_date' => $unitPlanning->last_done_date?->toDateString(),
+                    'next_due_km' => $unitPlanning->next_due_km,
+                    'next_due_date' => $unitPlanning->next_due_date?->toDateString(),
+                    'is_estimated' => $unitPlanning->is_estimated,
+                    'is_excluded' => $unitPlanning->is_excluded,
+                    'excluded_reason' => $unitPlanning->excluded_reason,
+                ])->values()->all(),
                 'plate_histories' => $this->historyPage($unit->plateHistories()->latest('active_from')->paginate(25, ['*'], 'plates_page')->withQueryString(), fn ($history): array => [
                     'id' => $history->id,
                     'plate_number' => $history->plate_number,
@@ -51,6 +67,7 @@ class UnitHistoryController extends Controller
                 'transfer_sites' => Site::query()->whereKeyNot($unit->site_id)->orderBy('name')->get(['id', 'name', 'region']),
                 'can_request_transfer' => $this->canRequestTransfer($request, $unit),
                 'can_approve_transfer' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
+                'can_manage_planning_exclusions' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
                 'pending_transfers' => $this->pendingTransfers($request),
             ])->resolve(),
         ]);

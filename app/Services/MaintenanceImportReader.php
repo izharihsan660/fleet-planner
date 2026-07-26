@@ -20,6 +20,33 @@ class MaintenanceImportReader
     }
 
     /**
+     * @return array{reason: string|null}|null
+     */
+    public function parseExclusionMarker(string $value): ?array
+    {
+        $normalized = str($value)->trim()->squish()->toString();
+
+        if (! preg_match('/^TIDAK\s+PERLU\b/iu', $normalized, $matches)) {
+            return null;
+        }
+
+        if (preg_match('/\(([^)]*)\)/u', $normalized, $reasonMatch)) {
+            $reason = str($reasonMatch[1])->trim()->squish()->toString();
+
+            return ['reason' => $reason !== '' ? $reason : null];
+        }
+
+        $reason = str(substr($normalized, strlen($matches[0])))
+            ->trim()
+            ->trim(':;-')
+            ->trim()
+            ->squish()
+            ->toString();
+
+        return ['reason' => $reason !== '' ? $reason : null];
+    }
+
+    /**
      * @return array<int, array<string, string>>
      */
     private function csvRows(string $path): array
@@ -156,6 +183,7 @@ class MaintenanceImportReader
                 'kategori', 'vehicle_category' => 'kategori_kendaraan',
                 'tipe', 'merk', 'type_brand' => 'tipe_merk',
                 'odometer', 'current_odo', 'odo_saat_ini' => 'odometer_saat_ini',
+                'kapan_terakhir_diganti', 'tanggal_terakhir_diganti' => 'last_done_date',
                 default => $normalized,
             };
         }, $headers);

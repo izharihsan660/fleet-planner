@@ -31,7 +31,9 @@ class ProjectionService
             ->with([
                 'site:id,name,region',
                 'inspectionLogs:id,unit_id,inspection_date,odometer,previous_odo',
-                'unitPlannings.planningItem:id,name,interval_km,interval_days',
+                'unitPlannings' => fn ($query) => $query
+                    ->applicable()
+                    ->with('planningItem:id,name,interval_km,interval_days'),
             ])
             ->when($siteId !== null, fn ($query) => $query->where('site_id', $siteId))
             ->when($siteId === null && $regionId !== null, fn ($query) => $query->whereHas('site', fn ($siteQuery) => $siteQuery->where('region_id', $regionId)))
@@ -158,6 +160,7 @@ class ProjectionService
     private function countBreakdownDays(int $unitId, CarbonImmutable $from, CarbonImmutable $to): int
     {
         $items = WorkOrderItem::query()
+            ->applicable()
             ->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unitId))
             ->whereIn('status', ['breakdown', 'complete'])
             ->where('action', 'breakdown')

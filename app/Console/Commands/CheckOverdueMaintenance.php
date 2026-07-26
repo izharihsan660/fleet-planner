@@ -19,6 +19,7 @@ class CheckOverdueMaintenance extends Command
         $isDryRun = (bool) $this->option('dry-run');
 
         $overdueItems = WorkOrderItem::query()
+            ->applicable()
             ->with(['workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name', 'planningItem:id,name', 'unitPlanning:id,next_due_date,next_due_km'])
             ->whereIn('status', ['on_hold', 'in_progress'])
             ->where(function ($query): void {
@@ -35,6 +36,7 @@ class CheckOverdueMaintenance extends Command
             ->get();
 
         $staleOverdueItems = WorkOrderItem::query()
+            ->applicable()
             ->with(['workOrder.unit:id,current_plate,current_odo', 'unitPlanning:id,next_due_date,next_due_km'])
             ->where('status', 'overdue')
             ->whereDoesntHave('unitPlanning', fn ($unitPlanningQuery) => $unitPlanningQuery
@@ -64,6 +66,7 @@ class CheckOverdueMaintenance extends Command
         });
 
         WorkOrderItem::query()
+            ->applicable()
             ->with(['workOrder.unit', 'workOrder.site', 'planningItem'])
             ->where('status', 'overdue')
             ->get()

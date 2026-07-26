@@ -25,6 +25,7 @@ class MaintenanceTriggerService
             $today = CarbonImmutable::today();
 
             $triggeredPlannings = $unit->unitPlannings
+                ->where('is_excluded', false)
                 ->filter(fn (UnitPlanning $unitPlanning): bool => $this->isDueSoon($unit, $unitPlanning, $warningKm, $warningDays, $today))
                 ->reject(fn (UnitPlanning $unitPlanning): bool => $this->hasActiveItem($unitPlanning))
                 ->values();

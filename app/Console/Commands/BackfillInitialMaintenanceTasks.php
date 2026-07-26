@@ -92,6 +92,7 @@ class BackfillInitialMaintenanceTasks extends Command
     private function eligiblePlannings(int $warningKm, string $cutoffDate): Builder
     {
         return UnitPlanning::query()
+            ->applicable()
             ->join('units', 'units.id', '=', 'unit_plannings.unit_id')
             ->select('unit_plannings.*')
             ->whereDoesntHave('workOrderItems', fn (Builder $query) => $query->whereNotIn('status', ['complete', 'postponed', 'rejected', 'cancelled']))
