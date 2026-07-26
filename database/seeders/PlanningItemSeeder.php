@@ -10,6 +10,12 @@ class PlanningItemSeeder extends Seeder
 {
     public function run(): void
     {
+        $this->seedPlanningItems();
+        $this->seedOverrides();
+    }
+
+    public function seedPlanningItems(): void
+    {
         PlanningItem::query()->where('name', 'Ban')->delete();
 
         collect([
@@ -39,7 +45,10 @@ class PlanningItemSeeder extends Seeder
             ['name' => $item['name']],
             ['interval_km' => $item['interval_km'], 'interval_days' => $item['interval_days']],
         ));
+    }
 
+    private function seedOverrides(): void
+    {
         $serviceA = PlanningItem::query()->where('name', 'Service A')->firstOrFail();
 
         PlanningItemOverride::query()->updateOrCreate(
