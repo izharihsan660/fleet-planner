@@ -44,7 +44,13 @@ class UnitController extends Controller
 
     public function store(StoreUnitRequest $request): RedirectResponse
     {
-        Unit::create($request->validated());
+        $data = $request->validated();
+        $currentOdometer = (int) ($data['current_odo'] ?? 0);
+
+        $data['current_odo'] = $currentOdometer;
+        $data['has_odometer_reading'] = $currentOdometer > 0;
+
+        Unit::create($data);
 
         return redirect()->route('units.index');
     }

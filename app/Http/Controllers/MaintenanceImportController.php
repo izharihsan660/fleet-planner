@@ -203,7 +203,7 @@ class MaintenanceImportController extends Controller
                     'vehicle_category' => $category,
                     'year' => $this->parseInteger($year !== '' ? $year : (string) now()->year),
                     'current_odo' => $odometer ?? 0,
-                    'has_odometer_reading' => $odometer !== null,
+                    'has_odometer_reading' => $odometer !== null && $odometer > 0,
                     'status' => 'active',
                 ]);
             }

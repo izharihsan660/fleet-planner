@@ -121,6 +121,42 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertSame(0, $unit->unitPlannings()->whereNotNull('next_due_km')->count());
     }
 
+    public function test_import_units_with_explicit_zero_odometer_creates_unit_without_reading(): void
+    {
+        Storage::fake('local');
+        $this->seed(PlanningItemSeeder::class);
+        Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+        $csv = UploadedFile::fake()->createWithContent(
+            'units-zero-odometer.csv',
+            "site,plat_nomor,kategori_kendaraan,odometer_saat_ini\nBPN,DD 1113 AC,pickup_suv,0\n",
+        );
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'units', 'file' => $csv])
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('preview.valid_rows', 1)
+                ->where('preview.invalid_rows', 0));
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), [
+                'type' => 'units',
+                'path' => $path,
+                'original_filename' => 'units-zero-odometer.csv',
+            ])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        $unit = Unit::query()->where('current_plate', 'DD 1113 AC')->firstOrFail();
+
+        $this->assertSame(0, $unit->current_odo);
+        $this->assertFalse($unit->has_odometer_reading);
+        $this->assertSame(20, $unit->unitPlannings()->count());
+        $this->assertSame(0, $unit->unitPlannings()->whereNotNull('next_due_km')->count());
+    }
+
     public function test_unit_planning_km_validation_only_uses_confirmed_odometer_readings(): void
     {
         Storage::fake('local');

@@ -9,6 +9,11 @@ import { Link, useForm } from '@inertiajs/react';
 import { FormEvent } from 'react';
 
 const digitsToInteger = (value: string): number => parseInt(value.replace(/\D/g, '') || '0', 10);
+const digitsToOptionalInteger = (value: string): number | '' => {
+    const digits = value.replace(/\D/g, '');
+
+    return digits === '' ? '' : parseInt(digits, 10);
+};
 
 export default function Form({ unit, sites, vehicleCategories }: { unit?: Unit; sites: Site[]; vehicleCategories: VehicleCategoryOption[] }) {
     const form = useForm({
@@ -19,7 +24,7 @@ export default function Form({ unit, sites, vehicleCategories }: { unit?: Unit; 
         brand: unit?.brand ?? '',
         vehicle_category: unit?.vehicle_category ?? 'pickup_suv',
         year: unit?.year ?? new Date().getFullYear(),
-        current_odo: unit?.current_odo ?? 0,
+        current_odo: unit?.current_odo ?? ('' as number | ''),
         status: unit?.status ?? 'active',
     });
 
@@ -40,7 +45,7 @@ export default function Form({ unit, sites, vehicleCategories }: { unit?: Unit; 
                         <div className="space-y-2"><InputLabel htmlFor="brand" value="Merk" /><TextInput id="brand" className="block w-full" value={form.data.brand} onChange={(e) => form.setData('brand', e.target.value)} required /><InputError message={form.errors.brand} /></div>
                         <div className="space-y-2"><InputLabel htmlFor="vehicle_category" value="Kategori Kendaraan" /><Select value={form.data.vehicle_category} onValueChange={(value) => form.setData('vehicle_category', value as VehicleCategory)}><SelectTrigger id="vehicle_category"><SelectValue /></SelectTrigger><SelectContent>{vehicleCategories.map((category) => <SelectItem key={category.value} value={category.value}>{category.label}</SelectItem>)}</SelectContent></Select><InputError message={form.errors.vehicle_category} /></div>
                         <div className="space-y-2"><InputLabel htmlFor="year" value="Year" /><TextInput id="year" type="text" inputMode="numeric" pattern="[0-9]*" className="block w-full" value={String(form.data.year)} onChange={(e) => form.setData('year', digitsToInteger(e.target.value))} required /><InputError message={form.errors.year} /></div>
-                        <div className="space-y-2"><InputLabel htmlFor="current_odo" value="Odometer Saat Ini" /><TextInput id="current_odo" type="text" inputMode="numeric" pattern="[0-9]*" min="0" className="block w-full" value={String(form.data.current_odo)} onChange={(e) => form.setData('current_odo', digitsToInteger(e.target.value))} required /><p className="text-xs text-muted-foreground">KM terakhir yang tercatat untuk unit ini</p><InputError message={form.errors.current_odo} /></div>
+                        <div className="space-y-2"><InputLabel htmlFor="current_odo" value="Odometer Saat Ini" /><TextInput id="current_odo" type="text" inputMode="numeric" pattern="[0-9]*" min="0" className="block w-full" value={String(form.data.current_odo)} onChange={(e) => form.setData('current_odo', unit ? digitsToInteger(e.target.value) : digitsToOptionalInteger(e.target.value))} required={Boolean(unit)} placeholder={unit ? undefined : 'Kosongkan jika belum diketahui'} /><p className="text-xs text-muted-foreground">{unit ? 'KM terakhir yang tercatat untuk unit ini' : 'Kosongkan jika belum diketahui — nanti diisi Mekanik.'}</p><InputError message={form.errors.current_odo} /></div>
                         <div className="space-y-2"><InputLabel htmlFor="status" value="Status" /><Select value={form.data.status} onValueChange={(value) => form.setData('status', value)}><SelectTrigger id="status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="active">Aktif</SelectItem><SelectItem value="breakdown">Breakdown</SelectItem><SelectItem value="inactive">Tidak Aktif</SelectItem></SelectContent></Select><InputError message={form.errors.status} /></div>
                     </div>
                     {unit?.plate_histories && <div><h3 className="text-sm font-medium text-foreground">Riwayat Plat</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">{unit.plate_histories.map((history) => <li key={history.id}>{history.plate_number}: {history.active_from} - {history.active_until ?? 'Sekarang'}</li>)}</ul></div>}
