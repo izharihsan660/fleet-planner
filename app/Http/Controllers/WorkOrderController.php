@@ -113,7 +113,7 @@ class WorkOrderController extends Controller
                 'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
                 'assignedMechanic:id,name',
             ])
-            ->withCount(['items' => fn ($query) => $query->applicable()->where('status', '!=', 'blocked')])
+            ->withCount(['items' => fn ($query) => $query->applicable()])
             ->withExists(['items as has_blocked_items' => fn ($query) => $query->applicable()->where('status', 'blocked')])
             ->withExists(['items as has_high_usage_items' => fn ($query) => $query
                 ->applicable()
@@ -145,7 +145,6 @@ class WorkOrderController extends Controller
             ->where('status', 'complete')
             ->whereDoesntHave('items', fn ($query) => $query
                 ->applicable()
-                ->where('status', '!=', 'blocked')
                 ->whereNotIn('status', ['complete', 'postponed'])), $sortBy)
             ->paginate(20, ['*'], 'complete_page')
             ->withQueryString();
@@ -438,8 +437,6 @@ class WorkOrderController extends Controller
                 abort(422, 'Work order belum memiliki action yang diajukan.');
             }
 
-            $hasPendingCreate = $pendingItems->contains('status', 'pending_create');
-
             $pendingItems->each(fn (WorkOrderItem $item) => $item->update([
                 'status' => 'rejected',
                 'approved_by' => $request->user()->id,
@@ -447,10 +444,11 @@ class WorkOrderController extends Controller
             ]));
 
             $wo->update([
-                'status' => $hasPendingCreate ? 'cancelled' : 'in_progress',
                 'approved_by' => $request->user()->id,
                 'approved_at' => now(),
             ]);
+
+            $this->syncWorkOrderStatusFromItems($wo->refresh());
         });
 
         return redirect()->route('work-orders.index')->with('status', 'Pengajuan task ditolak.');
@@ -467,8 +465,8 @@ class WorkOrderController extends Controller
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
         }
 
-        if (! in_array($item->status, ['on_hold', 'blocked', 'overdue'], true)) {
-            return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, atau Blocked yang bisa diajukan Replace.']);
+        if (! in_array($item->status, ['on_hold', 'blocked', 'overdue', 'rejected'], true)) {
+            return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, Blocked, atau Rejected yang bisa diajukan Replace.']);
         }
 
         $assignment = $this->optionalAssignmentPayload($request, $wo->site_id);
@@ -488,6 +486,7 @@ class WorkOrderController extends Controller
             ]);
         });
 
+        $this->syncWorkOrderStatusFromItems($wo->refresh());
         $notifications->taskSubmitted($item->refresh(), 'replace');
 
         return redirect()->route('work-orders.show', $wo)->with('status', 'Replace berhasil diajukan untuk approval SPV.');
@@ -504,8 +503,8 @@ class WorkOrderController extends Controller
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
         }
 
-        if (! in_array($item->status, ['on_hold', 'blocked', 'overdue'], true)) {
-            return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, atau Blocked yang bisa diajukan Postpone.']);
+        if (! in_array($item->status, ['on_hold', 'blocked', 'overdue', 'rejected'], true)) {
+            return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, Blocked, atau Rejected yang bisa diajukan Postpone.']);
         }
 
         $item->update([
@@ -519,6 +518,7 @@ class WorkOrderController extends Controller
             'submitted_by' => $request->user()->id,
         ]);
 
+        $this->syncWorkOrderStatusFromItems($wo->refresh());
         $notifications->taskSubmitted($item->refresh(), 'postpone');
 
         return redirect()->route('work-orders.show', $wo)->with('status', 'Postpone berhasil diajukan untuk approval SPV.');
@@ -647,18 +647,18 @@ class WorkOrderController extends Controller
             ->sortBy('sort_value')
             ->first();
 
+        $activeItemBreakdown = $this->workOrderProgressService->activeItemBreakdown($workOrder->items);
+        $activeItemCounts = collect($activeItemBreakdown)->pluck('count', 'key');
+
         $workOrder->setAttribute('planning_item_names', $workOrder->items->pluck('planningItem.name')->filter()->values()->all());
         $workOrder->setAttribute('completed_items_count', $this->completedItemsCount($workOrder));
         $workOrder->setAttribute('remaining_items_count', $this->remainingItemsCount($workOrder));
-        $workOrder->setAttribute('baseline_incomplete_items_count', $workOrder->items->filter(
-            fn (WorkOrderItem $item): bool => $item->status !== 'blocked' && ($item->unitPlanning?->isBaselineMissing() ?? true)
-        )->count());
-        $workOrder->setAttribute('overdue_items_count', $workOrder->items->filter(
-            fn (WorkOrderItem $item): bool => $item->status === 'overdue' && ! ($item->unitPlanning?->isBaselineMissing() ?? true)
-        )->count());
-        $workOrder->setAttribute('rejected_items_count', $workOrder->items->filter(
-            fn (WorkOrderItem $item): bool => $item->status === 'rejected' && ! ($item->unitPlanning?->isBaselineMissing() ?? true)
-        )->count());
+        $workOrder->setAttribute('active_item_breakdown', $activeItemBreakdown);
+        $workOrder->setAttribute('blocked_items_count', $workOrder->items->where('status', 'blocked')->count());
+        $workOrder->setAttribute('is_direct_completion_ready', $this->workOrderProgressService->isDirectCompletionReady($workOrder->items));
+        $workOrder->setAttribute('baseline_incomplete_items_count', (int) $activeItemCounts->get('baseline_incomplete', 0));
+        $workOrder->setAttribute('overdue_items_count', (int) $activeItemCounts->get('overdue', 0));
+        $workOrder->setAttribute('rejected_items_count', (int) $activeItemCounts->get('rejected', 0));
         $workOrder->setAttribute('nearest_due', $nearest);
         $workOrder->setAttribute('sub_status', $this->subStatus($workOrder));
         $workOrder->setAttribute('has_overdue_items', $workOrder->status !== 'complete' && $nearest !== null && $nearest['level'] === 'red');
@@ -718,7 +718,7 @@ class WorkOrderController extends Controller
             ->with(['unit.site', 'planningItem'])
             ->join('units', 'units.id', '=', 'unit_plannings.unit_id')
             ->select('unit_plannings.*')
-            ->whereDoesntHave('workOrderItems', fn ($query) => $query->whereIn('status', ['on_hold', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue']))
+            ->whereDoesntHave('workOrderItems', fn (Builder $query): Builder => $this->applyPlanningPreviewBlockingScope($query))
             ->when($user->hasRole(UserRole::Mekanik), fn ($query) => $query->where('units.site_id', $user->site_id))
             ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id !== null, fn ($query) => $query->join('sites as scoped_sites', 'scoped_sites.id', '=', 'units.site_id')->where('scoped_sites.region_id', $user->region_id))
             ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id === null, fn ($query) => $query->where('units.site_id', $user->site_id))
@@ -939,7 +939,35 @@ class WorkOrderController extends Controller
 
     private function hasActiveItem(UnitPlanning $planning): bool
     {
-        return $planning->workOrderItems()->whereIn('status', ['on_hold', 'pending_create', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue'])->exists();
+        return $planning->workOrderItems()
+            ->where(fn (Builder $query): Builder => $this->applyActiveWorkOrderItemScope($query))
+            ->exists();
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    private function applyActiveWorkOrderItemScope(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $activeQuery): Builder => $activeQuery
+            ->whereIn('status', ['on_hold', 'pending_create', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue'])
+            ->orWhere(fn (Builder $rejectedQuery): Builder => $rejectedQuery
+                ->where('status', 'rejected')
+                ->whereIn('action', ['replace', 'postpone'])));
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    private function applyPlanningPreviewBlockingScope(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $activeQuery): Builder => $activeQuery
+            ->whereIn('status', ['on_hold', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue'])
+            ->orWhere(fn (Builder $rejectedQuery): Builder => $rejectedQuery
+                ->where('status', 'rejected')
+                ->whereIn('action', ['replace', 'postpone'])));
     }
 
     /**

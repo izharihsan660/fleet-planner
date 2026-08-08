@@ -39,7 +39,7 @@ class BlockedBreakdownTest extends TestCase
         $this->assertSame('active', $unit->refresh()->status);
     }
 
-    public function test_work_order_completes_when_all_non_blocked_items_are_final(): void
+    public function test_work_order_returns_to_on_hold_while_a_blocked_item_remains_active(): void
     {
         [$site, $unit, $planning, $blockedCandidate] = $this->createWorkOrderScenario();
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
@@ -68,7 +68,7 @@ class BlockedBreakdownTest extends TestCase
             ->assertRedirect();
 
         $this->assertSame('blocked', $blockedCandidate->refresh()->status);
-        $this->assertSame('complete', $blockedCandidate->workOrder->refresh()->status);
+        $this->assertSame('open', $blockedCandidate->workOrder->refresh()->status);
     }
 
     public function test_regional_planner_can_mark_blocked_and_breakdown_for_region_site(): void

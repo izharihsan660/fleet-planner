@@ -186,13 +186,8 @@ function WorkOrderProgress({ workOrder }: { workOrder: WorkOrder }) {
 }
 
 function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove, assignId, setAssignId }: { workOrder: WorkOrder; mechanics: User[]; canAssign: boolean; canReview: boolean; canApprove: boolean; assignId: number | null; setAssignId: (id: number | null) => void }) {
-    const totalItems = workOrder.items_count ?? workOrder.items?.length ?? 0;
-    const remainingItems = workOrder.remaining_items_count ?? totalItems;
-    const itemBreakdown = [
-        workOrder.overdue_items_count ? `${workOrder.overdue_items_count} overdue` : null,
-        workOrder.rejected_items_count ? `${workOrder.rejected_items_count} rejected` : null,
-        workOrder.baseline_incomplete_items_count ? `${workOrder.baseline_incomplete_items_count} baseline belum diisi` : null,
-    ].filter(Boolean);
+    const remainingItems = workOrder.remaining_items_count ?? workOrder.items_count ?? workOrder.items?.length ?? 0;
+    const itemBreakdown = workOrder.active_item_breakdown?.map((item) => `${item.count} ${item.label}`) ?? [];
     const isWaitingApproval = workOrder.sub_status?.key === 'waiting_approval';
     const isWaitingPart = workOrder.sub_status?.key === 'waiting_part';
     const hasAssignedMechanic = workOrder.assigned_mechanic_id !== null;
@@ -200,6 +195,11 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove,
     const canShowReview = canReview && workOrder.status === 'open';
     const canShowApproval = canApprove && isWaitingApproval;
     const canShowCompletion = workOrder.status === 'in_progress' && hasAssignedMechanic && !isWaitingApproval && !isWaitingPart;
+    const completionCtaLabel = remainingItems === 0
+        ? 'Tinjau Work Order →'
+        : workOrder.is_direct_completion_ready
+            ? `Selesaikan ${remainingItems} Item →`
+            : `Tinjau ${remainingItems} Item →`;
 
     return (
         <Card className="gap-3 shadow-xs transition hover:border-ring/40 hover:shadow-sm">
@@ -213,7 +213,7 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove,
                         {workOrder.nearest_due && <div className="shrink-0 basis-full sm:basis-auto"><StatusBadge tone={dueTone[workOrder.nearest_due.level]}>{workOrder.nearest_due.label}</StatusBadge></div>}
                     </div>
                     <p className="mt-3 text-sm font-medium text-foreground">{itemSummary(workOrder.planning_item_names)}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{totalItems} item aktif{itemBreakdown.length > 0 ? ` (${itemBreakdown.join(', ')})` : ''} · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{remainingItems} item aktif{itemBreakdown.length > 0 ? ` (${itemBreakdown.join(', ')})` : ''} · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
                     <div className="mt-3 flex flex-wrap gap-2">
                         {workOrder.has_priority_items && <StatusBadge tone="priority">Prioritas</StatusBadge>}
                         {workOrder.sub_status && workOrder.sub_status.key !== 'assigned' && <StatusBadge tone="neutral">{workOrder.sub_status.label}</StatusBadge>}
@@ -252,7 +252,7 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove,
                 {canShowCompletion && (
                     <Button asChild className="h-auto min-h-8 w-full whitespace-normal px-3 py-2 text-center text-xs leading-snug normal-case">
                         <Link href={route('work-orders.show', workOrder.id)}>
-                            {totalItems <= 1 ? 'Complete' : `Lihat & Selesaikan (${remainingItems} tersisa) →`}
+                            {completionCtaLabel}
                         </Link>
                     </Button>
                 )}

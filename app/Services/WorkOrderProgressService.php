@@ -9,6 +9,22 @@ use Illuminate\Support\Collection;
 class WorkOrderProgressService
 {
     /**
+     * @var array<string, string>
+     */
+    private const ACTIVE_ITEM_LABELS = [
+        'overdue' => 'overdue',
+        'rejected' => 'rejected',
+        'baseline_incomplete' => 'baseline belum diisi',
+        'in_progress' => 'in progress',
+        'on_hold' => 'on hold',
+        'replace' => 'replace menunggu approval',
+        'postpone' => 'postpone menunggu approval',
+        'pending_create' => 'pembuatan task menunggu approval',
+        'breakdown' => 'breakdown',
+        'blocked' => 'blocked',
+    ];
+
+    /**
      * @return array<int, string>
      */
     public function finalStatuses(): array
@@ -22,9 +38,7 @@ class WorkOrderProgressService
      */
     public function progressItems(Collection $items): Collection
     {
-        return $items
-            ->reject(fn (WorkOrderItem $item): bool => $item->status === 'blocked')
-            ->values();
+        return $items->values();
     }
 
     /**
@@ -64,30 +78,107 @@ class WorkOrderProgressService
         return max($this->totalItemsCount($items) - $this->completedItemsCount($items), 0);
     }
 
+    /**
+     * @param  Collection<int, WorkOrderItem>  $items
+     * @return Collection<int, WorkOrderItem>
+     */
+    public function activeItems(Collection $items): Collection
+    {
+        return $this->progressItems($items)
+            ->reject(fn (WorkOrderItem $item): bool => in_array($item->status, $this->finalStatuses(), true))
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, WorkOrderItem>  $items
+     * @return array<int, array{key: string, label: string, count: int}>
+     */
+    public function activeItemBreakdown(Collection $items): array
+    {
+        $groupedItems = $this->activeItems($items)->groupBy(
+            fn (WorkOrderItem $item): string => ($item->unitPlanning?->isBaselineMissing() ?? true)
+                ? 'baseline_incomplete'
+                : $item->status
+        );
+        $breakdown = [];
+
+        foreach (self::ACTIVE_ITEM_LABELS as $key => $label) {
+            if (! $groupedItems->has($key)) {
+                continue;
+            }
+
+            $breakdown[] = [
+                'key' => $key,
+                'label' => $label,
+                'count' => $groupedItems->get($key)->count(),
+            ];
+        }
+
+        foreach ($groupedItems as $key => $statusItems) {
+            if (array_key_exists((string) $key, self::ACTIVE_ITEM_LABELS)) {
+                continue;
+            }
+
+            $breakdown[] = [
+                'key' => (string) $key,
+                'label' => str_replace('_', ' ', (string) $key),
+                'count' => $statusItems->count(),
+            ];
+        }
+
+        return $breakdown;
+    }
+
+    /**
+     * @param  Collection<int, WorkOrderItem>  $items
+     */
+    public function isDirectCompletionReady(Collection $items): bool
+    {
+        $activeItems = $this->activeItems($items);
+
+        return $activeItems->isNotEmpty()
+            && $activeItems->every(fn (WorkOrderItem $item): bool => $item->status === 'in_progress'
+                && ! ($item->unitPlanning?->isBaselineMissing() ?? true));
+    }
+
     public function sync(WorkOrder $workOrder): void
     {
         $items = $workOrder->items()->applicable()->get();
         $workOrder->setRelation('items', $items);
-        $progressItems = $this->progressItems($items);
+        $targetStatus = $this->statusFor($workOrder, $items);
+
+        if ($workOrder->status !== $targetStatus) {
+            $workOrder->update(['status' => $targetStatus]);
+        }
+    }
+
+    /**
+     * @param  Collection<int, WorkOrderItem>|null  $items
+     */
+    public function statusFor(WorkOrder $workOrder, ?Collection $items = null): string
+    {
+        $items ??= $workOrder->items()->applicable()->get();
+
+        if ($items->isEmpty()) {
+            return 'cancelled';
+        }
 
         if ($this->isFullyResolved($items)) {
-            $workOrder->update(['status' => 'complete']);
-
-            return;
+            return 'complete';
         }
 
-        if ($workOrder->assigned_mechanic_id !== null || $progressItems->contains('status', 'in_progress')) {
-            $workOrder->update(['status' => 'in_progress']);
-
-            return;
+        if ($items->contains('status', 'in_progress')) {
+            return 'in_progress';
         }
 
-        if ($progressItems->contains(fn (WorkOrderItem $item): bool => in_array($item->status, ['on_hold', 'overdue', 'pending_create', 'replace', 'postpone', 'breakdown'], true))) {
-            $workOrder->update(['status' => 'open']);
+        $activeItems = $this->activeItems($items);
 
-            return;
+        if ($activeItems->isNotEmpty() && $activeItems->every(
+            fn (WorkOrderItem $item): bool => $item->status === 'rejected' && $item->action === 'create_task'
+        )) {
+            return 'cancelled';
         }
 
-        $workOrder->update(['status' => 'cancelled']);
+        return 'open';
     }
 }

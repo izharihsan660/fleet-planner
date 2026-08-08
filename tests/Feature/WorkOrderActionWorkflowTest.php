@@ -157,7 +157,108 @@ class WorkOrderActionWorkflowTest extends TestCase
             );
     }
 
-    public function test_work_order_stays_in_progress_until_all_items_are_resolved(): void
+    public function test_planner_area_can_resubmit_rejected_replace_with_previous_context_visible(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+
+        $item->update([
+            'status' => 'rejected',
+            'action' => 'replace',
+            'reason' => 'Ganti ban depan.',
+            'notes' => 'Foto kondisi ban belum dilampirkan.',
+        ]);
+        $workOrder->update(['status' => 'cancelled']);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.show', $workOrder))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('workOrder.data.items.0.status', 'rejected')
+                ->where('workOrder.data.items.0.action', 'replace')
+                ->where('workOrder.data.items.0.reason', 'Ganti ban depan.')
+                ->where('workOrder.data.items.0.notes', 'Foto kondisi ban belum dilampirkan.')
+            );
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$workOrder, $item]), [
+                'reason' => 'Ganti ban depan dengan foto pendukung lengkap.',
+            ])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('replace', $item->refresh()->status);
+        $this->assertSame('Ganti ban depan dengan foto pendukung lengkap.', $item->reason);
+        $this->assertSame('Foto kondisi ban belum dilampirkan.', $item->notes);
+        $this->assertSame('open', $workOrder->refresh()->status);
+
+        $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Show.tsx'));
+
+        $this->assertStringContainsString('Alasan penolakan:', $pageSource);
+        $this->assertStringContainsString('Submit Ulang Replace', $pageSource);
+        $this->assertStringContainsString('Submit Ulang Postpone', $pageSource);
+    }
+
+    public function test_planner_area_can_resubmit_rejected_postpone_with_revised_schedule(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+
+        $item->update([
+            'status' => 'rejected',
+            'action' => 'postpone',
+            'reason' => 'Unit masih beroperasi.',
+            'notes' => 'Tanggal pengganti terlalu jauh.',
+            'new_due_km' => 80000,
+            'new_due_date' => today()->addDays(30)->toDateString(),
+        ]);
+        $workOrder->update(['status' => 'cancelled']);
+        $revisedDueDate = today()->addDays(14)->toDateString();
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.postpone', [$workOrder, $item]), [
+                'reason' => 'Unit masuk workshop dua minggu lagi.',
+                'new_due_km' => 78000,
+                'new_due_date' => $revisedDueDate,
+            ])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('postpone', $item->refresh()->status);
+        $this->assertSame('Unit masuk workshop dua minggu lagi.', $item->reason);
+        $this->assertSame(78000, $item->new_due_km);
+        $this->assertSame($revisedDueDate, $item->new_due_date->toDateString());
+        $this->assertSame('open', $workOrder->refresh()->status);
+    }
+
+    public function test_reject_recalculates_work_order_status_instead_of_forcing_in_progress(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+
+        $item->update([
+            'status' => 'replace',
+            'action' => 'replace',
+            'reason' => 'Ganti ban depan.',
+        ]);
+        $workOrder->update([
+            'status' => 'in_progress',
+            'assigned_mechanic_id' => $mechanic->id,
+            'approved_at' => now(),
+        ]);
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.reject', $workOrder))
+            ->assertRedirect(route('work-orders.index'));
+
+        $this->assertSame('rejected', $item->refresh()->status);
+        $this->assertSame('open', $workOrder->refresh()->status);
+    }
+
+    public function test_work_order_returns_to_on_hold_when_no_item_remains_in_progress(): void
     {
         [$site, $unit, $firstPlanning] = $this->makePlanningContext(75000);
         $secondPlanning = UnitPlanning::query()->create([
@@ -172,7 +273,9 @@ class WorkOrderActionWorkflowTest extends TestCase
             'next_due_km' => 75000,
             'next_due_date' => now()->subDay()->toDateString(),
         ]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
             'site_id' => $site->id,
@@ -202,16 +305,35 @@ class WorkOrderActionWorkflowTest extends TestCase
             ])
             ->assertRedirect(route('mechanic.tasks'));
 
-        $this->assertSame('in_progress', $workOrder->refresh()->status);
+        $this->assertSame('open', $workOrder->refresh()->status);
         $this->assertSame('complete', $firstItem->refresh()->status);
         $this->assertSame('overdue', $secondItem->refresh()->status);
 
         $this->actingAs($mechanic)
             ->get(route('mechanic.tasks'))
             ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->where('tasks.0.id', $secondItem->id)
-            );
+            ->assertInertia(fn ($page) => $page->has('tasks', 0));
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$workOrder, $secondItem]), [
+                'reason' => 'Overdue perlu ditinjau dan diajukan ulang.',
+            ])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('open', $workOrder->refresh()->status);
+        $this->assertSame('replace', $secondItem->refresh()->status);
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
+        $this->assertSame('in_progress', $secondItem->refresh()->status);
+
+        $this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('tasks.0.id', $secondItem->id));
 
         $this->actingAs($mechanic)
             ->post(route('work-orders.items.complete', [$workOrder, $secondItem]), [

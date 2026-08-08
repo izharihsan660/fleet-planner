@@ -22,13 +22,11 @@ class AuditWorkOrderStatuses extends Command
                 ->where(fn (Builder $query) => $query
                     ->where('status', 'complete')
                     ->whereHas('items', fn (Builder $items) => $items
-                        ->where('status', '!=', 'blocked')
                         ->whereNotIn('status', $this->resolvedStatuses()))
                 )
                 ->orWhere(fn (Builder $query) => $query
                     ->where('status', '!=', 'complete')
                     ->whereDoesntHave('items', fn (Builder $items) => $items
-                        ->where('status', '!=', 'blocked')
                         ->whereNotIn('status', $this->resolvedStatuses()))
                 )
             )
@@ -38,7 +36,7 @@ class AuditWorkOrderStatuses extends Command
 
         foreach ($mismatches as $workOrder) {
             $progressItems = $workOrderProgressService->progressItems($workOrder->items);
-            $targetStatus = $this->targetStatus($workOrder, $workOrderProgressService);
+            $targetStatus = $workOrderProgressService->statusFor($workOrder, $workOrder->items);
             $this->line(sprintf(
                 'WO #%d %s: %s -> %s (%d/%d tuntas)',
                 $workOrder->id,
@@ -67,20 +65,5 @@ class AuditWorkOrderStatuses extends Command
     private function resolvedStatuses(): array
     {
         return ['complete', 'postponed'];
-    }
-
-    private function targetStatus(WorkOrder $workOrder, WorkOrderProgressService $workOrderProgressService): string
-    {
-        $progressItems = $workOrderProgressService->progressItems($workOrder->items);
-
-        if ($workOrderProgressService->isFullyResolved($workOrder->items)) {
-            return 'complete';
-        }
-
-        if ($workOrder->assigned_mechanic_id !== null || $progressItems->contains('status', 'in_progress')) {
-            return 'in_progress';
-        }
-
-        return 'open';
     }
 }

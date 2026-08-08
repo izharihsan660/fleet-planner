@@ -180,6 +180,9 @@ export interface WorkOrder {
     items_count?: number;
     completed_items_count?: number;
     remaining_items_count?: number;
+    active_item_breakdown?: Array<{ key: string; label: string; count: number }>;
+    blocked_items_count?: number;
+    is_direct_completion_ready?: boolean;
     baseline_incomplete_items_count?: number;
     overdue_items_count?: number;
     rejected_items_count?: number;

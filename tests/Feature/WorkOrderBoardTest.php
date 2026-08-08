@@ -151,15 +151,6 @@ class WorkOrderBoardTest extends TestCase
     {
         $planner = $this->adminSite();
         $unit = $this->unit($planner->site_id, 30000, 100);
-        $missingBaselinePlanning = $this->planning($unit, 'Flushing Rem', 31000, today()->addDays(10)->toDateString());
-        $missingBaselinePlanning->update([
-            'last_done_km' => 0,
-            'last_done_date' => null,
-            'next_due_km' => null,
-            'next_due_date' => null,
-        ]);
-        $overduePlanning = $this->planning($unit, 'Brake Pad', 29000, today()->subDay()->toDateString());
-        $rejectedPlanning = $this->planning($unit, 'Filter Udara', 29500, today()->subDays(2)->toDateString());
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
             'site_id' => $unit->site_id,
@@ -167,25 +158,76 @@ class WorkOrderBoardTest extends TestCase
             'trigger_type' => 'normal',
         ]);
 
-        foreach ([[$missingBaselinePlanning, 'on_hold'], [$overduePlanning, 'overdue'], [$rejectedPlanning, 'rejected']] as [$planning, $status]) {
+        foreach ([
+            ['Flushing Rem', 'on_hold', true],
+            ['Brake Pad', 'overdue', false],
+            ['Filter Udara', 'rejected', false],
+            ['Greasing', 'on_hold', false],
+            ['Ban Depan', 'replace', false],
+            ['Ban Belakang', 'postpone', false],
+            ['Service A', 'in_progress', false],
+            ['Engine Check', 'breakdown', false],
+            ['Waiting Part', 'blocked', false],
+            ['Completed Item', 'complete', false],
+            ['Approved Postpone', 'postponed', false],
+        ] as [$name, $status, $baselineMissing]) {
+            $planning = $this->planning($unit, $name, 31000, today()->addDays(10)->toDateString());
+
+            if ($baselineMissing) {
+                $planning->update([
+                    'last_done_km' => 0,
+                    'last_done_date' => null,
+                    'next_due_km' => null,
+                    'next_due_date' => null,
+                ]);
+            }
+
             WorkOrderItem::query()->create([
                 'work_order_id' => $workOrder->id,
                 'unit_planning_id' => $planning->id,
                 'planning_item_id' => $planning->planning_item_id,
                 'status' => $status,
+                'action' => in_array($status, ['replace', 'postpone', 'blocked', 'breakdown'], true) ? $status : null,
             ]);
         }
 
-        $this->actingAs($planner)
+        $response = $this->actingAs($planner)
             ->get(route('work-orders.index'))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->where('boardColumns.open.data.0.id', $workOrder->id)
-                ->where('boardColumns.open.data.0.items_count', 3)
-                ->where('boardColumns.open.data.0.overdue_items_count', 1)
-                ->where('boardColumns.open.data.0.rejected_items_count', 1)
-                ->where('boardColumns.open.data.0.baseline_incomplete_items_count', 1)
-            );
+            ->assertOk();
+
+        $response->assertInertia(fn (Assert $page) => $page
+            ->where('boardColumns.open.data.0.id', $workOrder->id)
+            ->where('boardColumns.open.data.0.items_count', 11)
+            ->where('boardColumns.open.data.0.completed_items_count', 2)
+            ->where('boardColumns.open.data.0.remaining_items_count', 9)
+            ->where('boardColumns.open.data.0.blocked_items_count', 1)
+            ->where('boardColumns.open.data.0.is_direct_completion_ready', false)
+            ->where('boardColumns.open.data.0.overdue_items_count', 1)
+            ->where('boardColumns.open.data.0.rejected_items_count', 1)
+            ->where('boardColumns.open.data.0.baseline_incomplete_items_count', 1)
+        );
+
+        $card = collect($response->inertiaProps('boardColumns.open.data'))->firstWhere('id', $workOrder->id);
+        $breakdown = collect($card['active_item_breakdown']);
+
+        $this->assertSame($card['remaining_items_count'], $breakdown->sum('count'));
+        $this->assertSame([
+            'overdue' => 1,
+            'rejected' => 1,
+            'baseline_incomplete' => 1,
+            'in_progress' => 1,
+            'on_hold' => 1,
+            'replace' => 1,
+            'postpone' => 1,
+            'breakdown' => 1,
+            'blocked' => 1,
+        ], $breakdown->pluck('count', 'key')->all());
+
+        $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx'));
+
+        $this->assertStringContainsString('`Tinjau ${remainingItems} Item →`', $pageSource);
+        $this->assertStringContainsString('`Selesaikan ${remainingItems} Item →`', $pageSource);
+        $this->assertStringNotContainsString('Lihat & Selesaikan', $pageSource);
     }
 
     public function test_board_defaults_to_priority_and_supports_due_date_and_due_km_sorting(): void
@@ -565,9 +607,10 @@ class WorkOrderBoardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('boardColumns.in_progress.data.0.id', $workOrder->id)
-                ->where('boardColumns.in_progress.data.0.items_count', 4)
+                ->where('boardColumns.in_progress.data.0.items_count', 5)
                 ->where('boardColumns.in_progress.data.0.completed_items_count', 3)
-                ->where('boardColumns.in_progress.data.0.remaining_items_count', 1)
+                ->where('boardColumns.in_progress.data.0.remaining_items_count', 2)
+                ->where('boardColumns.in_progress.data.0.is_direct_completion_ready', false)
                 ->where('boardColumns.in_progress.data.0.sub_status.key', 'assigned')
                 ->where('boardColumns.in_progress.data.0.sub_status.label', 'Mekanik: '.$mechanic->name)
                 ->where('boardColumns.in_progress.data.0.assigned_mechanic.name', $mechanic->name)
