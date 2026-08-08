@@ -10,6 +10,7 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { Input } from '@/Components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { cn } from '@/lib/utils';
 import { PageProps, PaginatedCollection, PlanningItem, Site, Unit, User, WorkOrder, WorkOrderPreviewItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { ClipboardList, Inbox } from 'lucide-react';
@@ -29,6 +30,15 @@ const columns = [
 
 type ColumnKey = (typeof columns)[number]['key'];
 
+type EmptyColumnConfig = {
+    title: string;
+    description: string;
+    action?: {
+        label: string;
+        targetColumn: ColumnKey;
+    };
+};
+
 type BoardColumns = {
     upcoming: PaginatedCollection<WorkOrderPreviewItem>;
     preparation: PaginatedCollection<WorkOrderPreviewItem>;
@@ -43,6 +53,33 @@ const columnPageParam: Record<ColumnKey, string> = {
     open: 'open_page',
     in_progress: 'in_progress_page',
     complete: 'complete_page',
+};
+
+const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig> = {
+    upcoming: {
+        title: 'Belum ada task Upcoming',
+        description: 'Belum ada task maintenance yang masuk periode Upcoming untuk filter ini.',
+    },
+    preparation: {
+        title: 'Belum ada task Ancang-ancang',
+        description: 'Task akan muncul saat jadwal atau KM memasuki batas ancang-ancang.',
+    },
+    open: {
+        title: 'Belum ada WO yang menunggu tindak lanjut',
+        description: 'WO akan muncul di sini saat ada item yang perlu approval, penjadwalan, atau tindak lanjut.',
+    },
+    in_progress: {
+        title: 'Belum ada WO yang aktif dikerjakan',
+        description: 'WO akan pindah ke sini setelah item di-approve Spv HO dan berstatus in_progress.',
+        action: {
+            label: 'Lihat kolom On Hold',
+            targetColumn: 'open',
+        },
+    },
+    complete: {
+        title: 'Belum ada WO yang selesai',
+        description: 'Belum ada WO yang selesai dikerjakan pada periode atau filter ini.',
+    },
 };
 
 function appendColumn<T extends { id: number }>(previous: PaginatedCollection<T>, next: PaginatedCollection<T>): PaginatedCollection<T> {
@@ -262,14 +299,21 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove,
     );
 }
 
-function EmptyColumn() {
+function EmptyColumn({ config, onNavigate }: { config: EmptyColumnConfig; onNavigate: (column: ColumnKey) => void }) {
+    const action = config.action;
+
     return (
         <div className="rounded-xl border border-dashed bg-background/60 p-6 text-center">
             <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-muted">
                 <Inbox className="size-5 text-muted-foreground" />
             </div>
-            <p className="mt-3 text-sm font-medium text-foreground">Belum ada item</p>
-            <p className="mt-1 text-xs text-muted-foreground">Task akan muncul otomatis saat memenuhi filter.</p>
+            <p className="mt-3 text-sm font-medium text-foreground">{config.title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{config.description}</p>
+            {action && (
+                <Button type="button" variant="link" className="mt-3 h-auto p-0 text-xs" onClick={() => onNavigate(action.targetColumn)}>
+                    {action.label}
+                </Button>
+            )}
         </div>
     );
 }
@@ -284,8 +328,11 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
     const [includeIncompleteBaseline, setIncludeIncompleteBaseline] = useState(filters.include_incomplete_baseline ?? true);
     const [sortBy, setSortBy] = useState<'priority' | 'due_date' | 'due_km'>(filters.sort_by ?? 'priority');
     const [assignId, setAssignId] = useState<number | null>(null);
+    const [highlightedColumn, setHighlightedColumn] = useState<ColumnKey | null>(null);
 
     const isLoadingMore = useRef(false);
+    const columnRefs = useRef<Partial<Record<ColumnKey, HTMLElement | null>>>({});
+    const highlightTimer = useRef<number | null>(null);
 
     useEffect(() => {
         if (isLoadingMore.current) {
@@ -296,6 +343,33 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
 
         setVisibleColumns(boardColumns);
     }, [boardColumns]);
+
+    useEffect(() => () => {
+        if (highlightTimer.current !== null) {
+            window.clearTimeout(highlightTimer.current);
+        }
+    }, []);
+
+    const focusColumn = (column: ColumnKey) => {
+        const element = columnRefs.current[column];
+
+        if (!element) {
+            return;
+        }
+
+        if (highlightTimer.current !== null) {
+            window.clearTimeout(highlightTimer.current);
+        }
+
+        setHighlightedColumn(column);
+        element.focus({ preventScroll: true });
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
+        highlightTimer.current = window.setTimeout(() => {
+            setHighlightedColumn(null);
+            highlightTimer.current = null;
+        }, 2500);
+    };
 
     const filter = (event: FormEvent) => {
         event.preventDefault();
@@ -400,23 +474,36 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                             const hasMore = columnData.meta.current_page < columnData.meta.last_page;
 
                             return (
-                                <Card key={column.key} className="bg-muted/30">
-                                    <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-                                        <CardTitle className="text-base">{column.label} — {count.toLocaleString('id-ID')}</CardTitle>
-                                        <StatusBadge tone="neutral">{count}</StatusBadge>
-                                    </CardHeader>
-                                    <CardContent className="space-y-3">
-                                        {column.key === 'upcoming' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
-                                        {column.key === 'preparation' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
-                                        {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrder[]).map((workOrder) => <WorkOrderCard key={workOrder.id} workOrder={workOrder} mechanics={mechanics} canAssign={canAssignMechanic} canReview={canReviewWorkOrders} canApprove={canApproveWorkOrders} assignId={assignId} setAssignId={setAssignId} />)}
-                                        {count === 0 && <EmptyColumn />}
-                                        {hasMore && (
-                                            <Button type="button" variant="outline" className="w-full" onClick={() => loadMore(columnKey)}>
-                                                Muat Lebih Banyak
-                                            </Button>
-                                        )}
-                                    </CardContent>
-                                </Card>
+                                <section
+                                    key={column.key}
+                                    ref={(element) => {
+                                        columnRefs.current[columnKey] = element;
+                                    }}
+                                    tabIndex={-1}
+                                    aria-labelledby={`work-order-column-${column.key}`}
+                                    className={cn(
+                                        'scroll-mt-6 rounded-xl outline-none transition duration-500 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                        highlightedColumn === columnKey && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+                                    )}
+                                >
+                                    <Card className="h-full bg-muted/30">
+                                        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+                                            <CardTitle id={`work-order-column-${column.key}`} className="text-base">{column.label} — {count.toLocaleString('id-ID')}</CardTitle>
+                                            <StatusBadge tone="neutral">{count}</StatusBadge>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                            {column.key === 'upcoming' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
+                                            {column.key === 'preparation' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
+                                            {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrder[]).map((workOrder) => <WorkOrderCard key={workOrder.id} workOrder={workOrder} mechanics={mechanics} canAssign={canAssignMechanic} canReview={canReviewWorkOrders} canApprove={canApproveWorkOrders} assignId={assignId} setAssignId={setAssignId} />)}
+                                            {count === 0 && <EmptyColumn config={emptyColumnConfig[columnKey]} onNavigate={focusColumn} />}
+                                            {hasMore && (
+                                                <Button type="button" variant="outline" className="w-full" onClick={() => loadMore(columnKey)}>
+                                                    Muat Lebih Banyak
+                                                </Button>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                </section>
                             );
                         })}
                     </div>

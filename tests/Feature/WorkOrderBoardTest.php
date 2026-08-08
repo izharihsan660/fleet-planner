@@ -292,6 +292,24 @@ class WorkOrderBoardTest extends TestCase
         }
     }
 
+    public function test_board_uses_contextual_empty_states_and_links_in_progress_to_on_hold(): void
+    {
+        $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx'));
+
+        $this->assertStringContainsString('const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig>', $pageSource);
+        $this->assertStringContainsString('Belum ada task Upcoming', $pageSource);
+        $this->assertStringContainsString('Belum ada task Ancang-ancang', $pageSource);
+        $this->assertStringContainsString('Belum ada WO yang menunggu tindak lanjut', $pageSource);
+        $this->assertStringContainsString('Belum ada WO yang aktif dikerjakan', $pageSource);
+        $this->assertStringContainsString('WO akan pindah ke sini setelah item di-approve Spv HO dan berstatus in_progress.', $pageSource);
+        $this->assertStringContainsString('Belum ada WO yang selesai', $pageSource);
+        $this->assertStringContainsString("label: 'Lihat kolom On Hold'", $pageSource);
+        $this->assertStringContainsString("targetColumn: 'open'", $pageSource);
+        $this->assertStringContainsString("element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });", $pageSource);
+        $this->assertStringContainsString("highlightedColumn === columnKey && 'ring-2 ring-primary ring-offset-2 ring-offset-background'", $pageSource);
+        $this->assertStringContainsString('<EmptyColumn config={emptyColumnConfig[columnKey]} onNavigate={focusColumn} />', $pageSource);
+    }
+
     public function test_preview_columns_prioritize_critical_items_and_support_due_date_sorting(): void
     {
         $planner = $this->adminSite();
