@@ -147,6 +147,35 @@ class WorkOrderBoardTest extends TestCase
             );
     }
 
+    public function test_unit_filter_uses_searchable_plate_combobox_and_keeps_unit_in_query_state(): void
+    {
+        $planner = $this->adminSite();
+        $selectedUnit = $this->unit($planner->site_id, 8697, 100);
+        $selectedPlanning = $this->planning($selectedUnit, 'Selected Unit Service', 8000, today()->subDay()->toDateString());
+        $selectedWorkOrder = $this->workOrderForPlanning($selectedPlanning);
+
+        $otherUnit = $this->unit($planner->site_id, 1234, 100);
+        $otherPlanning = $this->planning($otherUnit, 'Other Unit Service', 1200, today()->subDay()->toDateString());
+        $this->workOrderForPlanning($otherPlanning);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['unit_id' => $selectedUnit->id]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $selectedWorkOrder->id)
+                ->where('filters.unit_id', (string) $selectedUnit->id)
+            );
+
+        $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx'));
+        $comboboxSource = file_get_contents(resource_path('js/Components/UnitFilterCombobox.tsx'));
+
+        $this->assertStringContainsString('<UnitFilterCombobox units={units.data} value={unitId} onChange={setUnitId} />', $pageSource);
+        $this->assertStringContainsString('unit_id: unitId || undefined', $pageSource);
+        $this->assertStringContainsString('ComboboxInput', $comboboxSource);
+        $this->assertStringContainsString("unit.current_plate.toLocaleLowerCase('id-ID').includes(normalizedQuery)", $comboboxSource);
+    }
+
     public function test_board_exposes_mixed_work_order_item_counts(): void
     {
         $planner = $this->adminSite();

@@ -3,6 +3,7 @@ import MaintenanceItemFilter from '@/Components/MaintenanceItemFilter';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import StatusBadge from '@/Components/StatusBadge';
+import UnitFilterCombobox from '@/Components/UnitFilterCombobox';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Checkbox } from '@/Components/ui/checkbox';
@@ -365,13 +366,7 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                         {columns.filter((column) => !['upcoming', 'preparation'].includes(column.key)).map((column) => <SelectItem key={column.key} value={column.key}>{column.label}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
-                                <Select value={selectValue(unitId)} onValueChange={(value) => setUnitId(filterValue(value))}>
-                                    <SelectTrigger><SelectValue placeholder="Semua Unit" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">Semua Unit</SelectItem>
-                                        {units.data.map((unit) => <SelectItem key={unit.id} value={unit.id.toString()}>{unit.current_plate}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
+                                <UnitFilterCombobox units={units.data} value={unitId} onChange={setUnitId} />
                                 <MaintenanceItemFilter items={planningItems} selectedIds={planningItemIds} onChange={setPlanningItemIds} />
                                 <Select value={selectValue(assigneeId)} onValueChange={(value) => setAssigneeId(filterValue(value))}>
                                     <SelectTrigger><SelectValue placeholder="Semua Assignee" /></SelectTrigger>
