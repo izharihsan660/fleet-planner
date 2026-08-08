@@ -46,7 +46,6 @@ class ApprovalQueueController extends Controller
                 'submittedBy:id,name',
             ])
             ->whereIn('status', ['replace', 'postpone', 'pending_create'])
-            ->withBaseline()
             ->when($filters['region_id'] ?? null, fn (Builder $query, string $regionId) => $query->whereHas('workOrder.site', fn (Builder $siteQuery) => $siteQuery->where('region_id', $regionId)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 $query->where(function (Builder $searchQuery) use ($search): void {

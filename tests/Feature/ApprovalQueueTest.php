@@ -40,7 +40,7 @@ class ApprovalQueueTest extends TestCase
             );
     }
 
-    public function test_approval_queue_excludes_and_rejects_items_with_missing_baseline(): void
+    public function test_approval_queue_shows_but_rejects_items_with_missing_baseline(): void
     {
         [$spv, $missingBaselineItem, $validItem] = $this->createApprovalScenario();
         $missingBaselineItem->unitPlanning()->update(['last_done_km' => 0, 'last_done_date' => null]);
@@ -50,8 +50,12 @@ class ApprovalQueueTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('ApprovalQueue/Index')
-                ->has('items', 1)
-                ->where('items.0.id', $validItem->id)
+                ->has('items', 2)
+                ->where('items', fn (mixed $items): bool => collect($items)
+                    ->pluck('id')
+                    ->sort()
+                    ->values()
+                    ->all() === collect([$missingBaselineItem->id, $validItem->id])->sort()->values()->all())
             );
 
         $this->actingAs($spv)
@@ -62,6 +66,54 @@ class ApprovalQueueTest extends TestCase
             ->assertStatus(422);
 
         $this->assertSame('replace', $missingBaselineItem->refresh()->status);
+    }
+
+    public function test_approval_queue_shows_all_pending_items_from_the_same_work_order(): void
+    {
+        [$spv, $serviceA, $unrelatedItem] = $this->createApprovalScenario();
+        $unrelatedItem->update(['status' => 'complete']);
+        $serviceA->planningItem()->update(['name' => 'Service A']);
+        $serviceA->workOrder->unit()->update(['current_plate' => 'DD 8182 ST']);
+
+        $serviceBPlanningItem = PlanningItem::query()->create([
+            'name' => 'Service B',
+            'interval_km' => 10000,
+            'interval_days' => 90,
+        ]);
+        $serviceBPlanning = UnitPlanning::query()->create([
+            'unit_id' => $serviceA->workOrder->unit_id,
+            'planning_item_id' => $serviceBPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 10000,
+            'next_due_date' => today()->addDays(30)->toDateString(),
+        ]);
+        $serviceB = WorkOrderItem::query()->create([
+            'work_order_id' => $serviceA->work_order_id,
+            'unit_planning_id' => $serviceBPlanning->id,
+            'planning_item_id' => $serviceBPlanningItem->id,
+            'status' => 'replace',
+            'action' => 'replace',
+            'reason' => 'Alasan dari Planner Area.',
+            'submitted_by' => $serviceA->submitted_by,
+        ]);
+        $submittedAt = now()->subDays(3)->setMicrosecond(0);
+
+        $serviceA->forceFill(['created_at' => $submittedAt, 'updated_at' => $submittedAt])->save();
+        $serviceB->forceFill(['created_at' => $submittedAt, 'updated_at' => $submittedAt])->save();
+
+        $this->actingAs($spv)
+            ->get(route('approval-queue.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('ApprovalQueue/Index')
+                ->has('items', 2)
+                ->where('items', fn (mixed $items): bool => collect($items)
+                    ->pluck('id')
+                    ->sort()
+                    ->values()
+                    ->all() === collect([$serviceA->id, $serviceB->id])->sort()->values()->all())
+            );
     }
 
     public function test_approval_queue_source_uses_collapsible_bottom_drawer_and_verification_list(): void
