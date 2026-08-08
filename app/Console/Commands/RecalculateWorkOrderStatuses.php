@@ -91,6 +91,7 @@ class RecalculateWorkOrderStatuses extends Command
     private function mismatchedWorkOrders(WorkOrderProgressService $workOrderProgressService): Collection
     {
         return WorkOrder::query()
+            ->whereNotIn('status', $workOrderProgressService->terminalWorkOrderStatuses())
             ->with([
                 'unit:id,current_plate',
                 'items' => fn ($query) => $query->applicable()->select(['id', 'work_order_id', 'status', 'action']),

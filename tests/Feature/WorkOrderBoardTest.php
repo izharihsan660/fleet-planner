@@ -647,7 +647,7 @@ class WorkOrderBoardTest extends TestCase
             );
     }
 
-    public function test_mismatched_complete_work_order_is_excluded_from_complete_column_and_audit_command_can_fix_it(): void
+    public function test_complete_work_order_remains_terminal_when_item_composition_is_mismatched(): void
     {
         $planner = $this->adminSite();
         $unit = $this->unit($planner->site_id, 10000, 100);
@@ -677,18 +677,21 @@ class WorkOrderBoardTest extends TestCase
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->has('boardColumns.complete.data', 0)
+                ->where('boardColumns.complete.data.0.id', $workOrder->id)
+                ->where('boardColumns.complete.data.0.items_count', 2)
+                ->where('boardColumns.complete.data.0.completed_items_count', 1)
+                ->where('boardColumns.complete.data.0.remaining_items_count', 1)
             );
 
         $this->artisan('work-orders:audit-statuses')
-            ->expectsOutput('Mismatched work orders: 1')
+            ->expectsOutput('Mismatched work orders: 0')
             ->assertSuccessful();
 
         $this->artisan('work-orders:audit-statuses --fix')
-            ->expectsOutput('Mismatched work orders: 1')
+            ->expectsOutput('Mismatched work orders: 0')
             ->assertSuccessful();
 
-        $this->assertSame('open', $workOrder->refresh()->status);
+        $this->assertSame('complete', $workOrder->refresh()->status);
     }
 
     private function adminSite(): User

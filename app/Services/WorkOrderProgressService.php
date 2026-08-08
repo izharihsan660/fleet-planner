@@ -9,6 +9,11 @@ use Illuminate\Support\Collection;
 class WorkOrderProgressService
 {
     /**
+     * @var array<int, string>
+     */
+    private const TERMINAL_WORK_ORDER_STATUSES = ['cancelled', 'complete'];
+
+    /**
      * @var array<string, string>
      */
     private const ACTIVE_ITEM_LABELS = [
@@ -30,6 +35,19 @@ class WorkOrderProgressService
     public function finalStatuses(): array
     {
         return ['complete', 'postponed'];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function terminalWorkOrderStatuses(): array
+    {
+        return self::TERMINAL_WORK_ORDER_STATUSES;
+    }
+
+    public function isTerminalWorkOrder(WorkOrder $workOrder): bool
+    {
+        return in_array($workOrder->status, self::TERMINAL_WORK_ORDER_STATUSES, true);
     }
 
     /**
@@ -143,6 +161,10 @@ class WorkOrderProgressService
 
     public function sync(WorkOrder $workOrder): void
     {
+        if ($this->isTerminalWorkOrder($workOrder)) {
+            return;
+        }
+
         $items = $workOrder->items()->applicable()->get();
         $workOrder->setRelation('items', $items);
         $targetStatus = $this->statusFor($workOrder, $items);
@@ -157,6 +179,10 @@ class WorkOrderProgressService
      */
     public function statusFor(WorkOrder $workOrder, ?Collection $items = null): string
     {
+        if ($this->isTerminalWorkOrder($workOrder)) {
+            return $workOrder->status;
+        }
+
         $items ??= $workOrder->items()->applicable()->get();
 
         if ($items->isEmpty()) {

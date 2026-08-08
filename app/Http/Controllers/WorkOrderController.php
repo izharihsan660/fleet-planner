@@ -142,10 +142,7 @@ class WorkOrderController extends Controller
             ->paginate(20, ['*'], 'in_progress_page')
             ->withQueryString();
         $completeWorkOrders = $this->applyBoardSort((clone $workOrderQuery)
-            ->where('status', 'complete')
-            ->whereDoesntHave('items', fn ($query) => $query
-                ->applicable()
-                ->whereNotIn('status', ['complete', 'postponed'])), $sortBy)
+            ->where('status', 'complete'), $sortBy)
             ->paginate(20, ['*'], 'complete_page')
             ->withQueryString();
 
@@ -472,6 +469,8 @@ class WorkOrderController extends Controller
         $assignment = $this->optionalAssignmentPayload($request, $wo->site_id);
 
         DB::transaction(function () use ($request, $wo, $item, $assignment): void {
+            $this->reopenCancelledWorkOrder($wo);
+
             if ($assignment !== []) {
                 $wo->update($assignment);
             }
@@ -507,16 +506,20 @@ class WorkOrderController extends Controller
             return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, Blocked, atau Rejected yang bisa diajukan Postpone.']);
         }
 
-        $item->update([
-            'status' => 'postpone',
-            'action' => 'postpone',
-            'reason' => $request->string('reason')->toString(),
-            'previous_due_km' => $item->unitPlanning?->next_due_km,
-            'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
-            'new_due_km' => $request->integer('new_due_km'),
-            'new_due_date' => $request->date('new_due_date')->toDateString(),
-            'submitted_by' => $request->user()->id,
-        ]);
+        DB::transaction(function () use ($request, $wo, $item): void {
+            $this->reopenCancelledWorkOrder($wo);
+
+            $item->update([
+                'status' => 'postpone',
+                'action' => 'postpone',
+                'reason' => $request->string('reason')->toString(),
+                'previous_due_km' => $item->unitPlanning?->next_due_km,
+                'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
+                'new_due_km' => $request->integer('new_due_km'),
+                'new_due_date' => $request->date('new_due_date')->toDateString(),
+                'submitted_by' => $request->user()->id,
+            ]);
+        });
 
         $this->syncWorkOrderStatusFromItems($wo->refresh());
         $notifications->taskSubmitted($item->refresh(), 'postpone');
@@ -998,6 +1001,13 @@ class WorkOrderController extends Controller
     private function syncWorkOrderStatusFromItems(WorkOrder $workOrder): void
     {
         $this->workOrderProgressService->sync($workOrder);
+    }
+
+    private function reopenCancelledWorkOrder(WorkOrder $workOrder): void
+    {
+        if ($workOrder->status === 'cancelled') {
+            $workOrder->update(['status' => 'open']);
+        }
     }
 
     private function previewApprovalStatus(UnitPlanning $planning): ?string

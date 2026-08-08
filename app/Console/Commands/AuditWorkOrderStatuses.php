@@ -17,19 +17,10 @@ class AuditWorkOrderStatuses extends Command
     {
         $mismatches = WorkOrder::query()
             ->with(['unit:id,current_plate', 'items:id,work_order_id,status'])
+            ->whereNotIn('status', $workOrderProgressService->terminalWorkOrderStatuses())
             ->whereHas('items')
-            ->where(fn (Builder $query) => $query
-                ->where(fn (Builder $query) => $query
-                    ->where('status', 'complete')
-                    ->whereHas('items', fn (Builder $items) => $items
-                        ->whereNotIn('status', $this->resolvedStatuses()))
-                )
-                ->orWhere(fn (Builder $query) => $query
-                    ->where('status', '!=', 'complete')
-                    ->whereDoesntHave('items', fn (Builder $items) => $items
-                        ->whereNotIn('status', $this->resolvedStatuses()))
-                )
-            )
+            ->whereDoesntHave('items', fn (Builder $items) => $items
+                ->whereNotIn('status', $this->resolvedStatuses()))
             ->get();
 
         $this->info('Mismatched work orders: '.$mismatches->count());

@@ -10,6 +10,7 @@ use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Services\WorkOrderProgressService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -73,6 +74,72 @@ class RecalculateWorkOrderStatusesCommandTest extends TestCase
         $this->artisan('fleet:recalculate-wo-status --execute')
             ->expectsOutput('Tidak ada status work order yang perlu diubah.')
             ->assertSuccessful();
+    }
+
+    public function test_terminal_work_orders_are_excluded_from_dry_run_and_execute(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Terminal Command', 'region' => 'Sulawesi']);
+        $cancelledWorkOrder = $this->createWorkOrder($site, 'DD 2001 AA', 'cancelled', [
+            ['status' => 'in_progress', 'action' => 'replace'],
+        ]);
+        $completeWorkOrder = $this->createWorkOrder($site, 'DD 2002 AA', 'complete', [
+            ['status' => 'on_hold', 'action' => null],
+        ]);
+
+        $this->artisan('fleet:recalculate-wo-status --dry-run')
+            ->doesntExpectOutputToContain('DD 2001 AA')
+            ->doesntExpectOutputToContain('DD 2002 AA')
+            ->expectsOutput('Tidak ada status work order yang perlu diubah.')
+            ->assertSuccessful();
+
+        $this->assertSame('cancelled', $cancelledWorkOrder->refresh()->status);
+        $this->assertSame('complete', $completeWorkOrder->refresh()->status);
+
+        $cancelledWorkOrder->items()->update(['status' => 'complete', 'action' => 'replace']);
+        $completeWorkOrder->items()->update(['status' => 'in_progress', 'action' => 'replace']);
+
+        $this->artisan('fleet:recalculate-wo-status --execute')
+            ->doesntExpectOutputToContain('DD 2001 AA')
+            ->doesntExpectOutputToContain('DD 2002 AA')
+            ->expectsOutput('Tidak ada status work order yang perlu diubah.')
+            ->assertSuccessful();
+
+        $this->assertSame('cancelled', $cancelledWorkOrder->refresh()->status);
+        $this->assertSame('complete', $completeWorkOrder->refresh()->status);
+    }
+
+    public function test_progress_service_preserves_terminal_status_for_any_item_composition(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Terminal Service', 'region' => 'Sulawesi']);
+        $cancelledWorkOrder = $this->createWorkOrder($site, 'DD 3001 AA', 'cancelled', [
+            ['status' => 'on_hold', 'action' => null],
+        ]);
+        $completeWorkOrder = $this->createWorkOrder($site, 'DD 3002 AA', 'complete', [
+            ['status' => 'on_hold', 'action' => null],
+        ]);
+        $workOrderProgressService = app(WorkOrderProgressService::class);
+
+        foreach ([
+            [$cancelledWorkOrder, 'cancelled'],
+            [$completeWorkOrder, 'complete'],
+        ] as [$workOrder, $terminalStatus]) {
+            foreach (['on_hold', 'in_progress', 'complete'] as $itemStatus) {
+                $workOrder->items()->update([
+                    'status' => $itemStatus,
+                    'action' => $itemStatus === 'on_hold' ? null : 'replace',
+                ]);
+                $workOrder->refresh();
+
+                $this->assertSame(
+                    $terminalStatus,
+                    $workOrderProgressService->statusFor($workOrder, $workOrder->items()->applicable()->get()),
+                );
+
+                $workOrderProgressService->sync($workOrder);
+
+                $this->assertSame($terminalStatus, $workOrder->refresh()->status);
+            }
+        }
     }
 
     /**
