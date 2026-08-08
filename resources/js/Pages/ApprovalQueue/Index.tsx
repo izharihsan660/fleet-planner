@@ -19,6 +19,8 @@ type ApprovalQueueItem = {
     id: number;
     work_order_id: number;
     plate_number: string;
+    current_odo: number;
+    baseline_incomplete: boolean;
     item_name: string;
     reason: string | null;
     site_name: string;
@@ -160,7 +162,13 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                             <TableCell className="px-4 py-4">
                                                 <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
-                                            <TableCell className="px-4 py-4 text-base font-semibold text-foreground">{item.plate_number}</TableCell>
+                                            <TableCell className="px-4 py-4">
+                                                <p className="text-base font-semibold text-foreground">{item.plate_number}</p>
+                                                <p className="mt-1 text-sm font-normal text-muted-foreground">
+                                                    KM saat ini: {item.current_odo.toLocaleString('id-ID')}
+                                                    {item.baseline_incomplete && <span className="text-xs"> (baseline belum lengkap)</span>}
+                                                </p>
+                                            </TableCell>
                                             <TableCell className="px-4 py-4">
                                                 <p className="text-base font-medium text-foreground">{item.item_name}</p>
                                                 <p className="mt-1 text-sm text-muted-foreground">{item.reason || 'Tidak ada alasan tambahan.'}</p>

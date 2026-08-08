@@ -182,7 +182,6 @@ function WorkOrderProgress({ workOrder }: { workOrder: WorkOrder }) {
 
 function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove, assignId, setAssignId }: { workOrder: WorkOrder; mechanics: User[]; canAssign: boolean; canReview: boolean; canApprove: boolean; assignId: number | null; setAssignId: (id: number | null) => void }) {
     const totalItems = workOrder.items_count ?? workOrder.items?.length ?? 0;
-    const visibleItemCount = Math.max(totalItems, 1);
     const remainingItems = workOrder.remaining_items_count ?? totalItems;
     const isWaitingApproval = workOrder.sub_status?.key === 'waiting_approval';
     const isWaitingPart = workOrder.sub_status?.key === 'waiting_part';
@@ -204,9 +203,10 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove,
                         {workOrder.nearest_due && <div className="shrink-0 basis-full sm:basis-auto"><StatusBadge tone={dueTone[workOrder.nearest_due.level]}>{workOrder.nearest_due.label}</StatusBadge></div>}
                     </div>
                     <p className="mt-3 text-sm font-medium text-foreground">{itemSummary(workOrder.planning_item_names)}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{visibleItemCount} item · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{totalItems} item aktif · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
                     <div className="mt-3 flex flex-wrap gap-2">
                         {workOrder.sub_status && workOrder.sub_status.key !== 'assigned' && <StatusBadge tone="neutral">{workOrder.sub_status.label}</StatusBadge>}
+                        {workOrder.has_missing_baseline_items && <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>}
                         {workOrder.has_high_usage_items && <StatusBadge tone="highUsage">High Usage</StatusBadge>}
                         {workOrder.has_overdue_items && <StatusBadge tone="danger">Overdue</StatusBadge>}
                         {workOrder.has_blocked_items && <StatusBadge tone="blocked">Blocked</StatusBadge>}

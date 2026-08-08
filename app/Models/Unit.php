@@ -84,11 +84,20 @@ class Unit extends Model
         return $this->hasMany(WorkOrder::class);
     }
 
+    public function hasIncompletePlanningBaseline(): bool
+    {
+        $hasPlanningBaseline = $this->relationLoaded('unitPlannings')
+            ? $this->unitPlannings->contains(fn (UnitPlanning $planning): bool => (int) $planning->last_done_km !== 0)
+            : $this->unitPlannings()->where('last_done_km', '!=', 0)->exists();
+
+        return ! $this->has_odometer_reading || ! $hasPlanningBaseline;
+    }
+
     /**
      * @return Attribute<bool, never>
      */
     protected function isWarranty(): Attribute
     {
-        return Attribute::get(fn (): bool => $this->current_odo < 50000);
+        return Attribute::get(fn (): bool => $this->has_odometer_reading && $this->current_odo < 50000);
     }
 }

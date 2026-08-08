@@ -26,6 +26,7 @@ class MaintenanceTriggerService
 
             $triggeredPlannings = $unit->unitPlannings
                 ->where('is_excluded', false)
+                ->reject(fn (UnitPlanning $unitPlanning): bool => $unitPlanning->isBaselineMissing())
                 ->filter(fn (UnitPlanning $unitPlanning): bool => $this->isDueSoon($unit, $unitPlanning, $warningKm, $warningDays, $today))
                 ->reject(fn (UnitPlanning $unitPlanning): bool => $this->hasActiveItem($unitPlanning))
                 ->values();
@@ -68,6 +69,10 @@ class MaintenanceTriggerService
 
     private function isDueSoon(Unit $unit, UnitPlanning $unitPlanning, int $warningKm, int $warningDays, CarbonImmutable $today): bool
     {
+        if ($unitPlanning->isBaselineMissing()) {
+            return false;
+        }
+
         $isKmDueSoon = $unitPlanning->next_due_km !== null
             && $unit->current_odo >= ($unitPlanning->next_due_km - $warningKm);
 

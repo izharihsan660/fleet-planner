@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\UserRole;
 use App\Models\Notification;
 use App\Models\PlanningItem;
+use App\Models\Region;
 use App\Models\Site;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
@@ -12,6 +13,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -40,7 +42,52 @@ class ReportHistoryTest extends TestCase
                 ->has('byItem')
                 ->has('byUnit')
                 ->has('overdueByArea')
+                ->has('baselineIncomplete')
                 ->where('permissions.can_view_by_item', true)
+            );
+    }
+
+    public function test_overdue_reports_exclude_items_with_missing_baseline(): void
+    {
+        [$site, $unit] = $this->createReportScenario();
+        $knownPlanning = UnitPlanning::query()->where('unit_id', $unit->id)->firstOrFail();
+        WorkOrderItem::query()->where('unit_planning_id', $knownPlanning->id)->where('status', 'on_hold')->update(['status' => 'overdue']);
+
+        $missingItem = PlanningItem::query()->create([
+            'name' => 'Baseline Kosong',
+            'interval_km' => 5000,
+            'interval_days' => 90,
+        ]);
+        $missingPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $missingItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 5000,
+            'next_due_date' => today()->subDays(83)->toDateString(),
+        ]);
+        $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $missingPlanning->id,
+            'planning_item_id' => $missingItem->id,
+            'status' => 'overdue',
+        ]);
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->actingAs($user)
+            ->get(route('reports.index', [
+                'month' => now()->month,
+                'year' => now()->year,
+            ]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('summary.total_overdue', 1)
+                ->where('woSummary.data.0.overdue', 1)
+                ->where('byItem.data', fn (Collection $rows): bool => $rows->sum('total_overdue') === 1)
+                ->where('byUnit.data.0.total_overdue', 1)
+                ->where('overdueByArea.data.0.total_overdue', 1)
+                ->where('overdueByArea.data.0.items', fn (Collection $items): bool => ! $items->contains('Baseline Kosong'))
             );
     }
 
@@ -85,6 +132,58 @@ class ReportHistoryTest extends TestCase
                     ->where('permissions.can_view_overdue', $overdue)
                 );
         }
+    }
+
+    public function test_baseline_incomplete_report_groups_items_per_unit_and_scopes_planner_region(): void
+    {
+        $ownRegion = Region::query()->create(['name' => 'Sulawesi']);
+        $otherRegion = Region::query()->create(['name' => 'Kalimantan']);
+        $ownSite = Site::query()->create(['name' => 'Site Own', 'region' => 'Sulawesi', 'region_id' => $ownRegion->id]);
+        $otherSite = Site::query()->create(['name' => 'Site Other', 'region' => 'Kalimantan', 'region_id' => $otherRegion->id]);
+        $ownUnit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($ownSite->id, 'DD 1153 EKX')));
+        $otherUnit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($otherSite->id, 'KT 9999 ZZ')));
+        $firstItem = PlanningItem::query()->create(['name' => 'Filter Oli', 'interval_km' => 5000, 'interval_days' => 90]);
+        $secondItem = PlanningItem::query()->create(['name' => 'Brake Pad', 'interval_km' => 5000, 'interval_days' => 90]);
+        $excludedItem = PlanningItem::query()->create(['name' => 'Tidak Berlaku', 'interval_km' => 5000, 'interval_days' => 90]);
+
+        foreach ([$firstItem, $secondItem] as $planningItem) {
+            UnitPlanning::query()->create([
+                'unit_id' => $ownUnit->id,
+                'planning_item_id' => $planningItem->id,
+                'last_done_km' => 0,
+                'last_done_date' => null,
+            ]);
+        }
+
+        UnitPlanning::query()->create([
+            'unit_id' => $ownUnit->id,
+            'planning_item_id' => $excludedItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'is_excluded' => true,
+        ]);
+        UnitPlanning::query()->create([
+            'unit_id' => $otherUnit->id,
+            'planning_item_id' => $firstItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+        ]);
+
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => $ownRegion->id]);
+
+        $this->actingAs($planner)
+            ->get(route('reports.index', ['tab' => 'baseline']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('permissions.can_view_baseline', true)
+                ->where('permissions.default_tab', 'baseline')
+                ->has('baselineIncomplete.data', 1)
+                ->where('baselineIncomplete.data.0.unit_id', $ownUnit->id)
+                ->where('baselineIncomplete.data.0.plat_nomor', 'DD 1153 EKX')
+                ->where('baselineIncomplete.data.0.site', 'Site Own')
+                ->where('baselineIncomplete.data.0.missing_baseline_count', 2)
+                ->where('baselineIncomplete.data.0.items', fn ($items) => collect($items)->sort()->values()->all() === ['Brake Pad', 'Filter Oli'])
+            );
     }
 
     public function test_mechanic_reports_are_scoped_to_units_they_handled(): void
@@ -227,13 +326,13 @@ class ReportHistoryTest extends TestCase
         $this->assertSame('on_hold', $item->refresh()->status);
     }
 
-    public function test_check_overdue_command_marks_null_due_date_when_km_reaches_due(): void
+    public function test_check_overdue_command_ignores_missing_baseline_when_km_reaches_due(): void
     {
         [, $item] = $this->createNullDueDateScenario(currentOdo: 12000, nextDueKm: 10000);
 
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
-        $this->assertSame('overdue', $item->refresh()->status);
+        $this->assertSame('on_hold', $item->refresh()->status);
     }
 
     public function test_check_overdue_command_restores_stale_overdue_with_null_due_date_and_km_below_due(): void
@@ -350,5 +449,23 @@ class ReportHistoryTest extends TestCase
         ]);
 
         return [$unit, $item];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function unitPayload(int $siteId, string $plateNumber): array
+    {
+        return [
+            'site_id' => $siteId,
+            'customer' => 'Customer Baseline',
+            'current_plate' => $plateNumber,
+            'type' => 'Dump Truck',
+            'brand' => 'Hino',
+            'year' => 2024,
+            'current_odo' => 10000,
+            'has_odometer_reading' => true,
+            'status' => 'active',
+        ];
     }
 }

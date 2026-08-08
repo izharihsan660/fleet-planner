@@ -37,9 +37,14 @@ class UnitPlanningExclusionService
             $unitPlanning->update([
                 'is_excluded' => false,
                 'excluded_reason' => null,
-                'next_due_km' => $unitPlanning->unit->has_odometer_reading
-                    ? $unitPlanning->last_done_km + $interval['interval_km']
-                    : null,
+                'next_due_km' => $unitPlanning->isBaselineMissing()
+                    ? null
+                    : $this->intervalResolver->nextDueKm(
+                        (int) $unitPlanning->last_done_km,
+                        (int) $unitPlanning->unit->current_odo,
+                        (bool) $unitPlanning->unit->has_odometer_reading,
+                        $interval['interval_km'],
+                    ),
                 'next_due_date' => $unitPlanning->last_done_date?->copy()->addDays($interval['interval_days'])->toDateString(),
             ]);
 

@@ -17,6 +17,7 @@ use App\Http\Controllers\SiteController;
 use App\Http\Controllers\SystemThresholdController;
 use App\Http\Controllers\UnitController;
 use App\Http\Controllers\UnitHistoryController;
+use App\Http\Controllers\UnitPlanningBaselineController;
 use App\Http\Controllers\UnitPlanningExclusionController;
 use App\Http\Controllers\UnitSiteTransferController;
 use App\Http\Controllers\UserController;
@@ -53,6 +54,7 @@ Route::middleware('auth')->group(function () {
     Route::get('reports/overdue', [ReportController::class, 'overdueByArea'])->name('reports.overdue');
     Route::get('reports/export/{tab}', [ReportController::class, 'export'])->name('reports.export');
     Route::get('units/{unit}/history', [UnitHistoryController::class, 'show'])->name('units.history');
+    Route::patch('units/{unit}/plannings/{unitPlanning}/baseline', UnitPlanningBaselineController::class)->name('units.plannings.baseline.update');
     Route::post('units/{unit}/site-transfers', [UnitSiteTransferController::class, 'store'])->name('units.site-transfers.store');
     Route::post('unit-site-transfers/{transfer}/approve', [UnitSiteTransferController::class, 'approve'])->name('unit-site-transfers.approve');
     Route::post('unit-site-transfers/{transfer}/reject', [UnitSiteTransferController::class, 'reject'])->name('unit-site-transfers.reject');

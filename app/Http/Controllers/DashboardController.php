@@ -28,7 +28,7 @@ class DashboardController extends Controller
         return Inertia::render('Dashboard', [
             'overdueBanner' => [
                 'threshold' => 20,
-                'count' => WorkOrderItem::query()->applicable()->where('status', 'overdue')->count(),
+                'count' => $this->visibleItems($request)->where('status', 'overdue')->count(),
             ],
             'plannerDashboard' => $this->dashboardSummary($request),
         ]);
@@ -100,6 +100,7 @@ class DashboardController extends Controller
                 'overdue_count' => WorkOrderItem::query()
                     ->applicable()
                     ->where('status', 'overdue')
+                    ->withBaseline()
                     ->whereHas('workOrder', fn (Builder $query) => $query->where('site_id', $site->id))
                     ->count(),
             ];
@@ -155,6 +156,7 @@ class DashboardController extends Controller
 
         return WorkOrderItem::query()
             ->applicable()
+            ->withBaseline()
             ->whereHas('workOrder', function (Builder $query) use ($user, $regionId): void {
                 AccessScope::applySiteScope($query, $user, 'work_orders.site_id');
 

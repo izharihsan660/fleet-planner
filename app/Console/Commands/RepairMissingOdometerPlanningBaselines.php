@@ -29,7 +29,8 @@ class RepairMissingOdometerPlanningBaselines extends Command
         $affectedPlanningRows = $units->sum('affected_planning_count');
 
         $this->line('MODE: '.($execute ? 'EXECUTE' : 'DRY-RUN'));
-        $this->line('Kondisi: has_odometer_reading=false dan next_due_km masih terisi');
+        $this->line('Kondisi: has_odometer_reading=false, next_due_km terisi, dan TIDAK ada riwayat last_done_km');
+        $this->line('Baris dengan riwayat last_done_km sengaja dilewati — itu baseline KM yang sah.');
         $this->info('Unit terdampak: '.$units->count());
         $this->info('Unit planning terdampak: '.$affectedPlanningRows);
         $this->line('Unit current_odo=0: '.$units->where('current_odo', 0)->count());
@@ -63,6 +64,7 @@ class RepairMissingOdometerPlanningBaselines extends Command
             UnitPlanning::query()
                 ->applicable()
                 ->whereNotNull('next_due_km')
+                ->where('last_done_km', '<=', 0)
                 ->whereHas('unit', fn ($query) => $query->where('has_odometer_reading', false))
                 ->update([
                     'next_due_km' => null,
@@ -84,10 +86,10 @@ class RepairMissingOdometerPlanningBaselines extends Command
             ->with('site:id,name')
             ->withCount('inspectionLogs')
             ->withCount([
-                'unitPlannings as affected_planning_count' => fn ($query) => $query->applicable()->whereNotNull('next_due_km'),
+                'unitPlannings as affected_planning_count' => fn ($query) => $query->applicable()->whereNotNull('next_due_km')->where('last_done_km', '<=', 0),
             ])
             ->where('has_odometer_reading', false)
-            ->whereHas('unitPlannings', fn ($query) => $query->applicable()->whereNotNull('next_due_km'))
+            ->whereHas('unitPlannings', fn ($query) => $query->applicable()->whereNotNull('next_due_km')->where('last_done_km', '<=', 0))
             ->orderBy('current_plate')
             ->get();
     }

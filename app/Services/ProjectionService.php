@@ -35,8 +35,8 @@ class ProjectionService
                     ->applicable()
                     ->with('planningItem:id,name,interval_km,interval_days'),
             ])
+            ->when($regionId !== null, fn ($query) => $query->whereHas('site', fn ($siteQuery) => $siteQuery->where('region_id', $regionId)))
             ->when($siteId !== null, fn ($query) => $query->where('site_id', $siteId))
-            ->when($siteId === null && $regionId !== null, fn ($query) => $query->whereHas('site', fn ($siteQuery) => $siteQuery->where('region_id', $regionId)))
             ->orderBy('current_plate')
             ->get();
 
@@ -53,6 +53,10 @@ class ProjectionService
             $unitItems = collect();
 
             foreach ($unit->unitPlannings as $unitPlanning) {
+                if ($unitPlanning->isBaselineMissing()) {
+                    continue;
+                }
+
                 if (! $this->isDueInPeriod($unitPlanning, $estimatedPeriodOdometer, $periodEnd, $hasProjectionOdometerData)) {
                     continue;
                 }

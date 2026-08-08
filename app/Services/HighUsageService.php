@@ -47,6 +47,7 @@ class HighUsageService
 
             return $unit->unitPlannings()
                 ->applicable()
+                ->withBaseline()
                 ->with('planningItem:id,name')
                 ->get()
                 ->filter(fn (UnitPlanning $unitPlanning): bool => $this->shouldFlag($unit, $unitPlanning, $averageKmPerDay, $thresholdPercentage, $today))
@@ -74,6 +75,7 @@ class HighUsageService
             $flag->loadMissing('unit', 'unitPlanning');
 
             abort_if($flag->unitPlanning?->is_excluded, 422, 'Planning item ini sudah ditandai Tidak Berlaku.');
+            abort_if($flag->unitPlanning?->isBaselineMissing() ?? true, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses High Usage.');
 
             if ($action === 'triggered') {
                 $this->createWorkOrderItem($flag, $actor, true);
@@ -115,13 +117,13 @@ class HighUsageService
     public function checkPendingFlags(): void
     {
         $pendingFlags = HighUsageFlag::query()
-            ->whereHas('unitPlanning', fn ($query) => $query->applicable())
+            ->whereHas('unitPlanning', fn ($query) => $query->applicable()->withBaseline())
             ->whereNull('action_taken')
             ->where('flagged_at', '<=', now()->subDays(5))
             ->get();
 
         $deferredFlags = HighUsageFlag::query()
-            ->whereHas('unitPlanning', fn ($query) => $query->applicable())
+            ->whereHas('unitPlanning', fn ($query) => $query->applicable()->withBaseline())
             ->where('action_taken', 'deferred')
             ->where('action_taken_at', '<=', now()->subDays(5))
             ->get();
@@ -132,7 +134,7 @@ class HighUsageService
 
     private function shouldFlag(Unit $unit, UnitPlanning $unitPlanning, float $averageKmPerDay, int $thresholdPercentage, CarbonImmutable $today): bool
     {
-        if ($unitPlanning->next_due_km === null || $unitPlanning->next_due_date === null) {
+        if ($unitPlanning->isBaselineMissing() || $unitPlanning->next_due_km === null || $unitPlanning->next_due_date === null) {
             return false;
         }
 

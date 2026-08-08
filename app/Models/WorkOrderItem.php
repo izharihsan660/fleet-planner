@@ -55,6 +55,24 @@ class WorkOrderItem extends Model
     }
 
     /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    public function scopeMissingBaseline(Builder $query): Builder
+    {
+        return $query->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->missingBaseline());
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    public function scopeWithBaseline(Builder $query): Builder
+    {
+        return $query->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->withBaseline());
+    }
+
+    /**
      * @return BelongsTo<WorkOrder, $this>
      */
     public function workOrder(): BelongsTo

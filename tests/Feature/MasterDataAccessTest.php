@@ -56,6 +56,7 @@ class MasterDataAccessTest extends TestCase
             'brand' => 'Toyota',
             'year' => 2024,
             'current_odo' => 100,
+            'has_odometer_reading' => true,
             'status' => 'active',
         ]);
 

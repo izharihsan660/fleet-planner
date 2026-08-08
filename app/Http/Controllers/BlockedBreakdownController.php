@@ -12,6 +12,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\BlockedBreakdownService;
 use App\Services\PlanningIntervalResolver;
+use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
@@ -19,8 +20,12 @@ use Illuminate\Support\Facades\Gate;
 
 class BlockedBreakdownController extends Controller
 {
-    public function markBlocked(MarkConditionRequest $request, WorkOrderItem $item, BlockedBreakdownService $service): RedirectResponse
-    {
+    public function markBlocked(
+        MarkConditionRequest $request,
+        WorkOrderItem $item,
+        BlockedBreakdownService $service,
+        WorkOrderProgressService $workOrderProgressService,
+    ): RedirectResponse {
         Gate::authorize('markBlocked', WorkOrder::class);
 
         $item->load('workOrder.unit');
@@ -35,11 +40,12 @@ class BlockedBreakdownController extends Controller
         }
 
         $service->markBlocked($item, $request->user(), $request->string('reason')->toString());
+        $workOrderProgressService->sync($item->workOrder->refresh());
 
         return back()->with('status', 'Item work order berhasil ditandai Blocked.');
     }
 
-    public function resolveBlocked(WorkOrderItem $item): RedirectResponse
+    public function resolveBlocked(WorkOrderItem $item, WorkOrderProgressService $workOrderProgressService): RedirectResponse
     {
         Gate::authorize('markBlocked', WorkOrder::class);
 
@@ -51,6 +57,7 @@ class BlockedBreakdownController extends Controller
         }
 
         $item->update(['status' => 'on_hold']);
+        $workOrderProgressService->sync($item->workOrder->refresh());
 
         return back()->with('status', 'Blocked berhasil di-resolve. Item kembali On Hold.');
     }
@@ -65,8 +72,12 @@ class BlockedBreakdownController extends Controller
         return back()->with('status', 'Unit berhasil ditandai Breakdown.');
     }
 
-    public function storeInspection(StoreBreakdownInspectionRequest $request, Unit $unit, PlanningIntervalResolver $intervalResolver): RedirectResponse
-    {
+    public function storeInspection(
+        StoreBreakdownInspectionRequest $request,
+        Unit $unit,
+        PlanningIntervalResolver $intervalResolver,
+        WorkOrderProgressService $workOrderProgressService,
+    ): RedirectResponse {
         Gate::authorize('markBreakdown', WorkOrder::class);
         $this->abortIfCannotAccessSite($request->user(), $unit->site_id);
 
@@ -87,8 +98,14 @@ class BlockedBreakdownController extends Controller
             'freeze_start' => null,
         ]);
 
-        WorkOrderItem::query()
+        $affectedWorkOrderIds = WorkOrderItem::query()
             ->applicable()
+            ->where('unit_planning_id', $unitPlanning->id)
+            ->where('status', 'breakdown')
+            ->pluck('work_order_id');
+
+        WorkOrderItem::query()
+            ->whereIn('work_order_id', $affectedWorkOrderIds)
             ->where('unit_planning_id', $unitPlanning->id)
             ->where('status', 'breakdown')
             ->update([
@@ -98,6 +115,11 @@ class BlockedBreakdownController extends Controller
                 'completed_date' => Carbon::today()->toDateString(),
                 'freeze_end' => now(),
             ]);
+
+        WorkOrder::query()
+            ->whereKey($affectedWorkOrderIds)
+            ->get()
+            ->each(fn (WorkOrder $workOrder) => $workOrderProgressService->sync($workOrder));
 
         if (! WorkOrderItem::query()->applicable()->where('status', 'breakdown')->whereHas('workOrder', fn ($query) => $query->where('unit_id', $unit->id))->exists()) {
             $unit->update(['status' => 'active']);

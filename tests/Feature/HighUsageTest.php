@@ -36,6 +36,19 @@ class HighUsageTest extends TestCase
         ]);
     }
 
+    public function test_detection_skips_planning_with_missing_baseline_date(): void
+    {
+        [$unit, $unitPlanning] = $this->createHighUsageScenario();
+        $unitPlanning->update(['last_done_km' => 0, 'last_done_date' => null]);
+
+        $flags = app(HighUsageService::class)->detect($unit->refresh());
+
+        $this->assertSame([], $flags);
+        $this->assertDatabaseMissing('high_usage_flags', [
+            'unit_planning_id' => $unitPlanning->id,
+        ]);
+    }
+
     public function test_completed_history_does_not_permanently_block_future_high_usage_detection(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();

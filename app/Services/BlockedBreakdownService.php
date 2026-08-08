@@ -12,9 +12,10 @@ class BlockedBreakdownService
 {
     public function markBlocked(WorkOrderItem $item, User $actor, string $reason): WorkOrderItem
     {
-        $item->loadMissing('unitPlanning:id,is_excluded');
+        $item->loadMissing('unitPlanning:id,is_excluded,last_done_km,last_done_date');
 
         abort_if($item->unitPlanning?->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
+        abort_if($item->unitPlanning?->isBaselineMissing() ?? true, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
 
         $item->update([
             'status' => 'blocked',

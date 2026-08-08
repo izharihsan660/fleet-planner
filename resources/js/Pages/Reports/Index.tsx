@@ -24,7 +24,7 @@ type AccuracyReport = {
     };
 };
 
-type ReportTabKey = 'wo' | 'item' | 'unit' | 'overdue' | 'accuracy';
+type ReportTabKey = 'wo' | 'item' | 'unit' | 'overdue' | 'baseline' | 'accuracy';
 
 type ReportsPageProps = PageProps<{
     summary: ReportSummary;
@@ -32,6 +32,7 @@ type ReportsPageProps = PageProps<{
     byItem: PaginatedCollection<ReportSummary>;
     byUnit: PaginatedCollection<ReportSummary>;
     overdueByArea: PaginatedCollection<ReportSummary>;
+    baselineIncomplete: PaginatedCollection<ReportSummary>;
     accuracy: AccuracyReport | null;
     sites: { data: Site[] };
     filters: { month: number; year: number; site_id: number | null; tab: ReportTabKey };
@@ -41,6 +42,7 @@ type ReportsPageProps = PageProps<{
         can_view_by_item: boolean;
         can_view_by_unit: boolean;
         can_view_overdue: boolean;
+        can_view_baseline: boolean;
         can_view_accuracy: boolean;
         default_tab: ReportTabKey;
     };
@@ -48,14 +50,15 @@ type ReportsPageProps = PageProps<{
 
 const months = Array.from({ length: 12 }, (_, index) => index + 1);
 
-export default function Index({ summary, woSummary, byItem, byUnit, overdueByArea, accuracy, sites, filters, permissions }: ReportsPageProps) {
+export default function Index({ summary, woSummary, byItem, byUnit, overdueByArea, baselineIncomplete, accuracy, sites, filters, permissions }: ReportsPageProps) {
     const tabs = useMemo(() => [
         permissions.can_view_wo_summary ? { key: 'wo', label: 'Rekap WO' } : null,
         permissions.can_view_by_item ? { key: 'item', label: 'Per Item' } : null,
         permissions.can_view_by_unit ? { key: 'unit', label: 'Per Unit' } : null,
         permissions.can_view_overdue ? { key: 'overdue', label: `Terlambat — ${(summary.total_overdue ?? 0).toLocaleString('id-ID')}` } : null,
+        permissions.can_view_baseline ? { key: 'baseline', label: `Baseline Belum Diisi — ${baselineIncomplete.meta.total.toLocaleString('id-ID')}` } : null,
         permissions.can_view_accuracy && accuracy ? { key: 'accuracy', label: 'Akurasi Proyeksi' } : null,
-    ].filter(Boolean) as { key: ReportTabKey; label: string }[], [permissions, summary.total_overdue, accuracy]);
+    ].filter(Boolean) as { key: ReportTabKey; label: string }[], [permissions, summary.total_overdue, baselineIncomplete.meta.total, accuracy]);
     const [activeTab, setActiveTab] = useState(tabs.find((tab) => tab.key === permissions.default_tab)?.key ?? tabs[0]?.key ?? 'item');
 
     const reportUrl = (month: number, year: number, siteId: string) => `${route('reports.index')}?month=${month}&year=${year}${siteId ? `&site_id=${siteId}` : ''}`;
@@ -94,6 +97,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                                 <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="unit"><ReportTab exportHref={exportUrl('unit')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="overdue"><ReportTab exportHref={exportUrl('overdue')}><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="baseline"><ReportTab exportHref={exportUrl('baseline')}><DataTable headers={['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item']} rows={baselineIncomplete.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.missing_baseline_count, row.items?.join(', ') || '-'])} meta={baselineIncomplete.meta} /></ReportTab></TabsContent>
                                 {accuracy && <TabsContent value="accuracy"><AccuracyTab accuracy={accuracy} /></TabsContent>}
                             </Tabs>
                         </CardContent>

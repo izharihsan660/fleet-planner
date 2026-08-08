@@ -34,6 +34,7 @@ class WorkOrderItemResource extends JsonResource
             'completed_date' => $this->completed_date?->toDateString(),
             'approved_at' => $this->approved_at?->toDateTimeString(),
             'triggered_by_high_usage' => (bool) $this->triggered_by_high_usage,
+            'baseline_missing' => $this->unitPlanning?->isBaselineMissing() ?? true,
             'planning_item' => $this->whenLoaded('planningItem'),
             'unit_planning' => $this->whenLoaded('unitPlanning'),
             'submitted_by' => $this->whenLoaded('submittedBy'),

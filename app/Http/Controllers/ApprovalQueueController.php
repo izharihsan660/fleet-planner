@@ -9,6 +9,7 @@ use App\Models\Region;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
+use App\Services\WorkOrderProgressService;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -20,6 +21,8 @@ use Inertia\Response;
 
 class ApprovalQueueController extends Controller
 {
+    public function __construct(private WorkOrderProgressService $workOrderProgressService) {}
+
     public function index(Request $request): Response
     {
         Gate::authorize('viewAny', WorkOrder::class);
@@ -34,12 +37,16 @@ class ApprovalQueueController extends Controller
             ->applicable()
             ->with([
                 'planningItem:id,name',
-                'workOrder.unit:id,current_plate,site_id',
+                'unitPlanning:id,last_done_km,last_done_date',
+                'workOrder.unit' => fn ($query) => $query
+                    ->select(['id', 'current_plate', 'current_odo', 'has_odometer_reading', 'site_id'])
+                    ->with('unitPlannings:id,unit_id,last_done_km'),
                 'workOrder.site:id,name,region_id',
                 'workOrder.site.area:id,name',
                 'submittedBy:id,name',
             ])
             ->whereIn('status', ['replace', 'postpone', 'pending_create'])
+            ->withBaseline()
             ->when($filters['region_id'] ?? null, fn (Builder $query, string $regionId) => $query->whereHas('workOrder.site', fn (Builder $siteQuery) => $siteQuery->where('region_id', $regionId)))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 $query->where(function (Builder $searchQuery) use ($search): void {
@@ -53,11 +60,14 @@ class ApprovalQueueController extends Controller
                 $submittedAt = CarbonImmutable::parse($item->updated_at);
                 $waitingHours = max(0, (int) $submittedAt->diffInHours($now));
                 $waitingDays = intdiv($waitingHours, 24);
+                $unit = $item->workOrder?->unit;
 
                 return [
                     'id' => $item->id,
                     'work_order_id' => $item->work_order_id,
                     'plate_number' => $item->workOrder?->unit?->current_plate ?? '-',
+                    'current_odo' => $unit?->current_odo ?? 0,
+                    'baseline_incomplete' => $unit?->hasIncompletePlanningBaseline() ?? true,
                     'item_name' => $item->planningItem?->name ?? 'Item maintenance',
                     'reason' => $item->reason ?: $item->notes,
                     'site_name' => $item->workOrder?->site?->name ?? '-',
@@ -98,6 +108,10 @@ class ApprovalQueueController extends Controller
 
                 if (! in_array($item->status, ['replace', 'postpone', 'pending_create'], true)) {
                     abort(422, 'Ada item yang sudah berubah status. Muat ulang halaman lalu pilih ulang.');
+                }
+
+                if ($item->unitPlanning?->isBaselineMissing() ?? true) {
+                    abort(422, 'Baseline item belum diisi. Item tidak dapat diproses melalui antrean approval.');
                 }
 
                 if ($payload['decision'] === 'approve') {
@@ -188,26 +202,6 @@ class ApprovalQueueController extends Controller
 
     private function syncWorkOrderStatusFromItems(WorkOrder $workOrder): void
     {
-        $workOrder->setRelation('items', $workOrder->items()->applicable()->get());
-
-        if ($workOrder->items->isNotEmpty() && $workOrder->items->every(fn (WorkOrderItem $item): bool => in_array($item->status, ['complete', 'postponed'], true))) {
-            $workOrder->update(['status' => 'complete']);
-
-            return;
-        }
-
-        if ($workOrder->assigned_mechanic_id !== null || $workOrder->items->contains('status', 'in_progress')) {
-            $workOrder->update(['status' => 'in_progress']);
-
-            return;
-        }
-
-        if ($workOrder->items->contains(fn (WorkOrderItem $item): bool => in_array($item->status, ['on_hold', 'overdue', 'pending_create', 'replace', 'postpone'], true))) {
-            $workOrder->update(['status' => 'open']);
-
-            return;
-        }
-
-        $workOrder->update(['status' => 'cancelled']);
+        $this->workOrderProgressService->sync($workOrder);
     }
 }

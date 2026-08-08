@@ -63,6 +63,75 @@ class MaintenanceTriggerTest extends TestCase
             );
     }
 
+    public function test_daily_km_input_skips_due_items_with_missing_baseline_dates(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Mixed Baseline', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $unit->update(['has_odometer_reading' => true]);
+        $validPlanningItem = PlanningItem::query()->create(['name' => 'Baseline Lengkap', 'interval_km' => 2000, 'interval_days' => 90]);
+        $missingPlanningItem = PlanningItem::query()->create(['name' => 'Baseline Kosong', 'interval_km' => 2000, 'interval_days' => 90]);
+        $validPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $validPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => now()->subDays(60)->toDateString(),
+            'next_due_km' => 2000,
+            'next_due_date' => now()->addDays(30)->toDateString(),
+        ]);
+        $missingPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $missingPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 2000,
+            'next_due_date' => now()->subDays(83)->toDateString(),
+        ]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 1500,
+        ])->assertRedirect(route('inspections.create'));
+
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $validPlanning->id)->count());
+        $this->assertSame(0, WorkOrderItem::query()->where('unit_planning_id', $missingPlanning->id)->count());
+    }
+
+    public function test_overdue_scheduler_evaluates_each_item_baseline_independently(): void
+    {
+        $site = Site::query()->create(['name' => 'Site Scheduler', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 5000));
+        $validPlanningItem = PlanningItem::query()->create(['name' => 'Valid Scheduler', 'interval_km' => 1000, 'interval_days' => 30]);
+        $missingPlanningItem = PlanningItem::query()->create(['name' => 'Missing Scheduler', 'interval_km' => 1000, 'interval_days' => 30]);
+        $validPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $validPlanningItem->id,
+            'last_done_km' => 3000,
+            'last_done_date' => null,
+            'next_due_km' => 4000,
+            'next_due_date' => null,
+        ]);
+        $missingPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $missingPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 1000,
+            'next_due_date' => today()->subDays(83)->toDateString(),
+        ]);
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);
+        $validItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $validPlanning->id, 'planning_item_id' => $validPlanningItem->id, 'status' => 'on_hold']);
+        $missingItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $missingPlanning->id, 'planning_item_id' => $missingPlanningItem->id, 'status' => 'on_hold']);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame('overdue', $validItem->refresh()->status);
+        $this->assertSame('on_hold', $missingItem->refresh()->status);
+    }
+
     public function test_trigger_reuses_open_work_order_and_does_not_duplicate_active_item(): void
     {
         $this->seedThresholds();

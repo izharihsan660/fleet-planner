@@ -45,6 +45,21 @@ class ProjectionTest extends TestCase
         $this->assertCount(1, $result['warnings']);
     }
 
+    public function test_projection_excludes_items_with_missing_baseline_dates(): void
+    {
+        [$unit, $planningItem] = $this->createProjectionScenario();
+        UnitPlanning::query()
+            ->where('unit_id', $unit->id)
+            ->where('planning_item_id', $planningItem->id)
+            ->update(['last_done_km' => 0, 'last_done_date' => null]);
+
+        $result = app(ProjectionService::class)->calculate(3);
+
+        $this->assertSame([], $result['by_unit']);
+        $this->assertSame([], $result['by_item']);
+        $this->assertSame([], $result['by_part']);
+    }
+
     public function test_authorized_roles_can_access_projection_page(): void
     {
         [$unit] = $this->createProjectionScenario();
@@ -423,6 +438,10 @@ class ProjectionTest extends TestCase
 
     public function test_projection_calendar_uses_effective_due_dates_and_excludes_finished_items(): void
     {
+        // Skenario ini memakai tanggal absolut, jadi jamnya dibekukan supaya
+        // hasilnya tidak berubah seiring berjalannya waktu.
+        $this->travelTo('2026-07-10');
+
         $region = Region::query()->create(['name' => 'Kalimantan']);
         $site = Site::query()->create(['name' => 'Site Calendar', 'region' => 'Kalimantan', 'region_id' => $region->id]);
         $user = User::factory()->create(['role' => UserRole::Superadmin]);
@@ -471,6 +490,23 @@ class ProjectionTest extends TestCase
             'status' => 'complete',
         ]);
 
+        $missingPlanningItem = PlanningItem::query()->create(['name' => 'Service Tanpa Baseline', 'interval_km' => 1000, 'interval_days' => 30]);
+        $missingPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $missingPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 1000,
+            'next_due_date' => '2026-07-18',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $missingPlanning->id,
+            'planning_item_id' => $missingPlanningItem->id,
+            'status' => 'overdue',
+            'triggered_by_high_usage' => true,
+        ]);
+
         $this->actingAs($user)->get(route('projections.index', ['month' => '2026-07', 'region_id' => $region->id]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
@@ -481,6 +517,7 @@ class ProjectionTest extends TestCase
                 ->where('calendar.items.0.due_date', '2026-07-25')
                 ->where('calendar.items.0.is_high_usage', true)
                 ->where('calendar.items.0.status_label', 'Postponed')
+                ->where('calendar.items', fn ($items) => collect($items)->doesntContain('item_name', 'Service Tanpa Baseline'))
             );
     }
 

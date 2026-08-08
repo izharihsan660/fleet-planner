@@ -25,7 +25,7 @@ class HighUsageController extends Controller
 
         $flags = HighUsageFlag::query()
             ->with(['unit.site', 'planningItem', 'unitPlanning', 'actionTakenBy'])
-            ->whereHas('unitPlanning', fn (Builder $query) => $query->applicable())
+            ->whereHas('unitPlanning', fn (Builder $query) => $query->applicable()->withBaseline())
             ->whereNull('resolved_at')
             ->when($user->hasRole(UserRole::Mekanik), fn (Builder $query) => $query->whereHas('unit', fn (Builder $unitQuery) => $unitQuery->where('site_id', $user->site_id)))
             ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id !== null, fn (Builder $query) => $query->whereHas('unit.site', fn (Builder $siteQuery) => $siteQuery->where('region_id', $user->region_id)))

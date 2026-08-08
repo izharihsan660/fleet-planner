@@ -21,6 +21,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
 use App\Services\PlanningIntervalResolver;
+use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -33,7 +34,10 @@ use Inertia\Response;
 
 class WorkOrderController extends Controller
 {
-    public function __construct(private PlanningIntervalResolver $intervalResolver) {}
+    public function __construct(
+        private PlanningIntervalResolver $intervalResolver,
+        private WorkOrderProgressService $workOrderProgressService,
+    ) {}
 
     public function myTasks(Request $request): Response
     {
@@ -47,6 +51,7 @@ class WorkOrderController extends Controller
             ->applicable()
             ->with(['planningItem:id,name', 'workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name'])
             ->whereIn('work_order_items.status', ['in_progress', 'overdue'])
+            ->withBaseline()
             ->whereHas('workOrder', fn ($query) => $query
                 ->where('assigned_mechanic_id', $user->id)
                 ->where('work_orders.status', 'in_progress')
@@ -87,9 +92,15 @@ class WorkOrderController extends Controller
                 'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
                 'assignedMechanic:id,name',
             ])
-            ->withCount(['items' => fn ($query) => $query->applicable()])
+            ->withCount(['items' => fn ($query) => $query->applicable()->where('status', '!=', 'blocked')])
             ->withExists(['items as has_blocked_items' => fn ($query) => $query->applicable()->where('status', 'blocked')])
-            ->withExists(['items as has_high_usage_items' => fn ($query) => $query->applicable()->where('triggered_by_high_usage', true)])
+            ->withExists(['items as has_high_usage_items' => fn ($query) => $query
+                ->applicable()
+                ->where('triggered_by_high_usage', true)
+                ->withBaseline()])
+            ->withExists(['items as has_missing_baseline_items' => fn ($query) => $query
+                ->applicable()
+                ->missingBaseline()])
             ->whereHas('items', fn ($query) => $query->applicable())
             ->whereDoesntHave('items', fn ($query) => $query->applicable()->where('status', 'pending_create'))
             ->tap(fn ($query) => $this->applyCurrentUnitSiteScope($query, $user))
@@ -103,7 +114,10 @@ class WorkOrderController extends Controller
         $inProgressWorkOrders = (clone $workOrderQuery)->where('status', 'in_progress')->latest()->paginate(20, ['*'], 'in_progress_page')->withQueryString();
         $completeWorkOrders = (clone $workOrderQuery)
             ->where('status', 'complete')
-            ->whereDoesntHave('items', fn ($query) => $query->applicable()->whereNotIn('status', ['complete', 'postponed']))
+            ->whereDoesntHave('items', fn ($query) => $query
+                ->applicable()
+                ->where('status', '!=', 'blocked')
+                ->whereNotIn('status', ['complete', 'postponed']))
             ->latest()
             ->paginate(20, ['*'], 'complete_page')
             ->withQueryString();
@@ -138,7 +152,7 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
 
         $wo->load([
-            'unit.site',
+            'unit' => fn ($query) => $query->with(['site', 'unitPlannings:id,unit_id,last_done_km']),
             'site',
             'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
             'approvedBy:id,name',
@@ -177,6 +191,10 @@ class WorkOrderController extends Controller
 
         if ($planning->is_excluded) {
             return back()->withErrors(['planning' => 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.']);
+        }
+
+        if ($planning->isBaselineMissing()) {
+            return back()->withErrors(['planning' => 'Baseline item belum diisi. Isi baseline sebelum membuat task dari planning.']);
         }
 
         if ($this->hasActiveItem($planning)) {
@@ -302,10 +320,18 @@ class WorkOrderController extends Controller
                 'unit',
             ]);
 
-            $submittedItems = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
+            $submittedCandidates = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
 
-            if ($submittedItems->isEmpty() && $wo->submitted_by === null) {
-                $submittedItems = $wo->items->where('status', 'on_hold');
+            if ($submittedCandidates->isEmpty() && $wo->submitted_by === null) {
+                $submittedCandidates = $wo->items->where('status', 'on_hold');
+            }
+
+            $submittedItems = $submittedCandidates
+                ->reject(fn (WorkOrderItem $item): bool => $item->unitPlanning?->isBaselineMissing() ?? true)
+                ->values();
+
+            if ($submittedItems->isEmpty() && $submittedCandidates->isNotEmpty()) {
+                abort(422, 'Baseline item belum diisi. Isi baseline sebelum menyetujui task ini.');
             }
 
             if ($submittedItems->isEmpty()) {
@@ -607,12 +633,12 @@ class WorkOrderController extends Controller
 
     private function completedItemsCount(WorkOrder $workOrder): int
     {
-        return $workOrder->items->filter(fn (WorkOrderItem $item): bool => in_array($item->status, ['complete', 'postpone', 'postponed'], true))->count();
+        return $this->workOrderProgressService->completedItemsCount($workOrder->items);
     }
 
     private function remainingItemsCount(WorkOrder $workOrder): int
     {
-        return max($workOrder->items->count() - $this->completedItemsCount($workOrder), 0);
+        return $this->workOrderProgressService->remainingItemsCount($workOrder->items);
     }
 
     /**
@@ -627,6 +653,7 @@ class WorkOrderController extends Controller
 
         $items = UnitPlanning::query()
             ->applicable()
+            ->withBaseline()
             ->with(['unit.site', 'planningItem'])
             ->join('units', 'units.id', '=', 'unit_plannings.unit_id')
             ->select('unit_plannings.*')
@@ -721,6 +748,10 @@ class WorkOrderController extends Controller
 
     private function meetsThreshold(UnitPlanning $planning, int $days, int $km): bool
     {
+        if ($planning->isBaselineMissing()) {
+            return false;
+        }
+
         $today = CarbonImmutable::today();
         $matchesKm = $planning->next_due_km !== null
             && $planning->unit->current_odo >= ($planning->next_due_km - $km);
@@ -732,7 +763,7 @@ class WorkOrderController extends Controller
 
     private function dueMeta(?Unit $unit, ?UnitPlanning $planning, array $thresholds): ?array
     {
-        if ($unit === null || $planning === null) {
+        if ($unit === null || $planning === null || $planning->isBaselineMissing()) {
             return null;
         }
 
@@ -782,29 +813,7 @@ class WorkOrderController extends Controller
 
     private function syncWorkOrderStatusFromItems(WorkOrder $workOrder): void
     {
-        $workOrder->setRelation('items', $workOrder->items()->applicable()->get());
-
-        if ($this->workOrderIsFullyResolved($workOrder)) {
-            $workOrder->update(['status' => 'complete']);
-
-            return;
-        }
-
-        if ($workOrder->assigned_mechanic_id !== null || $workOrder->items->contains('status', 'in_progress')) {
-            $workOrder->update(['status' => 'in_progress']);
-
-            return;
-        }
-
-        $workOrder->update(['status' => 'open']);
-    }
-
-    private function workOrderIsFullyResolved(WorkOrder $workOrder): bool
-    {
-        $workOrder->setRelation('items', $workOrder->items()->applicable()->get());
-
-        return $workOrder->items->isNotEmpty()
-            && $workOrder->items->every(fn (WorkOrderItem $item): bool => in_array($item->status, ['complete', 'postponed'], true));
+        $this->workOrderProgressService->sync($workOrder);
     }
 
     private function previewApprovalStatus(UnitPlanning $planning): ?string
@@ -869,9 +878,10 @@ class WorkOrderController extends Controller
 
     private function abortIfPlanningIsExcluded(WorkOrderItem $item): void
     {
-        $item->loadMissing('unitPlanning:id,is_excluded');
+        $item->loadMissing('unitPlanning:id,is_excluded,last_done_km,last_done_date');
 
         abort_if($item->unitPlanning?->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
+        abort_if($item->unitPlanning?->isBaselineMissing() ?? true, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
     }
 
     private function unitIsStillBreakdown(WorkOrder $workOrder): bool

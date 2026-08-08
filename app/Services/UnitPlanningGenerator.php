@@ -16,7 +16,7 @@ class UnitPlanningGenerator
     {
         $baseDate = Carbon::parse($date ?? today())->startOfDay();
         $lastDoneKm = (int) $unit->current_odo;
-        $hasOdometerReading = $unit->has_odometer_reading;
+        $hasOdometerReading = (bool) $unit->has_odometer_reading;
         $created = 0;
 
         PlanningItem::query()
@@ -40,9 +40,12 @@ class UnitPlanningGenerator
                     [
                         'last_done_km' => $lastDoneKm,
                         'last_done_date' => $baseDate->toDateString(),
-                        'next_due_km' => $hasOdometerReading
-                            ? $lastDoneKm + $interval['interval_km']
-                            : null,
+                        'next_due_km' => $this->intervalResolver->nextDueKm(
+                            $lastDoneKm,
+                            (int) $unit->current_odo,
+                            $hasOdometerReading,
+                            $interval['interval_km'],
+                        ),
                         'next_due_date' => $baseDate->copy()->addDays($interval['interval_days'])->toDateString(),
                     ],
                 );

@@ -343,7 +343,8 @@ class MaintenanceMasterDataImportTest extends TestCase
         $this->assertSame('2026-01-01', $validDatePlanning?->last_done_date?->toDateString());
         $this->assertSame('2026-04-07', $validDatePlanning?->next_due_date?->toDateString());
         $this->assertNull($missingDatePlanning?->last_done_date);
-        $this->assertSame($import->created_at->copy()->startOfDay()->addDays(180)->toDateString(), $missingDatePlanning?->next_due_date?->toDateString());
+        $this->assertNull($missingDatePlanning?->next_due_km);
+        $this->assertNull($missingDatePlanning?->next_due_date);
         $this->assertTrue($excludedPlanning?->is_excluded);
         $this->assertSame('MATIC', $excludedPlanning?->excluded_reason);
         $this->assertNull($excludedPlanning?->last_done_date);

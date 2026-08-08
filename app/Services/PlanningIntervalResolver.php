@@ -27,4 +27,23 @@ class PlanningIntervalResolver
             'interval_days' => (int) ($override?->interval_days ?? $planningItem->interval_days),
         ];
     }
+
+    /**
+     * Baseline KM due berikutnya.
+     *
+     * Riwayat penggantian selalu menang: kalau `last_done_km` terisi, itu acuannya,
+     * termasuk saat odometer unit belum pernah diinput mekanik. Kalau tidak ada
+     * riwayat, pakai odometer unit — tapi hanya kalau odometer itu data asli.
+     * NULL berarti benar-benar belum ada acuan KM sama sekali.
+     */
+    public function nextDueKm(int $lastDoneKm, int $currentOdometer, bool $hasOdometerReading, int $intervalKm): ?int
+    {
+        $baseline = match (true) {
+            $lastDoneKm > 0 => $lastDoneKm,
+            $hasOdometerReading => $currentOdometer,
+            default => null,
+        };
+
+        return $baseline === null ? null : $baseline + $intervalKm;
+    }
 }

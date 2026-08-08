@@ -20,8 +20,9 @@ class CheckOverdueMaintenance extends Command
 
         $overdueItems = WorkOrderItem::query()
             ->applicable()
-            ->with(['workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name', 'planningItem:id,name', 'unitPlanning:id,next_due_date,next_due_km'])
+            ->with(['workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name', 'planningItem:id,name', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km'])
             ->whereIn('status', ['on_hold', 'in_progress'])
+            ->withBaseline()
             ->where(function ($query): void {
                 $query
                     ->whereHas('unitPlanning', fn ($unitPlanningQuery) => $unitPlanningQuery
@@ -37,15 +38,17 @@ class CheckOverdueMaintenance extends Command
 
         $staleOverdueItems = WorkOrderItem::query()
             ->applicable()
-            ->with(['workOrder.unit:id,current_plate,current_odo', 'unitPlanning:id,next_due_date,next_due_km'])
+            ->with(['workOrder.unit:id,current_plate,current_odo', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km'])
             ->where('status', 'overdue')
             ->whereDoesntHave('unitPlanning', fn ($unitPlanningQuery) => $unitPlanningQuery
+                ->withBaseline()
                 ->where(fn ($dueQuery) => $dueQuery
-                    ->whereNotNull('next_due_date')
-                    ->whereDate('next_due_date', '<', now()->toDateString()))
-                ->orWhereHas('unit', fn ($unitQuery) => $unitQuery
-                    ->whereNotNull('unit_plannings.next_due_km')
-                    ->whereColumn('units.current_odo', '>=', 'unit_plannings.next_due_km')))
+                    ->where(fn ($dateQuery) => $dateQuery
+                        ->whereNotNull('next_due_date')
+                        ->whereDate('next_due_date', '<', now()->toDateString()))
+                    ->orWhereHas('unit', fn ($unitQuery) => $unitQuery
+                        ->whereNotNull('unit_plannings.next_due_km')
+                        ->whereColumn('units.current_odo', '>=', 'unit_plannings.next_due_km'))))
             ->get();
 
         if ($isDryRun) {
@@ -69,6 +72,7 @@ class CheckOverdueMaintenance extends Command
             ->applicable()
             ->with(['workOrder.unit', 'workOrder.site', 'planningItem'])
             ->where('status', 'overdue')
+            ->withBaseline()
             ->get()
             ->groupBy(fn (WorkOrderItem $item): string => $item->workOrder->unit_id.'-'.$item->planning_item_id)
             ->each(function (Collection $items) use ($notifications): void {

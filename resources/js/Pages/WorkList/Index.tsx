@@ -19,11 +19,14 @@ type WorkListItem = {
     site_id: number;
     site_name: string;
     plate_number: string;
+    current_odo: number;
+    baseline_incomplete: boolean;
     item_name: string;
     status: 'on_hold' | 'overdue';
     due_date: string | null;
     due_km: number | null;
     late_days: number;
+    baseline_missing: boolean;
     status_label: string;
 };
 
@@ -72,6 +75,10 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
     const selectedItems = useMemo(
         () => items.filter((item) => selectedIds.includes(item.id)),
         [items, selectedIds],
+    );
+    const selectableItems = useMemo(
+        () => items.filter((item) => !item.baseline_missing),
+        [items],
     );
 
     const selectedSiteIds = useMemo(
@@ -156,7 +163,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
     };
 
     const toggleAll = () => {
-        setSelectedIds((current) => current.length === items.length ? [] : items.map((item) => item.id));
+        setSelectedIds((current) => current.length === selectableItems.length ? [] : selectableItems.map((item) => item.id));
     };
 
     const applyFilters = (event: FormEvent) => {
@@ -246,7 +253,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                 <TableHeader className="bg-muted/50 text-muted-foreground">
                                     <TableRow>
                                         <TableHead className="w-14 px-4 py-4">
-                                            <Checkbox aria-label="Pilih semua item" checked={items.length > 0 && selectedIds.length === items.length} onCheckedChange={toggleAll} />
+                                            <Checkbox aria-label="Pilih semua item" checked={selectableItems.length > 0 && selectedIds.length === selectableItems.length} disabled={selectableItems.length === 0} onCheckedChange={toggleAll} />
                                         </TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Plat Nomor</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Nama Item</TableHead>
@@ -258,13 +265,19 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                     {items.map((item) => (
                                         <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
-                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
+                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} disabled={item.baseline_missing} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
-                                            <TableCell className="px-4 py-4 text-base font-semibold text-foreground">{item.plate_number}</TableCell>
+                                            <TableCell className="px-4 py-4">
+                                                <p className="text-base font-semibold text-foreground">{item.plate_number}</p>
+                                                <p className="mt-1 text-sm font-normal text-muted-foreground">
+                                                    KM saat ini: {item.current_odo.toLocaleString('id-ID')}
+                                                    {item.baseline_incomplete && <span className="text-xs"> (baseline belum lengkap)</span>}
+                                                </p>
+                                            </TableCell>
                                             <TableCell className="px-4 py-4 text-base text-foreground">{item.item_name}</TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
+                                                <span className={!item.baseline_missing && item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
                                                     {item.status_label}
                                                 </span>
                                             </TableCell>

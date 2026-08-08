@@ -76,6 +76,7 @@ export interface Unit {
     year: number;
     current_odo: number;
     has_odometer_reading: boolean;
+    baseline_incomplete?: boolean;
     needs_document_verification: boolean;
     avg_km_per_day?: number | null;
     status: string;
@@ -150,6 +151,7 @@ export interface WorkOrderItem {
     completed_date: string | null;
     approved_at: string | null;
     triggered_by_high_usage: boolean;
+    baseline_missing: boolean;
     planning_item?: PlanningItem;
     unit_planning?: UnitPlanning;
     submitted_by?: User | null;
@@ -176,6 +178,7 @@ export interface WorkOrder {
     completed_items_count?: number;
     remaining_items_count?: number;
     has_blocked_items?: boolean;
+    has_missing_baseline_items?: boolean;
     has_high_usage_items?: boolean;
     has_overdue_items?: boolean;
     has_rejected_items?: boolean;
@@ -354,6 +357,7 @@ export interface ReportSummary {
     plat_nomor?: string;
     site?: string;
     items?: string[];
+    missing_baseline_count?: number;
 }
 
 export interface UnitHistoryItem {
@@ -409,6 +413,7 @@ export interface UnitHistory {
     can_request_transfer: boolean;
     can_approve_transfer: boolean;
     can_manage_planning_exclusions: boolean;
+    can_set_baseline: boolean;
     pending_transfers: UnitSiteTransfer[];
 }
 

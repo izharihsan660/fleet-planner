@@ -8,6 +8,7 @@ use App\Http\Requests\ReportFilterRequest;
 use App\Http\Resources\ReportSummaryResource;
 use App\Http\Resources\SiteResource;
 use App\Models\Site;
+use App\Models\Unit;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\ProjectionAccuracyService;
@@ -36,12 +37,16 @@ class ReportController extends Controller
                 'total_wo' => $this->visibleWorkOrders($request)->count(),
                 'total_items' => $this->visibleWorkOrderItems($request)->count(),
                 'total_complete' => $this->visibleWorkOrderItems($request)->where('status', 'complete')->count(),
-                'total_overdue' => $this->visibleWorkOrderItems($request)->where('status', 'overdue')->count(),
+                'total_overdue' => $this->visibleWorkOrderItems($request)
+                    ->where('status', 'overdue')
+                    ->withBaseline()
+                    ->count(),
             ])->resolve(),
             'woSummary' => Gate::allows('view-reports.wo-summary') ? $this->paginatedReport($this->woSummaryData($request, $filters)) : $this->emptyReportPage(),
             'byItem' => Gate::allows('view-reports.by-item') ? $this->paginatedReport($this->byItemData($request, $filters)) : $this->emptyReportPage(),
             'byUnit' => Gate::allows('view-reports.by-unit') ? $this->paginatedReport($this->byUnitData($request, $filters)) : $this->emptyReportPage(),
             'overdueByArea' => Gate::allows('view-reports.overdue') ? $this->paginatedReport($this->overdueByAreaData($request, $filters)) : $this->emptyReportPage(),
+            'baselineIncomplete' => Gate::allows('view-reports.baseline') ? $this->paginatedReport($this->baselineIncompleteData($request, $filters)) : $this->emptyReportPage(),
             'accuracy' => Gate::allows('view-reports.accuracy')
                 ? app(ProjectionAccuracyService::class)->report($filters['month'], $filters['year'], $filters['site_id'], $request->user())
                 : null,
@@ -53,6 +58,7 @@ class ReportController extends Controller
                 'can_view_by_item' => Gate::allows('view-reports.by-item'),
                 'can_view_by_unit' => Gate::allows('view-reports.by-unit'),
                 'can_view_overdue' => Gate::allows('view-reports.overdue'),
+                'can_view_baseline' => Gate::allows('view-reports.baseline'),
                 'can_view_accuracy' => Gate::allows('view-reports.accuracy'),
                 'default_tab' => $filters['tab'],
             ],
@@ -90,13 +96,14 @@ class ReportController extends Controller
     public function export(ReportFilterRequest $request, string $tab): BinaryFileResponse
     {
         $filters = $this->filters($request);
-        $tab = in_array($tab, ['wo', 'item', 'unit', 'overdue'], true) ? $tab : 'wo';
+        $tab = in_array($tab, ['wo', 'item', 'unit', 'overdue', 'baseline'], true) ? $tab : 'wo';
 
         Gate::authorize(match ($tab) {
             'wo' => 'view-reports.wo-summary',
             'item' => 'view-reports.by-item',
             'unit' => 'view-reports.by-unit',
             'overdue' => 'view-reports.overdue',
+            'baseline' => 'view-reports.baseline',
         });
 
         [$label, $headings, $rows] = match ($tab) {
@@ -104,6 +111,7 @@ class ReportController extends Controller
             'item' => ['per-item', ['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $this->byItemRows($request, $filters)],
             'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
             'overdue' => ['terlambat', ['Lokasi', 'Total Terlambat', 'Item Terlambat'], $this->overdueByAreaRows($request, $filters)],
+            'baseline' => ['baseline-belum-diisi', ['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item'], $this->baselineIncompleteRows($request, $filters)],
         };
 
         $filename = sprintf('laporan-%s-%04d-%02d.xlsx', $label, $filters['year'], $filters['month']);
@@ -112,7 +120,7 @@ class ReportController extends Controller
     }
 
     /**
-     * @return array{month: int, year: int, site_id: int|null, tab: 'wo'|'item'|'unit'|'overdue'|'accuracy'}
+     * @return array{month: int, year: int, site_id: int|null, tab: 'wo'|'item'|'unit'|'overdue'|'baseline'|'accuracy'}
      */
     private function filters(ReportFilterRequest $request): array
     {
@@ -174,7 +182,7 @@ class ReportController extends Controller
             ->selectRaw('COUNT(DISTINCT work_orders.id) as total_wo')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as overdue")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -202,10 +210,11 @@ class ReportController extends Controller
         return $this->visibleWorkOrderItems($request)
             ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
             ->join('planning_items', 'planning_items.id', '=', 'work_order_items.planning_item_id')
+            ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
             ->selectRaw('planning_items.name as item')
             ->selectRaw('COUNT(work_order_items.id) as total_wo')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as total_overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
             ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN {$this->completionDaysExpression()} END), 1) as avg_hari_penyelesaian")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -249,7 +258,7 @@ class ReportController extends Controller
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(DISTINCT work_orders.id) as total_wo')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' THEN 1 ELSE 0 END) as total_overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
             ->where('unit_plannings.is_excluded', false)
@@ -277,15 +286,54 @@ class ReportController extends Controller
             ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
             ->join('sites', 'sites.id', '=', 'work_orders.site_id')
             ->join('planning_items', 'planning_items.id', '=', 'work_order_items.planning_item_id')
+            ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(work_order_items.id) as total_overdue')
             ->selectRaw('GROUP_CONCAT(DISTINCT planning_items.name) as items')
             ->where('work_order_items.status', 'overdue')
+            ->where(function (Builder $query): void {
+                $query
+                    ->where('unit_plannings.last_done_km', '!=', 0)
+                    ->orWhereNotNull('unit_plannings.last_done_date');
+            })
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
             ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('work_orders.site_id', $siteId))
             ->groupBy('work_orders.site_id', 'sites.name')
             ->orderBy('sites.name');
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     */
+    private function baselineIncompleteData(ReportFilterRequest $request, array $filters): LengthAwarePaginator
+    {
+        return $this->baselineIncompleteQuery($request, $filters)
+            ->paginate(25, ['*'], 'baseline_page')
+            ->withQueryString();
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     */
+    private function baselineIncompleteQuery(ReportFilterRequest $request, array $filters): Builder
+    {
+        return Unit::query()
+            ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $request->user(), 'units.site_id'))
+            ->join('unit_plannings', 'unit_plannings.unit_id', '=', 'units.id')
+            ->join('planning_items', 'planning_items.id', '=', 'unit_plannings.planning_item_id')
+            ->leftJoin('sites', 'sites.id', '=', 'units.site_id')
+            ->selectRaw('units.id as unit_id')
+            ->selectRaw('units.current_plate as plat_nomor')
+            ->selectRaw('sites.name as site')
+            ->selectRaw('COUNT(unit_plannings.id) as missing_baseline_count')
+            ->selectRaw('GROUP_CONCAT(DISTINCT planning_items.name) as items')
+            ->where('unit_plannings.last_done_km', 0)
+            ->whereNull('unit_plannings.last_done_date')
+            ->where('unit_plannings.is_excluded', false)
+            ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('units.site_id', $siteId))
+            ->groupBy('units.id', 'units.current_plate', 'sites.name')
+            ->orderBy('units.current_plate');
     }
 
     private function paginatedReport(LengthAwarePaginator $paginator): array
@@ -367,6 +415,20 @@ class ReportController extends Controller
         return $this->overdueByAreaQuery($request, $filters)->get()->map(fn ($row): array => [
             $row->site,
             (int) $row->total_overdue,
+            collect(explode(',', (string) $row->items))->filter()->implode(', '),
+        ]);
+    }
+
+    /**
+     * @param  array{month: int, year: int, site_id: int|null}  $filters
+     * @return Collection<int, array<int, mixed>>
+     */
+    private function baselineIncompleteRows(ReportFilterRequest $request, array $filters): Collection
+    {
+        return $this->baselineIncompleteQuery($request, $filters)->get()->map(fn ($row): array => [
+            $row->plat_nomor,
+            $row->site,
+            (int) $row->missing_baseline_count,
             collect(explode(',', (string) $row->items))->filter()->implode(', '),
         ]);
     }

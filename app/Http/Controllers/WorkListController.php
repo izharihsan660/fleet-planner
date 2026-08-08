@@ -34,7 +34,14 @@ class WorkListController extends Controller
 
         $items = WorkOrderItem::query()
             ->applicable()
-            ->with(['planningItem:id,name', 'unitPlanning:id,next_due_date,next_due_km', 'workOrder.unit:id,current_plate,current_odo,site_id', 'workOrder.site:id,name,region,region_id'])
+            ->with([
+                'planningItem:id,name',
+                'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km',
+                'workOrder.unit' => fn ($query) => $query
+                    ->select(['id', 'current_plate', 'current_odo', 'has_odometer_reading', 'site_id'])
+                    ->with('unitPlannings:id,unit_id,last_done_km'),
+                'workOrder.site:id,name,region,region_id',
+            ])
             ->whereIn('work_order_items.status', ['on_hold', 'overdue'])
             ->whereHas('workOrder', fn (Builder $query) => $query->whereIn('status', ['open', 'in_progress']))
             ->whereHas('workOrder.site', fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
@@ -50,6 +57,8 @@ class WorkListController extends Controller
             ->map(function (WorkOrderItem $item) use ($today): array {
                 $dueDate = $item->unitPlanning?->next_due_date;
                 $lateDays = $dueDate === null ? 0 : max(0, $today->diffInDays(CarbonImmutable::parse($dueDate), false) * -1);
+                $baselineMissing = $item->unitPlanning?->isBaselineMissing() ?? true;
+                $unit = $item->workOrder->unit;
 
                 return [
                     'id' => $item->id,
@@ -57,12 +66,17 @@ class WorkListController extends Controller
                     'site_id' => $item->workOrder->site_id,
                     'site_name' => $item->workOrder->site?->name ?? '-',
                     'plate_number' => $item->workOrder->unit?->current_plate ?? '-',
+                    'current_odo' => $unit?->current_odo ?? 0,
+                    'baseline_incomplete' => $unit?->hasIncompletePlanningBaseline() ?? true,
                     'item_name' => $item->planningItem?->name ?? 'Item maintenance',
                     'status' => $item->status,
                     'due_date' => $dueDate?->toDateString(),
                     'due_km' => $item->unitPlanning?->next_due_km,
                     'late_days' => $item->status === 'overdue' ? $lateDays : 0,
-                    'status_label' => $item->status === 'overdue' ? 'Telat '.$lateDays.' hari' : 'Aman',
+                    'baseline_missing' => $baselineMissing,
+                    'status_label' => $baselineMissing
+                        ? 'Baseline Belum Diisi'
+                        : ($item->status === 'overdue' ? 'Telat '.$lateDays.' hari' : 'Aman'),
                 ];
             })
             ->sortByDesc('late_days')
@@ -113,6 +127,10 @@ class WorkListController extends Controller
 
                     if (! in_array($item->status, ['on_hold', 'overdue'], true)) {
                         abort(422, 'Ada item yang sudah berubah status. Muat ulang halaman lalu pilih ulang.');
+                    }
+
+                    if ($item->unitPlanning?->isBaselineMissing() ?? true) {
+                        abort(422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
                     }
 
                     if ($workOrder->unit?->status === 'breakdown') {

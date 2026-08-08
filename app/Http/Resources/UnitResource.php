@@ -22,6 +22,10 @@ class UnitResource extends JsonResource
             'year' => $this->year,
             'current_odo' => $this->current_odo,
             'has_odometer_reading' => $this->has_odometer_reading,
+            'baseline_incomplete' => $this->when(
+                $this->relationLoaded('unitPlannings'),
+                fn (): bool => $this->hasIncompletePlanningBaseline(),
+            ),
             'needs_document_verification' => $this->needs_document_verification,
             'avg_km_per_day' => $this->avg_km_per_day,
             'status' => $this->status,

@@ -171,13 +171,21 @@ Migration terbaru project ini mencakup tabel master data, units, planning items,
 docker compose exec fleet-planner-app php artisan migrate --force
 ```
 
-Jika ini deployment pertama dan data awal/role/master data diperlukan, cek daftar seeder dulu:
+Jika ini deployment pertama dan master data diperlukan, gunakan command khusus production:
 
 ```bash
-docker compose exec fleet-planner-app php artisan db:seed --class=DatabaseSeeder --force
+docker compose exec fleet-planner-app php artisan production:seed-master-data
 ```
 
-Jalankan seeder hanya jika owner memang ingin mengisi data awal. Jangan jalankan seeder di database production yang sudah berisi data tanpa memastikan isi seeder aman/idempotent.
+Command ini hanya mengisi Regions, Sites, Planning Items, dan System Thresholds. Command ini **tidak** membuat user.
+
+> **JANGAN jalankan `php artisan db:seed --class=DatabaseSeeder` di production.**
+> `DatabaseSeeder` memanggil `RoleUserSeeder`, yang membuat 22 akun demo (`superadmin@example.com`,
+> `spv_ho@example.com`, `planner.*`, `mekanik.*`) dengan password default `123123` — termasuk akun
+> superadmin. Seeder itu memakai `updateOrCreate` berdasarkan email, jadi menjalankannya ulang juga
+> akan **me-reset password akun yang sudah ada** ke `123123`. Seeder tersebut hanya untuk development.
+
+Akun user production dibuat manual lewat menu Users oleh superadmin setelah deployment.
 
 ## 8. Buat Storage Link
 

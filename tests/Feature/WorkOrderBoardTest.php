@@ -95,6 +95,34 @@ class WorkOrderBoardTest extends TestCase
         );
     }
 
+    public function test_work_order_detail_exposes_current_odometer_and_incomplete_baseline_context(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 104321, 100);
+        $planning = $this->planning($unit, 'Filter Oli', 110000, today()->addDays(10)->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'open',
+            'trigger_type' => 'normal',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'on_hold',
+        ]);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.show', $workOrder))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('WorkOrders/Show')
+                ->where('workOrder.data.unit.current_odo', 104321)
+                ->where('workOrder.data.unit.baseline_incomplete', true)
+            );
+    }
+
     public function test_planner_area_request_from_preview_card_waits_for_spv_approval(): void
     {
         $admin = $this->adminSite();
@@ -382,9 +410,9 @@ class WorkOrderBoardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('boardColumns.in_progress.data.0.id', $workOrder->id)
-                ->where('boardColumns.in_progress.data.0.items_count', 5)
+                ->where('boardColumns.in_progress.data.0.items_count', 4)
                 ->where('boardColumns.in_progress.data.0.completed_items_count', 3)
-                ->where('boardColumns.in_progress.data.0.remaining_items_count', 2)
+                ->where('boardColumns.in_progress.data.0.remaining_items_count', 1)
                 ->where('boardColumns.in_progress.data.0.sub_status.key', 'assigned')
                 ->where('boardColumns.in_progress.data.0.sub_status.label', 'Mekanik: '.$mechanic->name)
                 ->where('boardColumns.in_progress.data.0.assigned_mechanic.name', $mechanic->name)

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\UserRole;
 use App\Http\Controllers\ReportController;
+use App\Models\InspectionLog;
 use App\Models\PlanningItem;
 use App\Models\Region;
 use App\Models\Site;
@@ -45,8 +46,27 @@ class DashboardAndReportExportTest extends TestCase
         $this->createItem($insideSite, 'KT 1003 AA', 'replace');
         $this->createItem($insideSite, 'KT 1004 AA', 'in_progress');
         $this->createItem($insideSite, 'KT 1005 AA', 'complete', now()->toDateString());
-        $this->createItem($insideSite, 'KT 1006 AA', 'overdue');
+        $validOverdueItem = $this->createItem($insideSite, 'KT 1006 AA', 'overdue');
         $this->createItem($outsideSite, 'KT 9001 ZZ', 'overdue');
+        $missingPlanningItem = PlanningItem::query()->create([
+            'name' => 'Baseline Kosong Dashboard',
+            'interval_km' => 5000,
+            'interval_days' => 90,
+        ]);
+        $missingPlanning = UnitPlanning::query()->create([
+            'unit_id' => $validOverdueItem->workOrder->unit_id,
+            'planning_item_id' => $missingPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => 5000,
+            'next_due_date' => now()->subDay()->toDateString(),
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $validOverdueItem->work_order_id,
+            'unit_planning_id' => $missingPlanning->id,
+            'planning_item_id' => $missingPlanningItem->id,
+            'status' => 'overdue',
+        ]);
 
         $this->actingAs($planner)
             ->get(route('dashboard'))
@@ -61,6 +81,7 @@ class DashboardAndReportExportTest extends TestCase
                 ->where('plannerDashboard.status_counts.overdue', 1)
                 ->where('plannerDashboard.site_rows.0.site_name', $insideSite->name)
                 ->where('plannerDashboard.site_rows.0.overdue_count', 1)
+                ->where('overdueBanner.count', 1)
                 ->has('plannerDashboard.status_chart', 5)
                 ->has('plannerDashboard.overdue_by_site_chart', 1)
             );
@@ -82,7 +103,7 @@ class DashboardAndReportExportTest extends TestCase
 
         // Log hari ini hanya untuk satu unit di dalam region; log unit luar region tidak boleh ikut dihitung.
         foreach ([$inputUnit, $outsideUnit] as $unit) {
-            \App\Models\InspectionLog::query()->create([
+            InspectionLog::query()->create([
                 'unit_id' => $unit->id,
                 'mechanic_id' => $mechanic->id,
                 'inspection_date' => now()->toDateString(),
@@ -91,7 +112,7 @@ class DashboardAndReportExportTest extends TestCase
         }
 
         // Log kemarin tidak dihitung sebagai kepatuhan hari ini.
-        \App\Models\InspectionLog::query()->create([
+        InspectionLog::query()->create([
             'unit_id' => $inputUnit->id,
             'mechanic_id' => $mechanic->id,
             'inspection_date' => now()->subDay()->toDateString(),

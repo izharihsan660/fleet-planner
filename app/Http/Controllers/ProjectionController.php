@@ -34,7 +34,7 @@ class ProjectionController extends Controller
         $regionId = $canFilterRegion ? ($requestedRegionId ? (int) $requestedRegionId : null) : $user->region_id;
         $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]);
         $siteId = $user->hasRole(UserRole::Mekanik) || ($user->hasRole(UserRole::PlannerArea) && $user->region_id === null) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
-        $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null, $user->hasRole(UserRole::PlannerArea) ? $user->region_id : null);
+        $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null, $regionId);
         $calendar = $this->buildCalendar($user, $month, $siteId !== null ? (int) $siteId : null, $regionId);
 
         return Inertia::render('Projections/Index', [
@@ -75,7 +75,8 @@ class ProjectionController extends Controller
 
         $items = WorkOrderItem::query()
             ->applicable()
-            ->with(['planningItem:id,name', 'unitPlanning:id,next_due_date,next_due_km', 'workOrder.unit:id,current_plate,current_odo,site_id', 'workOrder.site:id,name,region,region_id'])
+            ->withBaseline()
+            ->with(['planningItem:id,name', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km', 'workOrder.unit:id,current_plate,current_odo,site_id', 'workOrder.site:id,name,region,region_id'])
             ->whereNotIn('work_order_items.status', ['complete', 'cancelled'])
             ->whereHas('workOrder', fn (Builder $query) => $query->whereNotIn('status', ['complete', 'cancelled']))
             ->whereHas('workOrder.site', function (Builder $query) use ($user, $regionId): void {

@@ -20,7 +20,7 @@ class UnitHistoryController extends Controller
     public function show(Request $request, Unit $unit): Response
     {
         Gate::authorize('view-reports.by-unit');
-        $this->abortIfCannotAccessUnit($request, $unit);
+        Gate::authorize('view', $unit);
 
         $unit->load([
             'site:id,name,region',
@@ -68,6 +68,7 @@ class UnitHistoryController extends Controller
                 'can_request_transfer' => $this->canRequestTransfer($request, $unit),
                 'can_approve_transfer' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
                 'can_manage_planning_exclusions' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
+                'can_set_baseline' => $request->user()->isOneOf([UserRole::Mekanik, UserRole::PlannerArea, UserRole::SpvHo, UserRole::Superadmin]),
                 'pending_transfers' => $this->pendingTransfers($request),
             ])->resolve(),
         ]);
@@ -171,26 +172,5 @@ class UnitHistoryController extends Controller
             ->map(fn (UnitSiteTransfer $transfer): array => $this->transferItem($transfer))
             ->values()
             ->all();
-    }
-
-    private function abortIfCannotAccessUnit(Request $request, Unit $unit): void
-    {
-        $user = $request->user();
-
-        $unit->loadMissing('site:id,region_id');
-
-        if (AccessScope::canAccessAllSites($user)) {
-            return;
-        }
-
-        if ($user->hasRole(UserRole::PlannerArea) && AccessScope::canAccessSite($user, $unit->site_id, $unit->site?->region_id)) {
-            return;
-        }
-
-        if ($user->hasRole(UserRole::Mekanik) && $unit->workOrders()->whereHas('items', fn ($query) => $query->where('submitted_by', $user->id))->exists()) {
-            return;
-        }
-
-        abort(403);
     }
 }

@@ -108,6 +108,7 @@ class InspectionService
 
         $unit->unitPlannings()
             ->applicable()
+            ->withBaseline()
             ->whereNotNull('next_due_km')
             ->with('planningItem:id,interval_km,interval_days')
             ->get()
@@ -134,6 +135,7 @@ class InspectionService
     {
         $unit->unitPlannings()
             ->applicable()
+            ->withBaseline()
             ->whereNull('next_due_km')
             ->with('planningItem:id,interval_km,interval_days')
             ->get()
@@ -141,7 +143,12 @@ class InspectionService
                 $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unit);
 
                 $unitPlanning->update([
-                    'next_due_km' => $unit->current_odo + $interval['interval_km'],
+                    'next_due_km' => $this->intervalResolver->nextDueKm(
+                        (int) $unitPlanning->last_done_km,
+                        (int) $unit->current_odo,
+                        true,
+                        $interval['interval_km'],
+                    ),
                 ]);
             });
     }
@@ -166,6 +173,10 @@ class InspectionService
 
                 if (! $planning) {
                     return false;
+                }
+
+                if ($planning->isBaselineMissing()) {
+                    return true;
                 }
 
                 $kmDueSoon = $planning->next_due_km !== null

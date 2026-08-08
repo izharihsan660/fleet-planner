@@ -80,7 +80,8 @@ function PlanningItemsSection({ history }: { history: UnitHistory }) {
                             key={item.id}
                             unitId={history.unit.id}
                             item={item}
-                            canManage={history.can_manage_planning_exclusions}
+                            canManageExclusion={history.can_manage_planning_exclusions}
+                            canSetBaseline={history.can_set_baseline}
                         />
                     ))}
                 </div>
@@ -89,11 +90,12 @@ function PlanningItemsSection({ history }: { history: UnitHistory }) {
     );
 }
 
-function PlanningItemCard({ unitId, item, canManage }: { unitId: number; item: UnitPlanningReference; canManage: boolean }) {
+function PlanningItemCard({ unitId, item, canManageExclusion, canSetBaseline }: { unitId: number; item: UnitPlanningReference; canManageExclusion: boolean; canSetBaseline: boolean }) {
     const form = useForm({
         is_excluded: item.is_excluded,
         excluded_reason: item.excluded_reason ?? '',
     });
+    const baselineMissing = item.last_done_km === 0 && item.last_done_date === null;
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
@@ -109,17 +111,22 @@ function PlanningItemCard({ unitId, item, canManage }: { unitId: number; item: U
                         <div className="mt-2 flex flex-wrap gap-2">
                             {item.is_excluded
                                 ? <StatusBadge tone="danger">Tidak Berlaku{item.excluded_reason ? `: ${item.excluded_reason}` : ''}</StatusBadge>
-                                : <StatusBadge tone="safe">Aktif</StatusBadge>}
-                            {item.is_estimated && <StatusBadge tone="warning">Estimated</StatusBadge>}
+                                : baselineMissing
+                                    ? <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>
+                                    : <StatusBadge tone="safe">Aktif</StatusBadge>}
+                            {!baselineMissing && item.is_estimated && <StatusBadge tone="warning">Estimated</StatusBadge>}
                         </div>
                     </div>
                     <div className="text-sm text-muted-foreground sm:text-right">
-                        <div>Terakhir: {item.last_done_km.toLocaleString('id-ID')} KM · {item.last_done_date ?? '-'}</div>
-                        <div className="mt-1">Due: {item.next_due_km?.toLocaleString('id-ID') ?? '-'} KM · {item.next_due_date ?? '-'}</div>
+                        {baselineMissing
+                            ? <><div>Terakhir: belum diketahui</div><div className="mt-1">Due: belum dihitung</div></>
+                            : <><div>Terakhir: {item.last_done_km.toLocaleString('id-ID')} KM · {item.last_done_date}</div><div className="mt-1">Due: {item.next_due_km?.toLocaleString('id-ID') ?? '-'} KM · {item.next_due_date ?? '-'}</div></>}
                     </div>
                 </div>
 
-                {canManage && (
+                {baselineMissing && canSetBaseline && !item.is_excluded && <BaselineForm unitId={unitId} item={item} />}
+
+                {canManageExclusion && (
                     <form onSubmit={submit} className="mt-4 space-y-3 border-t border-border pt-4">
                         <label className="flex items-center gap-3 text-sm font-medium text-foreground">
                             <input
@@ -148,6 +155,32 @@ function PlanningItemCard({ unitId, item, canManage }: { unitId: number; item: U
                 )}
             </CardContent>
         </Card>
+    );
+}
+
+function BaselineForm({ unitId, item }: { unitId: number; item: UnitPlanningReference }) {
+    const form = useForm({ last_done_km: '', last_done_date: '' });
+    const submit = (event: FormEvent) => {
+        event.preventDefault();
+        form.patch(route('units.plannings.baseline.update', [unitId, item.id]), { preserveScroll: true });
+    };
+
+    return (
+        <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
+            <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">KM Terakhir</label>
+                <TextInput type="number" min="0" value={form.data.last_done_km} onChange={(event) => form.setData('last_done_km', event.target.value)} className="w-full" />
+                <InputError className="mt-2" message={form.errors.last_done_km} />
+            </div>
+            <div>
+                <label className="mb-1 block text-sm font-medium text-foreground">Tanggal Terakhir</label>
+                <TextInput type="date" value={form.data.last_done_date} onChange={(event) => form.setData('last_done_date', event.target.value)} className="w-full" />
+                <InputError className="mt-2" message={form.errors.last_done_date} />
+            </div>
+            <div className="sm:col-span-2">
+                <PrimaryButton disabled={form.processing}>Set Baseline</PrimaryButton>
+            </div>
+        </form>
     );
 }
 

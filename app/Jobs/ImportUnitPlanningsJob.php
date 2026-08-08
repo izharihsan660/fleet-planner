@@ -8,7 +8,6 @@ use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Services\MaintenanceImportReader;
 use App\Services\PlanningIntervalResolver;
-use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -39,9 +38,7 @@ class ImportUnitPlanningsJob implements ShouldQueue
         $estimatedRows = 0;
         $excludedRows = 0;
         $failures = [];
-        $missingDateBaseline = CarbonImmutable::parse($import->created_at)->startOfDay();
-
-        DB::transaction(function () use ($rows, $units, $items, $reader, $intervalResolver, $missingDateBaseline, &$successRows, &$failedRows, &$estimatedRows, &$excludedRows, &$failures): void {
+        DB::transaction(function () use ($rows, $units, $items, $reader, $intervalResolver, &$successRows, &$failedRows, &$estimatedRows, &$excludedRows, &$failures): void {
             foreach ($rows as $index => $row) {
                 $line = $index + 2;
                 $unit = $units->get(strtoupper($row['plat_nomor'] ?? ''));
@@ -61,15 +58,22 @@ class ImportUnitPlanningsJob implements ShouldQueue
 
                 $lastDoneDate = $isExcluded ? null : $reader->parseLastDoneDate($lastDoneDateValue);
                 $interval = $isExcluded ? null : $intervalResolver->resolve($planningItem, $unit);
-                $nextDueBaseDate = $lastDoneDate ?? $missingDateBaseline;
-
                 UnitPlanning::query()->updateOrCreate(
                     ['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id],
                     [
                         'last_done_km' => $lastDoneKm,
                         'last_done_date' => $lastDoneDate?->toDateString(),
-                        'next_due_km' => $isExcluded ? null : $lastDoneKm + $interval['interval_km'],
-                        'next_due_date' => $isExcluded ? null : $nextDueBaseDate->addDays($interval['interval_days'])->toDateString(),
+                        'next_due_km' => $isExcluded || $lastDoneDate === null
+                            ? null
+                            : $intervalResolver->nextDueKm(
+                                $lastDoneKm,
+                                (int) $unit->current_odo,
+                                (bool) $unit->has_odometer_reading,
+                                $interval['interval_km'],
+                            ),
+                        'next_due_date' => $isExcluded || $lastDoneDate === null
+                            ? null
+                            : $lastDoneDate->addDays($interval['interval_days'])->toDateString(),
                         'is_estimated' => $isEstimated,
                         'is_excluded' => $isExcluded,
                         'excluded_reason' => $exclusion['reason'] ?? null,

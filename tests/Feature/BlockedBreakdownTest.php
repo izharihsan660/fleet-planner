@@ -39,6 +39,38 @@ class BlockedBreakdownTest extends TestCase
         $this->assertSame('active', $unit->refresh()->status);
     }
 
+    public function test_work_order_completes_when_all_non_blocked_items_are_final(): void
+    {
+        [$site, $unit, $planning, $blockedCandidate] = $this->createWorkOrderScenario();
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $completedPlanningItem = PlanningItem::query()->create(['name' => 'Item Selesai', 'interval_km' => 5000, 'interval_days' => 30]);
+        $completedPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $completedPlanningItem->id,
+            'last_done_km' => 1000,
+            'last_done_date' => '2026-07-01',
+            'next_due_km' => 6000,
+            'next_due_date' => '2026-07-31',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $blockedCandidate->work_order_id,
+            'unit_planning_id' => $completedPlanning->id,
+            'planning_item_id' => $completedPlanningItem->id,
+            'status' => 'complete',
+        ]);
+        $blockedCandidate->update(['status' => 'in_progress']);
+        $blockedCandidate->workOrder->update(['status' => 'in_progress']);
+
+        $this->actingAs($planner)
+            ->post(route('work-order-items.blocked', $blockedCandidate), [
+                'reason' => 'Part belum tersedia.',
+            ])
+            ->assertRedirect();
+
+        $this->assertSame('blocked', $blockedCandidate->refresh()->status);
+        $this->assertSame('complete', $blockedCandidate->workOrder->refresh()->status);
+    }
+
     public function test_regional_planner_can_mark_blocked_and_breakdown_for_region_site(): void
     {
         [$site, $unit, $planning, $item] = $this->createWorkOrderScenario();
@@ -138,7 +170,7 @@ class BlockedBreakdownTest extends TestCase
             ->post(route('work-orders.items.postpone', [$item->workOrder, $item]), [
                 'reason' => 'Coba tunda saat unit breakdown.',
                 'new_due_km' => 6000,
-                'new_due_date' => '2026-07-20',
+                'new_due_date' => now()->addDays(14)->toDateString(),
             ])
             ->assertSessionHasErrors('action');
 

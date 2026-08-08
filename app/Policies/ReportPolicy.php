@@ -31,6 +31,11 @@ class ReportPolicy
         return true;
     }
 
+    public function viewBaseline(User $user): bool
+    {
+        return true;
+    }
+
     public function viewAccuracy(User $user): bool
     {
         return true;

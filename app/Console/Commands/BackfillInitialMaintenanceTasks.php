@@ -93,6 +93,7 @@ class BackfillInitialMaintenanceTasks extends Command
     {
         return UnitPlanning::query()
             ->applicable()
+            ->withBaseline()
             ->join('units', 'units.id', '=', 'unit_plannings.unit_id')
             ->select('unit_plannings.*')
             ->whereDoesntHave('workOrderItems', fn (Builder $query) => $query->whereNotIn('status', ['complete', 'postponed', 'rejected', 'cancelled']))
@@ -113,6 +114,10 @@ class BackfillInitialMaintenanceTasks extends Command
 
     private function isOverdue(UnitPlanning $planning, CarbonImmutable $today): bool
     {
+        if ($planning->isBaselineMissing()) {
+            return false;
+        }
+
         $isDateOverdue = $planning->next_due_date !== null
             && $today->greaterThan(CarbonImmutable::parse($planning->next_due_date));
         $isKmOverdue = $planning->next_due_km !== null

@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\WorkOrder;
-use App\Models\WorkOrderItem;
+use App\Services\WorkOrderProgressService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -13,7 +13,7 @@ class AuditWorkOrderStatuses extends Command
 
     protected $description = 'Audit and optionally fix work orders whose status no longer matches their item progress.';
 
-    public function handle(): int
+    public function handle(WorkOrderProgressService $workOrderProgressService): int
     {
         $mismatches = WorkOrder::query()
             ->with(['unit:id,current_plate', 'items:id,work_order_id,status'])
@@ -21,11 +21,15 @@ class AuditWorkOrderStatuses extends Command
             ->where(fn (Builder $query) => $query
                 ->where(fn (Builder $query) => $query
                     ->where('status', 'complete')
-                    ->whereHas('items', fn (Builder $items) => $items->whereNotIn('status', $this->resolvedStatuses()))
+                    ->whereHas('items', fn (Builder $items) => $items
+                        ->where('status', '!=', 'blocked')
+                        ->whereNotIn('status', $this->resolvedStatuses()))
                 )
                 ->orWhere(fn (Builder $query) => $query
                     ->where('status', '!=', 'complete')
-                    ->whereDoesntHave('items', fn (Builder $items) => $items->whereNotIn('status', $this->resolvedStatuses()))
+                    ->whereDoesntHave('items', fn (Builder $items) => $items
+                        ->where('status', '!=', 'blocked')
+                        ->whereNotIn('status', $this->resolvedStatuses()))
                 )
             )
             ->get();
@@ -33,15 +37,16 @@ class AuditWorkOrderStatuses extends Command
         $this->info('Mismatched work orders: '.$mismatches->count());
 
         foreach ($mismatches as $workOrder) {
-            $targetStatus = $this->targetStatus($workOrder);
+            $progressItems = $workOrderProgressService->progressItems($workOrder->items);
+            $targetStatus = $this->targetStatus($workOrder, $workOrderProgressService);
             $this->line(sprintf(
                 'WO #%d %s: %s -> %s (%d/%d tuntas)',
                 $workOrder->id,
                 $workOrder->unit?->current_plate ?? '-',
                 $workOrder->status,
                 $targetStatus,
-                $workOrder->items->whereIn('status', $this->resolvedStatuses())->count(),
-                $workOrder->items->count(),
+                $progressItems->whereIn('status', $this->resolvedStatuses())->count(),
+                $progressItems->count(),
             ));
 
             if ($this->option('fix')) {
@@ -64,13 +69,15 @@ class AuditWorkOrderStatuses extends Command
         return ['complete', 'postponed'];
     }
 
-    private function targetStatus(WorkOrder $workOrder): string
+    private function targetStatus(WorkOrder $workOrder, WorkOrderProgressService $workOrderProgressService): string
     {
-        if ($workOrder->items->every(fn (WorkOrderItem $item): bool => in_array($item->status, $this->resolvedStatuses(), true))) {
+        $progressItems = $workOrderProgressService->progressItems($workOrder->items);
+
+        if ($workOrderProgressService->isFullyResolved($workOrder->items)) {
             return 'complete';
         }
 
-        if ($workOrder->assigned_mechanic_id !== null || $workOrder->items->contains('status', 'in_progress')) {
+        if ($workOrder->assigned_mechanic_id !== null || $progressItems->contains('status', 'in_progress')) {
             return 'in_progress';
         }
 

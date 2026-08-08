@@ -388,6 +388,50 @@ class WorkOrderActionWorkflowTest extends TestCase
             );
     }
 
+    public function test_mechanic_my_tasks_excludes_items_with_missing_baseline(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'in_progress',
+            'assigned_mechanic_id' => $mechanic->id,
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        $this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Mechanic/Tasks')
+                ->has('tasks', 0)
+            );
+    }
+
+    public function test_work_order_approval_rejects_item_with_missing_baseline(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner, 'pending_create');
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertStatus(422);
+
+        $this->assertSame('pending_create', $item->refresh()->status);
+        $this->assertNull($workOrder->refresh()->approved_at);
+    }
+
     public function test_planner_area_cannot_open_or_store_daily_km_input(): void
     {
         [$site, $unit] = $this->makePlanningContext(75000);

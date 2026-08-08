@@ -34,13 +34,44 @@ class ApprovalQueueTest extends TestCase
                 ->where('items.0.id', $oldItem->id)
                 ->where('items.0.waiting_label', '5 hari')
                 ->where('items.0.is_warning', true)
+                ->where('items.0.current_odo', 1000)
+                ->where('items.0.baseline_incomplete', true)
                 ->where('items.1.id', $newerItem->id)
             );
+    }
+
+    public function test_approval_queue_excludes_and_rejects_items_with_missing_baseline(): void
+    {
+        [$spv, $missingBaselineItem, $validItem] = $this->createApprovalScenario();
+        $missingBaselineItem->unitPlanning()->update(['last_done_km' => 0, 'last_done_date' => null]);
+
+        $this->actingAs($spv)
+            ->get(route('approval-queue.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('ApprovalQueue/Index')
+                ->has('items', 1)
+                ->where('items.0.id', $validItem->id)
+            );
+
+        $this->actingAs($spv)
+            ->post(route('approval-queue.store'), [
+                'decision' => 'approve',
+                'item_ids' => [$missingBaselineItem->id],
+            ])
+            ->assertStatus(422);
+
+        $this->assertSame('replace', $missingBaselineItem->refresh()->status);
     }
 
     public function test_approval_queue_source_uses_collapsible_bottom_drawer_and_verification_list(): void
     {
         $pageSource = file_get_contents(resource_path('js/Pages/ApprovalQueue/Index.tsx'));
+        $odometerSources = collect([
+            $pageSource,
+            file_get_contents(resource_path('js/Pages/WorkList/Index.tsx')),
+            file_get_contents(resource_path('js/Pages/WorkOrders/Show.tsx')),
+        ]);
 
         $this->assertStringContainsString('isActionPanelOpen', $pageSource);
         $this->assertStringContainsString('Lanjutkan →', $pageSource);
@@ -48,6 +79,10 @@ class ApprovalQueueTest extends TestCase
         $this->assertStringContainsString('Item yang dipilih:', $pageSource);
         $this->assertStringContainsString('{item.plate_number} — {item.item_name}', $pageSource);
         $this->assertStringContainsString('dan {hiddenVerificationCount} lainnya', $pageSource);
+        $odometerSources->each(function (string $source): void {
+            $this->assertStringContainsString('KM saat ini:', $source);
+            $this->assertStringContainsString('baseline belum lengkap', $source);
+        });
     }
 
     public function test_colored_action_panels_have_dark_mode_contrast_variants(): void
@@ -112,7 +147,8 @@ class ApprovalQueueTest extends TestCase
 
     public function test_work_orders_and_work_list_pages_still_use_existing_components(): void
     {
-        [$spv] = $this->createApprovalScenario();
+        [$spv, $workListItem] = $this->createApprovalScenario();
+        $workListItem->update(['status' => 'on_hold']);
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => Region::query()->first()->id, 'site_id' => null]);
 
         $this->actingAs($spv)
@@ -123,7 +159,12 @@ class ApprovalQueueTest extends TestCase
         $this->actingAs($planner)
             ->get(route('work-list.index'))
             ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->component('WorkList/Index')->has('items'));
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('WorkList/Index')
+                ->has('items', 1)
+                ->where('items.0.current_odo', 1000)
+                ->where('items.0.baseline_incomplete', true)
+            );
     }
 
     /**
