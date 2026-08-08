@@ -432,6 +432,128 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertNull($workOrder->refresh()->approved_at);
     }
 
+    public function test_authorized_roles_can_set_historical_baseline_and_complete_missing_baseline_item(): void
+    {
+        foreach ([UserRole::PlannerArea, UserRole::SpvHo, UserRole::Superadmin] as $role) {
+            [$site, $unit, $planning] = $this->makePlanningContext(75000);
+            $planning->update(['last_done_km' => 0, 'last_done_date' => null, 'next_due_km' => null, 'next_due_date' => null]);
+            $user = User::factory()->create([
+                'role' => $role,
+                'site_id' => $role === UserRole::PlannerArea ? $site->id : null,
+            ]);
+            [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $user);
+            $item->update(['reason' => 'Sudah lewat, segera dilakukan penggantian.']);
+
+            $this->actingAs($user)
+                ->get(route('work-orders.show', $workOrder))
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->where('canManageBaselineItems', true)
+                    ->where('workOrder.data.items.0.reason', null)
+                    ->where('workOrder.data.items.0.historical_reason', 'Sudah lewat, segera dilakukan penggantian.')
+                );
+
+            $baselineDate = today()->subDays(60)->toDateString();
+            $completedDate = today()->toDateString();
+            $completedOdo = 76000;
+
+            $this->actingAs($user)
+                ->post(route('work-orders.items.complete-with-baseline', [$workOrder, $item]), [
+                    'last_done_km' => 65000,
+                    'last_done_date' => $baselineDate,
+                    'completed_odo' => $completedOdo,
+                    'completed_date' => $completedDate,
+                    'notes' => 'Penggantian selesai hari ini.',
+                ])
+                ->assertRedirect(route('work-orders.show', $workOrder));
+
+            $planningItem = $planning->planningItem()->firstOrFail();
+
+            $this->assertDatabaseHas('work_order_items', [
+                'id' => $item->id,
+                'status' => 'complete',
+                'reason' => 'Sudah lewat, segera dilakukan penggantian.',
+                'baseline_last_done_km' => 65000,
+                'previous_due_km' => 65000 + $planningItem->interval_km,
+                'completed_odo' => $completedOdo,
+                'notes' => 'Penggantian selesai hari ini.',
+                'submitted_by' => $user->id,
+            ]);
+            $this->assertDatabaseHas('unit_plannings', [
+                'id' => $planning->id,
+                'last_done_km' => $completedOdo,
+                'next_due_km' => $completedOdo + $planningItem->interval_km,
+                'is_estimated' => false,
+            ]);
+            $this->assertSame($baselineDate, $item->refresh()->baseline_last_done_date?->toDateString());
+            $this->assertSame($completedDate, $item->completed_date?->toDateString());
+            $this->assertSame($completedDate, $planning->refresh()->last_done_date?->toDateString());
+            $this->assertSame('complete', $workOrder->refresh()->status);
+        }
+    }
+
+    public function test_set_baseline_and_complete_validates_history_before_current_completion(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.complete-with-baseline', [$workOrder, $item]), [
+                'last_done_km' => 76000,
+                'last_done_date' => today()->toDateString(),
+                'completed_odo' => 75000,
+                'completed_date' => today()->subDay()->toDateString(),
+            ])
+            ->assertSessionHasErrors(['completed_odo', 'completed_date']);
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertTrue($planning->refresh()->isBaselineMissing());
+    }
+
+    public function test_mechanic_cannot_set_baseline_and_complete_from_work_order(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $mechanic);
+
+        $this->actingAs($mechanic)
+            ->post(route('work-orders.items.complete-with-baseline', [$workOrder, $item]), [
+                'last_done_km' => 65000,
+                'last_done_date' => today()->subDays(60)->toDateString(),
+                'completed_odo' => 75000,
+                'completed_date' => today()->toDateString(),
+            ])
+            ->assertForbidden();
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertTrue($planning->refresh()->isBaselineMissing());
+    }
+
+    public function test_planner_area_cannot_set_baseline_and_complete_outside_access_scope(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $owner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $owner);
+        $otherSite = Site::query()->create(['name' => 'Site Tanpa Akses', 'region' => 'Wilayah Lain']);
+        $otherPlanner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $otherSite->id]);
+
+        $this->actingAs($otherPlanner)
+            ->post(route('work-orders.items.complete-with-baseline', [$workOrder, $item]), [
+                'last_done_km' => 65000,
+                'last_done_date' => today()->subDays(60)->toDateString(),
+                'completed_odo' => 75000,
+                'completed_date' => today()->toDateString(),
+            ])
+            ->assertForbidden();
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertTrue($planning->refresh()->isBaselineMissing());
+    }
+
     public function test_planner_area_cannot_open_or_store_daily_km_input(): void
     {
         [$site, $unit] = $this->makePlanningContext(75000);
@@ -456,7 +578,7 @@ class WorkOrderActionWorkflowTest extends TestCase
         $unit = Unit::query()->create([
             'site_id' => $site->id,
             'customer' => 'Customer Test',
-            'current_plate' => 'DD 1234 QA',
+            'current_plate' => fake()->unique()->numerify('DD #### QA'),
             'type' => 'Operasional',
             'brand' => 'Toyota',
             'year' => 2024,

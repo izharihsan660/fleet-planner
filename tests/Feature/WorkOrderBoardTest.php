@@ -147,6 +147,47 @@ class WorkOrderBoardTest extends TestCase
             );
     }
 
+    public function test_board_exposes_mixed_work_order_item_counts(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 30000, 100);
+        $missingBaselinePlanning = $this->planning($unit, 'Flushing Rem', 31000, today()->addDays(10)->toDateString());
+        $missingBaselinePlanning->update([
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => null,
+            'next_due_date' => null,
+        ]);
+        $overduePlanning = $this->planning($unit, 'Brake Pad', 29000, today()->subDay()->toDateString());
+        $rejectedPlanning = $this->planning($unit, 'Filter Udara', 29500, today()->subDays(2)->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'open',
+            'trigger_type' => 'normal',
+        ]);
+
+        foreach ([[$missingBaselinePlanning, 'on_hold'], [$overduePlanning, 'overdue'], [$rejectedPlanning, 'rejected']] as [$planning, $status]) {
+            WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => $status,
+            ]);
+        }
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.open.data.0.id', $workOrder->id)
+                ->where('boardColumns.open.data.0.items_count', 3)
+                ->where('boardColumns.open.data.0.overdue_items_count', 1)
+                ->where('boardColumns.open.data.0.rejected_items_count', 1)
+                ->where('boardColumns.open.data.0.baseline_incomplete_items_count', 1)
+            );
+    }
+
     public function test_board_defaults_to_priority_and_supports_due_date_and_due_km_sorting(): void
     {
         $planner = $this->adminSite();

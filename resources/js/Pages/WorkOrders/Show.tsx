@@ -3,6 +3,7 @@ import InputError from '@/Components/InputError';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import TextInput from '@/Components/TextInput';
+import UnitPlanningBaselineForm from '@/Components/UnitPlanningBaselineForm';
 import StatusBadge from '@/Components/StatusBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Checkbox } from '@/Components/ui/checkbox';
@@ -10,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/Components/ui/textarea';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, PlanningItem, UnitPlanning, User, WorkOrder, WorkOrderItem } from '@/types';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { FormEvent, useState } from 'react';
 
 type ResourceItem<T> = { data: T };
@@ -92,6 +93,16 @@ function CompleteItemForm({ item, workOrderId, currentOdo }: { item: WorkOrderIt
     return <><form onSubmit={submit} className="mt-3 grid gap-3 rounded-md bg-gray-50 p-3 md:grid-cols-4"><div><TextInput className="w-full" type="number" value={data.completed_odo} onChange={(event) => setData('completed_odo', event.target.value)} /><InputError message={errors.completed_odo} className="mt-1" /></div><div><TextInput className="w-full" type="date" value={data.completed_date} onChange={(event) => setData('completed_date', event.target.value)} /><InputError message={errors.completed_date} className="mt-1" /></div><div><TextInput className="w-full" value={data.notes} placeholder="Catatan" onChange={(event) => setData('notes', event.target.value)} /><InputError message={errors.notes} className="mt-1" /></div><PrimaryButton disabled={processing}>Complete</PrimaryButton></form><ConfirmDialog show={showConfirm} message={`Complete ${item.planning_item?.name ?? 'item maintenance'} di KM ${data.completed_odo || '-'}?`} processing={processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
 }
 
+function BaselineAndCompleteForm({ item, workOrderId, currentOdo, onCancel }: { item: WorkOrderItem; workOrderId: number; currentOdo: number; onCancel: () => void }) {
+    const today = new Date().toISOString().slice(0, 10);
+    const form = useForm({ last_done_km: '', last_done_date: '', completed_odo: currentOdo.toString(), completed_date: today, notes: '' });
+    const [showConfirm, setShowConfirm] = useState(false);
+    const submit = (event: FormEvent) => { event.preventDefault(); setShowConfirm(true); };
+    const confirm = () => form.post(route('work-orders.items.complete-with-baseline', [workOrderId, item.id]), { preserveScroll: true, onSuccess: onCancel, onFinish: () => setShowConfirm(false) });
+
+    return <><form onSubmit={submit} className="mt-4 space-y-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/40 dark:bg-emerald-500/15"><div><h4 className="font-semibold text-emerald-900 dark:text-emerald-100">Set Baseline &amp; Selesaikan</h4><p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">Catat histori lama, lalu simpan penggantian yang dikerjakan sekarang. Jadwal berikutnya dihitung dari penyelesaian saat ini.</p></div><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium text-foreground">KM Terakhir dari Histori</label><TextInput className="w-full" type="number" min="0" value={form.data.last_done_km} onChange={(event) => form.setData('last_done_km', event.target.value)} /><InputError className="mt-1" message={form.errors.last_done_km} /></div><div><label className="mb-1 block text-sm font-medium text-foreground">Tanggal Terakhir dari Histori</label><TextInput className="w-full" type="date" max={today} value={form.data.last_done_date} onChange={(event) => form.setData('last_done_date', event.target.value)} /><InputError className="mt-1" message={form.errors.last_done_date} /></div></div><div className="grid gap-3 border-t border-emerald-200 pt-4 dark:border-emerald-500/30 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium text-foreground">ODO Penyelesaian Sekarang</label><TextInput className="w-full" type="number" min="0" value={form.data.completed_odo} onChange={(event) => form.setData('completed_odo', event.target.value)} /><InputError className="mt-1" message={form.errors.completed_odo} /></div><div><label className="mb-1 block text-sm font-medium text-foreground">Tanggal Penyelesaian Sekarang</label><TextInput className="w-full" type="date" min={form.data.last_done_date || undefined} max={today} value={form.data.completed_date} onChange={(event) => form.setData('completed_date', event.target.value)} /><InputError className="mt-1" message={form.errors.completed_date} /></div></div><div><label className="mb-1 block text-sm font-medium text-foreground">Catatan Penyelesaian (opsional)</label><TextInput className="w-full" value={form.data.notes} onChange={(event) => form.setData('notes', event.target.value)} /><InputError className="mt-1" message={form.errors.notes} /></div><div className="flex flex-wrap gap-2"><PrimaryButton disabled={form.processing}>Simpan &amp; Selesaikan</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Simpan baseline histori dan selesaikan ${item.planning_item?.name ?? 'item maintenance'} di KM ${form.data.completed_odo || '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
+}
+
 function BreakdownInspectionForm({ unitId, currentOdo, plannings, onSuccess }: { unitId: number; currentOdo: number; plannings: UnitPlanning[]; onSuccess: () => void }) {
     const form = useForm({ unit_planning_id: plannings[0]?.id?.toString() ?? '', completed_odo: currentOdo.toString() });
     const [showConfirm, setShowConfirm] = useState(false);
@@ -103,14 +114,18 @@ function BreakdownInspectionForm({ unitId, currentOdo, plannings, onSuccess }: {
 }
 
 function ItemStatusBadges({ item }: { item: WorkOrderItem }) {
+    const page = usePage<PageProps<{ workOrder: ResourceItem<WorkOrder>; canManageBaselineItems: boolean }>>();
+    const workOrderData = page.props.workOrder.data;
+    const [baselineAction, setBaselineAction] = useState<'complete' | 'baseline' | null>(null);
+
     if (item.baseline_missing) {
-        return <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>;
+        return <div className="basis-full rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/15"><StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge><p className="mt-3 text-sm font-medium text-amber-900 dark:text-amber-100">Perlu diisi oleh Admin/Planner sebelum bisa dijadwalkan.</p><p className="mt-1 text-sm text-amber-800 dark:text-amber-200">Pilih selesaikan sekarang jika part memang diganti hari ini, atau isi histori saja bila pekerjaan belum dilakukan.</p>{item.historical_reason && <p className="mt-3 rounded-md bg-background/70 p-3 text-sm text-muted-foreground">Riwayat alasan sebelumnya: {item.historical_reason}</p>}{page.props.canManageBaselineItems && workOrderData.unit && <><div className="mt-4 flex flex-wrap gap-2"><PrimaryButton type="button" onClick={() => setBaselineAction(baselineAction === 'complete' ? null : 'complete')}>Set Baseline &amp; Selesaikan</PrimaryButton><SecondaryButton type="button" onClick={() => setBaselineAction(baselineAction === 'baseline' ? null : 'baseline')}>Set Baseline Saja</SecondaryButton></div>{baselineAction === 'complete' && <BaselineAndCompleteForm item={item} workOrderId={workOrderData.id} currentOdo={workOrderData.unit.current_odo} onCancel={() => setBaselineAction(null)} />}{baselineAction === 'baseline' && <UnitPlanningBaselineForm unitId={workOrderData.unit.id} unitPlanningId={item.unit_planning_id} onCancel={() => setBaselineAction(null)} onSuccess={() => setBaselineAction(null)} />}</>}{!page.props.canManageBaselineItems && <p className="mt-3 text-sm text-muted-foreground">Hubungi Planner Area, Spv HO, atau Superadmin yang memiliki akses unit ini.</p>}</div>;
     }
 
     return <div className="flex flex-wrap gap-2"><span className="rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground">{item.status}</span>{item.status === 'pending_create' && <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">Menunggu Approval</span>}{item.status === 'replace' && <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sm font-medium text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">Menunggu Approve Replace</span>}{item.status === 'postpone' && <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-sm font-medium text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-200">Menunggu Approve Postpone</span>}{item.status === 'blocked' && <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">Blocked</span>}{item.status === 'breakdown' && <span className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-medium text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200">Breakdown</span>}</div>;
 }
 
-export default function Show({ auth, workOrder, planningItems, mechanics }: PageProps<{ workOrder: ResourceItem<WorkOrder>; planningItems: PlanningItem[]; mechanics: User[] }>) {
+export default function Show({ auth, workOrder, planningItems, mechanics }: PageProps<{ workOrder: ResourceItem<WorkOrder>; planningItems: PlanningItem[]; mechanics: User[]; canManageBaselineItems: boolean }>) {
     const workOrderData = workOrder.data;
     const [activeItemForm, setActiveItemForm] = useState<ActiveItemForm>(null);
     const [showBreakdownForm, setShowBreakdownForm] = useState(false);

@@ -139,7 +139,10 @@ export interface WorkOrderItem {
     action: WorkOrderItemAction | null;
     status: WorkOrderItemStatus;
     reason: string | null;
+    historical_reason: string | null;
     notes: string | null;
+    baseline_last_done_km: number | null;
+    baseline_last_done_date: string | null;
     new_due_km: number | null;
     new_due_date: string | null;
     effective_due_km: number | null;
@@ -177,6 +180,9 @@ export interface WorkOrder {
     items_count?: number;
     completed_items_count?: number;
     remaining_items_count?: number;
+    baseline_incomplete_items_count?: number;
+    overdue_items_count?: number;
+    rejected_items_count?: number;
     has_blocked_items?: boolean;
     has_missing_baseline_items?: boolean;
     has_high_usage_items?: boolean;

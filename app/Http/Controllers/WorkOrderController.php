@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
 use App\Http\Requests\AssignWorkOrderMechanicRequest;
+use App\Http\Requests\CompleteBaselineWorkOrderItemRequest;
 use App\Http\Requests\CompleteWorkOrderItemRequest;
 use App\Http\Requests\StoreManualFindingRequest;
 use App\Http\Requests\SubmitPostponeWorkOrderItemRequest;
@@ -22,6 +23,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
 use App\Services\PlanningIntervalResolver;
+use App\Services\WorkOrderItemCompletionService;
 use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
@@ -208,6 +210,7 @@ class WorkOrderController extends Controller
                 ->where('site_id', $wo->site_id)
                 ->orderBy('name')
                 ->get(['id', 'name', 'site_id']),
+            'canManageBaselineItems' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::SpvHo]),
         ]);
     }
 
@@ -458,6 +461,7 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
         $this->abortIfPlanningIsExcluded($item);
+        $this->abortIfBaselineIsMissing($item);
 
         if ($this->unitIsStillBreakdown($wo)) {
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
@@ -494,6 +498,7 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
         $this->abortIfPlanningIsExcluded($item);
+        $this->abortIfBaselineIsMissing($item);
 
         if ($this->unitIsStillBreakdown($wo)) {
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
@@ -519,56 +524,54 @@ class WorkOrderController extends Controller
         return redirect()->route('work-orders.show', $wo)->with('status', 'Postpone berhasil diajukan untuk approval SPV.');
     }
 
-    public function complete(CompleteWorkOrderItemRequest $request, WorkOrder $wo, WorkOrderItem $item, FleetNotificationService $notifications): RedirectResponse
+    public function complete(CompleteWorkOrderItemRequest $request, WorkOrder $wo, WorkOrderItem $item, WorkOrderItemCompletionService $completionService): RedirectResponse
     {
         $this->abortIfCannotAccessSite($request, $wo);
-
-        if ($item->work_order_id !== $wo->id) {
-            abort(404);
-        }
-
+        $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
         $this->abortIfPlanningIsExcluded($item);
+        $this->abortIfBaselineIsMissing($item);
 
         if (! in_array($item->status, ['in_progress', 'overdue'], true)) {
             return back()->withErrors(['action' => 'Item harus In Progress atau Overdue sebelum bisa diselesaikan.']);
         }
 
-        DB::transaction(function () use ($request, $wo, $item, $notifications): void {
-            $item->load('unitPlanning.planningItem', 'unitPlanning.unit');
-
-            $completedDate = CarbonImmutable::parse($request->date('completed_date'));
-            $completedOdo = $request->integer('completed_odo');
-
-            $item->update([
-                'status' => 'complete',
-                'action' => 'replace',
-                'completed_odo' => $completedOdo,
-                'completed_date' => $completedDate->toDateString(),
-                'notes' => $request->string('notes')->toString() ?: null,
-                'submitted_by' => $request->user()->id,
-            ]);
-
-            $unitPlanning = $item->unitPlanning;
-            $planningItem = $unitPlanning->planningItem;
-            $interval = $this->intervalResolver->resolve($planningItem, $unitPlanning->unit);
-
-            $unitPlanning->update([
-                'last_done_km' => $completedOdo,
-                'last_done_date' => $completedDate->toDateString(),
-                'next_due_km' => $completedOdo + $interval['interval_km'],
-                'next_due_date' => $completedDate->addDays($interval['interval_days'])->toDateString(),
-            ]);
-
-            $this->syncWorkOrderStatusFromItems($wo->refresh());
-
-            $notifications->workOrderItemCompleted($item->refresh());
-        });
+        $completionService->complete(
+            $wo,
+            $item,
+            $request->integer('completed_odo'),
+            CarbonImmutable::parse($request->validated('completed_date')),
+            $request->string('notes')->toString() ?: null,
+            $request->user()->id,
+        );
 
         if ($request->user()->hasRole(UserRole::Mekanik)) {
             return redirect()->route('mechanic.tasks')->with('status', 'Berhasil disimpan');
         }
 
         return redirect()->route('work-orders.show', $wo)->with('status', 'Item work order berhasil diselesaikan.');
+    }
+
+    public function completeWithBaseline(CompleteBaselineWorkOrderItemRequest $request, WorkOrder $wo, WorkOrderItem $item, WorkOrderItemCompletionService $completionService): RedirectResponse
+    {
+        $this->abortIfCannotAccessSite($request, $wo);
+        $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
+        $this->abortIfPlanningIsExcluded($item);
+
+        abort_unless($item->unitPlanning !== null && $item->unitPlanning->isBaselineMissing(), 422, 'Baseline item ini sudah diisi. Gunakan aksi work order normal.');
+        abort_if($item->status === 'complete', 422, 'Item work order ini sudah selesai.');
+
+        $completionService->complete(
+            $wo,
+            $item,
+            $request->integer('completed_odo'),
+            CarbonImmutable::parse($request->validated('completed_date')),
+            $request->string('notes')->toString() ?: null,
+            $request->user()->id,
+            $request->integer('last_done_km'),
+            CarbonImmutable::parse($request->validated('last_done_date')),
+        );
+
+        return redirect()->route('work-orders.show', $wo)->with('status', 'Baseline historis tersimpan dan item work order berhasil diselesaikan.');
     }
 
     private function visibleSites(Request $request)
@@ -647,6 +650,15 @@ class WorkOrderController extends Controller
         $workOrder->setAttribute('planning_item_names', $workOrder->items->pluck('planningItem.name')->filter()->values()->all());
         $workOrder->setAttribute('completed_items_count', $this->completedItemsCount($workOrder));
         $workOrder->setAttribute('remaining_items_count', $this->remainingItemsCount($workOrder));
+        $workOrder->setAttribute('baseline_incomplete_items_count', $workOrder->items->filter(
+            fn (WorkOrderItem $item): bool => $item->status !== 'blocked' && ($item->unitPlanning?->isBaselineMissing() ?? true)
+        )->count());
+        $workOrder->setAttribute('overdue_items_count', $workOrder->items->filter(
+            fn (WorkOrderItem $item): bool => $item->status === 'overdue' && ! ($item->unitPlanning?->isBaselineMissing() ?? true)
+        )->count());
+        $workOrder->setAttribute('rejected_items_count', $workOrder->items->filter(
+            fn (WorkOrderItem $item): bool => $item->status === 'rejected' && ! ($item->unitPlanning?->isBaselineMissing() ?? true)
+        )->count());
         $workOrder->setAttribute('nearest_due', $nearest);
         $workOrder->setAttribute('sub_status', $this->subStatus($workOrder));
         $workOrder->setAttribute('has_overdue_items', $workOrder->status !== 'complete' && $nearest !== null && $nearest['level'] === 'red');
@@ -1025,6 +1037,10 @@ class WorkOrderController extends Controller
         $item->loadMissing('unitPlanning:id,is_excluded,last_done_km,last_done_date');
 
         abort_if($item->unitPlanning?->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
+    }
+
+    private function abortIfBaselineIsMissing(WorkOrderItem $item): void
+    {
         abort_if($item->unitPlanning?->isBaselineMissing() ?? true, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
     }
 

@@ -4,6 +4,7 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import StatusBadge from '@/Components/StatusBadge';
 import TextInput from '@/Components/TextInput';
+import UnitPlanningBaselineForm from '@/Components/UnitPlanningBaselineForm';
 import { Card, CardContent } from '@/Components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Textarea } from '@/Components/ui/textarea';
@@ -124,7 +125,7 @@ function PlanningItemCard({ unitId, item, canManageExclusion, canSetBaseline }: 
                     </div>
                 </div>
 
-                {baselineMissing && canSetBaseline && !item.is_excluded && <BaselineForm unitId={unitId} item={item} />}
+                {baselineMissing && canSetBaseline && !item.is_excluded && <UnitPlanningBaselineForm unitId={unitId} unitPlanningId={item.id} />}
 
                 {canManageExclusion && (
                     <form onSubmit={submit} className="mt-4 space-y-3 border-t border-border pt-4">
@@ -155,32 +156,6 @@ function PlanningItemCard({ unitId, item, canManageExclusion, canSetBaseline }: 
                 )}
             </CardContent>
         </Card>
-    );
-}
-
-function BaselineForm({ unitId, item }: { unitId: number; item: UnitPlanningReference }) {
-    const form = useForm({ last_done_km: '', last_done_date: '' });
-    const submit = (event: FormEvent) => {
-        event.preventDefault();
-        form.patch(route('units.plannings.baseline.update', [unitId, item.id]), { preserveScroll: true });
-    };
-
-    return (
-        <form onSubmit={submit} className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-            <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">KM Terakhir</label>
-                <TextInput type="number" min="0" value={form.data.last_done_km} onChange={(event) => form.setData('last_done_km', event.target.value)} className="w-full" />
-                <InputError className="mt-2" message={form.errors.last_done_km} />
-            </div>
-            <div>
-                <label className="mb-1 block text-sm font-medium text-foreground">Tanggal Terakhir</label>
-                <TextInput type="date" value={form.data.last_done_date} onChange={(event) => form.setData('last_done_date', event.target.value)} className="w-full" />
-                <InputError className="mt-2" message={form.errors.last_done_date} />
-            </div>
-            <div className="sm:col-span-2">
-                <PrimaryButton disabled={form.processing}>Set Baseline</PrimaryButton>
-            </div>
-        </form>
     );
 }
 

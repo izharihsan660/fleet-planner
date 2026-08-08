@@ -16,6 +16,8 @@ class WorkOrderItem extends Model
         'status',
         'reason',
         'notes',
+        'baseline_last_done_km',
+        'baseline_last_done_date',
         'previous_due_km',
         'previous_due_date',
         'new_due_km',
@@ -35,6 +37,7 @@ class WorkOrderItem extends Model
     {
         return [
             'new_due_date' => 'date',
+            'baseline_last_done_date' => 'date',
             'available_date' => 'date',
             'previous_due_date' => 'date',
             'freeze_start' => 'datetime',
