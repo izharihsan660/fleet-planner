@@ -1,9 +1,11 @@
 import ConfirmDialog from '@/Components/ConfirmDialog';
+import MaintenanceItemFilter from '@/Components/MaintenanceItemFilter';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import StatusBadge from '@/Components/StatusBadge';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Checkbox } from '@/Components/ui/checkbox';
 import { Input } from '@/Components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -131,7 +133,10 @@ function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewIte
                         <p className="font-semibold text-foreground">{item.unit_plate}</p>
                         <p className="text-sm text-muted-foreground">{item.site_name}</p>
                     </div>
-                    {item.due && <StatusBadge tone={dueTone[item.due.level]}>{item.due.label}</StatusBadge>}
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                        {item.is_priority && <StatusBadge tone="priority">Prioritas</StatusBadge>}
+                        {item.due && <StatusBadge tone={dueTone[item.due.level]}>{item.due.label}</StatusBadge>}
+                    </div>
                 </div>
                 <div>
                     <p className="text-sm font-medium text-foreground">{item.planning_item_name}</p>
@@ -205,6 +210,7 @@ function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove,
                     <p className="mt-3 text-sm font-medium text-foreground">{itemSummary(workOrder.planning_item_names)}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{totalItems} item aktif · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
                     <div className="mt-3 flex flex-wrap gap-2">
+                        {workOrder.has_priority_items && <StatusBadge tone="priority">Prioritas</StatusBadge>}
                         {workOrder.sub_status && workOrder.sub_status.key !== 'assigned' && <StatusBadge tone="neutral">{workOrder.sub_status.label}</StatusBadge>}
                         {workOrder.has_missing_baseline_items && <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>}
                         {workOrder.has_high_usage_items && <StatusBadge tone="highUsage">High Usage</StatusBadge>}
@@ -262,13 +268,15 @@ function EmptyColumn() {
     );
 }
 
-export default function Index({ boardColumns, sites, units, mechanics, planningItems, filters, canCreateUpcomingTask, canAssignMechanic, canReviewWorkOrders, canApproveWorkOrders }: PageProps<{ boardColumns: BoardColumns; sites: ResourceCollection<Site>; units: ResourceCollection<Unit>; mechanics: User[]; planningItems: PlanningItem[]; filters: { site_id?: string; status?: string; unit_id?: string; item_id?: string; assignee_id?: string }; canCreateUpcomingTask: boolean; canAssignMechanic: boolean; canReviewWorkOrders: boolean; canApproveWorkOrders: boolean }>) {
+export default function Index({ boardColumns, sites, units, mechanics, planningItems, filters, canCreateUpcomingTask, canAssignMechanic, canReviewWorkOrders, canApproveWorkOrders }: PageProps<{ boardColumns: BoardColumns; sites: ResourceCollection<Site>; units: ResourceCollection<Unit>; mechanics: User[]; planningItems: PlanningItem[]; filters: { site_id: string; status: string; unit_id: string; assignee_id: string; planning_item_ids: number[]; include_incomplete_baseline: boolean; sort_by: 'priority' | 'due_date' | 'due_km' }; canCreateUpcomingTask: boolean; canAssignMechanic: boolean; canReviewWorkOrders: boolean; canApproveWorkOrders: boolean }>) {
     const [visibleColumns, setVisibleColumns] = useState(boardColumns);
     const [siteId, setSiteId] = useState(filters.site_id ?? '');
     const [status, setStatus] = useState(filters.status ?? '');
     const [unitId, setUnitId] = useState(filters.unit_id ?? '');
-    const [itemId, setItemId] = useState(filters.item_id ?? '');
+    const [planningItemIds, setPlanningItemIds] = useState<number[]>(filters.planning_item_ids ?? []);
     const [assigneeId, setAssigneeId] = useState(filters.assignee_id ?? '');
+    const [includeIncompleteBaseline, setIncludeIncompleteBaseline] = useState(filters.include_incomplete_baseline ?? true);
+    const [sortBy, setSortBy] = useState<'priority' | 'due_date' | 'due_km'>(filters.sort_by ?? 'priority');
     const [assignId, setAssignId] = useState<number | null>(null);
 
     const isLoadingMore = useRef(false);
@@ -285,7 +293,15 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
 
     const filter = (event: FormEvent) => {
         event.preventDefault();
-        router.get(route('work-orders.index'), { site_id: siteId || undefined, status: status || undefined, unit_id: unitId || undefined, item_id: itemId || undefined, assignee_id: assigneeId || undefined }, { preserveState: true });
+        router.get(route('work-orders.index'), {
+            site_id: siteId || undefined,
+            status: status || undefined,
+            unit_id: unitId || undefined,
+            assignee_id: assigneeId || undefined,
+            planning_item_ids: planningItemIds.length > 0 ? planningItemIds : undefined,
+            include_incomplete_baseline: includeIncompleteBaseline ? 1 : 0,
+            sort_by: sortBy,
+        }, { preserveState: true, replace: true });
     };
 
     const loadMore = (column: ColumnKey) => {
@@ -296,8 +312,10 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
             site_id: siteId || undefined,
             status: status || undefined,
             unit_id: unitId || undefined,
-            item_id: itemId || undefined,
             assignee_id: assigneeId || undefined,
+            planning_item_ids: planningItemIds.length > 0 ? planningItemIds : undefined,
+            include_incomplete_baseline: includeIncompleteBaseline ? 1 : 0,
+            sort_by: sortBy,
             [columnPageParam[column]]: currentColumn.meta.current_page + 1,
         }, {
             only: ['boardColumns'],
@@ -327,7 +345,7 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                     <Card>
                         <CardContent>
-                            <form onSubmit={filter} className="grid gap-3 md:grid-cols-6">
+                            <form onSubmit={filter} className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                                 <Select value={selectValue(siteId)} onValueChange={(value) => setSiteId(filterValue(value))}>
                                     <SelectTrigger><SelectValue placeholder="Semua Site" /></SelectTrigger>
                                     <SelectContent>
@@ -349,13 +367,7 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                         {units.data.map((unit) => <SelectItem key={unit.id} value={unit.id.toString()}>{unit.current_plate}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
-                                <Select value={selectValue(itemId)} onValueChange={(value) => setItemId(filterValue(value))}>
-                                    <SelectTrigger><SelectValue placeholder="Semua Item" /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">Semua Item</SelectItem>
-                                        {planningItems.map((item) => <SelectItem key={item.id} value={item.id.toString()}>{item.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
+                                <MaintenanceItemFilter items={planningItems} selectedIds={planningItemIds} onChange={setPlanningItemIds} />
                                 <Select value={selectValue(assigneeId)} onValueChange={(value) => setAssigneeId(filterValue(value))}>
                                     <SelectTrigger><SelectValue placeholder="Semua Assignee" /></SelectTrigger>
                                     <SelectContent>
@@ -363,6 +375,18 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                         {mechanics.map((mechanic) => <SelectItem key={mechanic.id} value={mechanic.id.toString()}>{mechanic.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
+                                <Select value={sortBy} onValueChange={(value) => setSortBy(value as 'priority' | 'due_date' | 'due_km')}>
+                                    <SelectTrigger><SelectValue placeholder="Urutkan berdasarkan" /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="priority">Prioritas (PM Check/Service A/Service B dulu)</SelectItem>
+                                        <SelectItem value="due_date">Due date terdekat</SelectItem>
+                                        <SelectItem value="due_km">Due KM terdekat</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <label className="flex min-h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-xs">
+                                    <Checkbox checked={includeIncompleteBaseline} onCheckedChange={(checked) => setIncludeIncompleteBaseline(checked === true)} />
+                                    <span>Tampilkan item dengan baseline belum lengkap</span>
+                                </label>
                                 <Button type="submit" className="w-full"><ClipboardList className="size-4" /> Filter</Button>
                             </form>
                         </CardContent>

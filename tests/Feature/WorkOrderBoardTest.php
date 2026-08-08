@@ -95,6 +95,120 @@ class WorkOrderBoardTest extends TestCase
         );
     }
 
+    public function test_board_filters_multiple_planning_items_and_can_hide_incomplete_baselines(): void
+    {
+        $planner = $this->adminSite();
+
+        $completeUnit = $this->unit($planner->site_id, 20000, 100);
+        $completeUnit->update(['has_odometer_reading' => true]);
+        $priorityPlanning = $this->planning($completeUnit, 'PM Check / Reguler Services', 19000, today()->subDay()->toDateString());
+        $priorityPlanning->update(['last_done_km' => 15000]);
+        $priorityWorkOrder = $this->workOrderForPlanning($priorityPlanning);
+
+        $incompleteUnit = $this->unit($planner->site_id, 30000, 100);
+        $incompleteUnit->update(['has_odometer_reading' => false]);
+        $servicePlanning = $this->planning($incompleteUnit, 'Service A', 29000, today()->subDays(2)->toDateString());
+        $serviceWorkOrder = $this->workOrderForPlanning($servicePlanning);
+
+        $otherUnit = $this->unit($planner->site_id, 40000, 100);
+        $otherPlanning = $this->planning($otherUnit, 'Brake Pad', 39000, today()->subDays(3)->toDateString());
+        $this->workOrderForPlanning($otherPlanning);
+
+        $selectedPlanningItemIds = [$priorityPlanning->planning_item_id, $servicePlanning->planning_item_id];
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['planning_item_ids' => $selectedPlanningItemIds]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 2)
+                ->where('filters.planning_item_ids', $selectedPlanningItemIds)
+                ->where('filters.include_incomplete_baseline', true)
+            );
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', [
+                'planning_item_ids' => $selectedPlanningItemIds,
+                'include_incomplete_baseline' => 0,
+            ]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $priorityWorkOrder->id)
+                ->where('filters.include_incomplete_baseline', false)
+            );
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['item_id' => $servicePlanning->planning_item_id]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $serviceWorkOrder->id)
+                ->where('filters.planning_item_ids', [$servicePlanning->planning_item_id])
+            );
+    }
+
+    public function test_board_defaults_to_priority_and_supports_due_date_and_due_km_sorting(): void
+    {
+        $planner = $this->adminSite();
+
+        $regularUnit = $this->unit($planner->site_id, 50000, 100);
+        $regularPlanning = $this->planning($regularUnit, 'Brake Shoe', 51000, today()->addDay()->toDateString());
+        $regularWorkOrder = $this->workOrderForPlanning($regularPlanning);
+
+        $priorityUnit = $this->unit($planner->site_id, 60000, 100);
+        $priorityPlanning = $this->planning($priorityUnit, 'Service B', 65000, today()->addDays(5)->toDateString());
+        $priorityWorkOrder = $this->workOrderForPlanning($priorityPlanning);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.open.data.0.id', $priorityWorkOrder->id)
+                ->where('boardColumns.open.data.0.has_priority_items', true)
+                ->where('boardColumns.open.data.0.planning_item_names.0', 'Service B')
+                ->where('filters.sort_by', 'priority')
+            );
+
+        foreach (['due_date', 'due_km'] as $sortBy) {
+            $this->actingAs($planner)
+                ->get(route('work-orders.index', ['sort_by' => $sortBy]))
+                ->assertOk()
+                ->assertInertia(fn (Assert $page) => $page
+                    ->where('boardColumns.open.data.0.id', $regularWorkOrder->id)
+                    ->where('filters.sort_by', $sortBy)
+                );
+        }
+    }
+
+    public function test_preview_columns_prioritize_critical_items_and_support_due_date_sorting(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 10000, 100);
+        $regularPlanning = $this->planning($unit, 'Brake Pad', 14000, today()->addDays(18)->toDateString());
+        $priorityPlanning = $this->planning($unit, 'Service A', 15000, today()->addDays(22)->toDateString());
+        $selectedPlanningItemIds = [$regularPlanning->planning_item_id, $priorityPlanning->planning_item_id];
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['planning_item_ids' => $selectedPlanningItemIds]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.upcoming.data', 2)
+                ->where('boardColumns.upcoming.data.0.id', $priorityPlanning->id)
+                ->where('boardColumns.upcoming.data.0.is_priority', true)
+            );
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', [
+                'planning_item_ids' => $selectedPlanningItemIds,
+                'sort_by' => 'due_date',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.upcoming.data.0.id', $regularPlanning->id)
+                ->where('boardColumns.upcoming.data.0.is_priority', false)
+            );
+    }
+
     public function test_work_order_detail_exposes_current_odometer_and_incomplete_baseline_context(): void
     {
         $planner = $this->adminSite();
@@ -557,5 +671,24 @@ class WorkOrderBoardTest extends TestCase
             'planning_item_id' => $planning->planning_item_id,
             'status' => 'overdue',
         ])->load('workOrder.unit');
+    }
+
+    private function workOrderForPlanning(UnitPlanning $planning): WorkOrder
+    {
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $planning->unit_id,
+            'site_id' => $planning->unit->site_id,
+            'status' => 'open',
+            'trigger_type' => 'normal',
+        ]);
+
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        return $workOrder;
     }
 }

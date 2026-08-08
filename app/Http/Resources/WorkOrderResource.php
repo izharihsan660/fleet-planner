@@ -36,6 +36,7 @@ class WorkOrderResource extends JsonResource
             'has_blocked_items' => $this->when(isset($this->has_blocked_items), (bool) $this->has_blocked_items),
             'has_missing_baseline_items' => $this->when(isset($this->has_missing_baseline_items), (bool) $this->has_missing_baseline_items),
             'has_high_usage_items' => $this->when(isset($this->has_high_usage_items), (bool) $this->has_high_usage_items),
+            'has_priority_items' => $this->when(isset($this->has_priority_items), (bool) $this->has_priority_items),
             'has_overdue_items' => $this->when($this->has_overdue_items !== null, (bool) $this->has_overdue_items),
             'has_rejected_items' => $this->when($this->has_rejected_items !== null, (bool) $this->has_rejected_items),
             'planning_item_names' => $this->when($this->planning_item_names !== null, $this->planning_item_names),

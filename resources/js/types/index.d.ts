@@ -180,6 +180,7 @@ export interface WorkOrder {
     has_blocked_items?: boolean;
     has_missing_baseline_items?: boolean;
     has_high_usage_items?: boolean;
+    has_priority_items?: boolean;
     has_overdue_items?: boolean;
     has_rejected_items?: boolean;
     planning_item_names?: string[];
@@ -202,6 +203,7 @@ export interface WorkOrderPreviewItem {
     next_due_date: string | null;
     due: DueMeta | null;
     approval_status: 'pending_create' | 'rejected' | null;
+    is_priority: boolean;
 }
 
 export interface HighUsageFlag {

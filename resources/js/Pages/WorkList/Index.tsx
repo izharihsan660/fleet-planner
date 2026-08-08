@@ -1,15 +1,17 @@
 import ConfirmDialog from '@/Components/ConfirmDialog';
 import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
+import MaintenanceItemFilter from '@/Components/MaintenanceItemFilter';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
+import StatusBadge from '@/Components/StatusBadge';
 import TextInput from '@/Components/TextInput';
 import { Button } from '@/Components/ui/button';
 import { Checkbox } from '@/Components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, Site, User } from '@/types';
+import { PageProps, PlanningItem, Site, User } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
 import { FormEvent, useMemo, useState } from 'react';
 
@@ -22,6 +24,7 @@ type WorkListItem = {
     current_odo: number;
     baseline_incomplete: boolean;
     item_name: string;
+    is_priority: boolean;
     status: 'on_hold' | 'overdue';
     due_date: string | null;
     due_km: number | null;
@@ -40,10 +43,14 @@ type SiteAction = {
 type WorkListProps = PageProps<{
     items: WorkListItem[];
     sites: { data: Site[] };
+    planningItems: PlanningItem[];
     mechanicsBySite: Record<string, Pick<User, 'id' | 'name' | 'site_id'>[]>;
     filters: {
         site_id: string;
         search: string;
+        planning_item_ids: number[];
+        include_incomplete_baseline: boolean;
+        sort_by: 'priority' | 'due_date' | 'due_km';
     };
 }>;
 
@@ -51,6 +58,12 @@ const actionLabels: Record<SiteAction['action'], string> = {
     replace: 'Ajukan Ganti',
     postpone: 'Tunda',
     blocked: 'Blokir',
+};
+
+const sortDescriptions = {
+    priority: 'Item PM Check, Service A, dan Service B ditampilkan lebih dulu.',
+    due_date: 'Item dengan due date paling dekat ditampilkan lebih dulu.',
+    due_km: 'Item dengan due KM paling dekat ditampilkan lebih dulu.',
 };
 
 const todayInputValue = () => {
@@ -62,10 +75,13 @@ const todayInputValue = () => {
     return `${year}-${month}-${day}`;
 };
 
-export default function Index({ auth, items, sites, mechanicsBySite, filters }: WorkListProps) {
+export default function Index({ auth, items, sites, planningItems, mechanicsBySite, filters }: WorkListProps) {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [filterSiteId, setFilterSiteId] = useState(filters.site_id ?? '');
     const [search, setSearch] = useState(filters.search ?? '');
+    const [planningItemIds, setPlanningItemIds] = useState<number[]>(filters.planning_item_ids ?? []);
+    const [includeIncompleteBaseline, setIncludeIncompleteBaseline] = useState(filters.include_incomplete_baseline ?? true);
+    const [sortBy, setSortBy] = useState<'priority' | 'due_date' | 'due_km'>(filters.sort_by ?? 'priority');
     const [showConfirm, setShowConfirm] = useState(false);
     const [isActionPanelOpen, setIsActionPanelOpen] = useState(false);
     const [expandedItemSites, setExpandedItemSites] = useState<number[]>([]);
@@ -168,7 +184,13 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
 
     const applyFilters = (event: FormEvent) => {
         event.preventDefault();
-        router.get(route('work-list.index'), { site_id: filterSiteId, search }, { preserveState: true, replace: true });
+        router.get(route('work-list.index'), {
+            site_id: filterSiteId || undefined,
+            search: search || undefined,
+            planning_item_ids: planningItemIds.length > 0 ? planningItemIds : undefined,
+            include_incomplete_baseline: includeIncompleteBaseline ? 1 : 0,
+            sort_by: sortBy,
+        }, { preserveState: true, replace: true });
     };
 
     const submit = (event: FormEvent) => {
@@ -218,7 +240,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                             <p className="text-sm text-muted-foreground">Pilih beberapa item dari satu atau beberapa lokasi, lalu kirim pengajuan sekaligus. Work Orders tetap tersedia seperti biasa.</p>
                         </div>
 
-                        <form onSubmit={applyFilters} className="mt-6 grid gap-4 md:grid-cols-[220px_1fr_auto] md:items-end">
+                        <form onSubmit={applyFilters} className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3 xl:items-end">
                             <div>
                                 <InputLabel htmlFor="site_id" value="Site" />
                                 <Select value={filterSiteId || 'all'} onValueChange={(value) => setFilterSiteId(value === 'all' ? '' : value)}>
@@ -235,6 +257,30 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                 <InputLabel htmlFor="search" value="Cari plat atau nama item" />
                                 <TextInput id="search" className="mt-1 w-full p-3 text-base" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Contoh: KT 8994 atau Filter Oli" />
                             </div>
+                            <div>
+                                <InputLabel value="Item Maintenance" />
+                                <MaintenanceItemFilter className="mt-1 h-12 text-base" items={planningItems} selectedIds={planningItemIds} onChange={setPlanningItemIds} />
+                            </div>
+                            <div>
+                                <InputLabel value="Urutkan berdasarkan" />
+                                <Select value={sortBy} onValueChange={(value) => setSortBy(value as 'priority' | 'due_date' | 'due_km')}>
+                                    <SelectTrigger className="mt-1 h-12 w-full text-base">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="priority">Prioritas (PM Check/Service A/Service B dulu)</SelectItem>
+                                        <SelectItem value="due_date">Due date terdekat</SelectItem>
+                                        <SelectItem value="due_km">Due KM terdekat</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div>
+                                <InputLabel value="Status baseline" />
+                                <label className="mt-1 flex h-12 items-center gap-3 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-xs">
+                                    <Checkbox checked={includeIncompleteBaseline} onCheckedChange={(checked) => setIncludeIncompleteBaseline(checked === true)} />
+                                    <span>Tampilkan item dengan baseline belum lengkap</span>
+                                </label>
+                            </div>
                             <PrimaryButton className="h-12 px-6" type="submit">Cari</PrimaryButton>
                         </form>
                     </section>
@@ -243,7 +289,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
                             <div>
                                 <h3 className="font-semibold text-foreground">Item aktif</h3>
-                                <p className="text-sm text-muted-foreground">{items.length} item perlu dipantau. Urutan paling telat ada di atas.</p>
+                                <p className="text-sm text-muted-foreground">{items.length} item perlu dipantau. {sortDescriptions[sortBy]}</p>
                             </div>
                             {selectedItems.length > 0 && <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{selectedItems.length} dipilih</span>}
                         </div>
@@ -263,7 +309,7 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                 </TableHeader>
                                 <TableBody className="divide-y">
                                     {items.map((item) => (
-                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : 'bg-card'}>
+                                        <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : item.is_priority ? 'bg-fuchsia-50/40 dark:bg-fuchsia-500/5' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
                                                 <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} disabled={item.baseline_missing} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
@@ -274,7 +320,12 @@ export default function Index({ auth, items, sites, mechanicsBySite, filters }: 
                                                     {item.baseline_incomplete && <span className="text-xs"> (baseline belum lengkap)</span>}
                                                 </p>
                                             </TableCell>
-                                            <TableCell className="px-4 py-4 text-base text-foreground">{item.item_name}</TableCell>
+                                            <TableCell className="px-4 py-4 text-base text-foreground">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span>{item.item_name}</span>
+                                                    {item.is_priority && <StatusBadge tone="priority">Prioritas</StatusBadge>}
+                                                </div>
+                                            </TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</TableCell>
                                             <TableCell className="px-4 py-4">
                                                 <span className={!item.baseline_missing && item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>

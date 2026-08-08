@@ -45,6 +45,89 @@ class WorkListTest extends TestCase
         $this->assertNotContains($outsideItem->id, collect($this->actingAs($planner)->get(route('work-list.index'))->viewData('page')['props']['items'])->pluck('id'));
     }
 
+    public function test_daftar_kerja_filters_multiple_items_and_can_hide_incomplete_baselines(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $completeItem = $this->createWorkListItem($site, 'KT 1001 AA', 'PM Check / Reguler Services', 'overdue', today()->subDays(2)->toDateString());
+        $completeItem->workOrder->unit->update(['has_odometer_reading' => true]);
+        $completeItem->unitPlanning->update(['last_done_km' => 500]);
+
+        $incompleteItem = $this->createWorkListItem($site, 'KT 1002 AA', 'Service A', 'overdue', today()->subDay()->toDateString());
+        $incompleteItem->workOrder->unit->update(['has_odometer_reading' => false]);
+        $otherItem = $this->createWorkListItem($site, 'KT 1003 AA', 'Brake Pad', 'overdue', today()->subDays(10)->toDateString());
+        $selectedPlanningItemIds = [$completeItem->planning_item_id, $incompleteItem->planning_item_id];
+
+        $this->actingAs($planner)
+            ->get(route('work-list.index', ['planning_item_ids' => $selectedPlanningItemIds]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('items', 2)
+                ->where('items.0.id', $completeItem->id)
+                ->where('items.0.is_priority', true)
+                ->where('filters.planning_item_ids', $selectedPlanningItemIds)
+                ->where('filters.include_incomplete_baseline', true)
+            );
+
+        $this->actingAs($planner)
+            ->get(route('work-list.index', [
+                'planning_item_ids' => $selectedPlanningItemIds,
+                'include_incomplete_baseline' => 0,
+            ]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('items', 1)
+                ->where('items.0.id', $completeItem->id)
+                ->where('filters.include_incomplete_baseline', false)
+            );
+
+        $this->assertNotContains($otherItem->id, collect($this->actingAs($planner)
+            ->get(route('work-list.index', ['planning_item_ids' => $selectedPlanningItemIds]))
+            ->viewData('page')['props']['items'])->pluck('id'));
+    }
+
+    public function test_daftar_kerja_defaults_to_priority_and_supports_due_date_and_due_km_sorting(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $regularItem = $this->createWorkListItem($site, 'KT 2001 AA', 'Brake Shoe', 'overdue', today()->subDays(10)->toDateString());
+        $regularItem->unitPlanning->update(['next_due_km' => 5000]);
+        $priorityItem = $this->createWorkListItem($site, 'KT 2002 AA', 'Service B', 'on_hold', today()->addDays(5)->toDateString());
+        $priorityItem->unitPlanning->update(['next_due_km' => 15000]);
+
+        $this->actingAs($planner)
+            ->get(route('work-list.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('items.0.id', $priorityItem->id)
+                ->where('items.0.is_priority', true)
+                ->where('filters.sort_by', 'priority')
+            );
+
+        foreach (['due_date', 'due_km'] as $sortBy) {
+            $this->actingAs($planner)
+                ->get(route('work-list.index', ['sort_by' => $sortBy]))
+                ->assertOk()
+                ->assertInertia(fn (Assert $page) => $page
+                    ->where('items.0.id', $regularItem->id)
+                    ->where('filters.sort_by', $sortBy)
+                );
+        }
+    }
+
+    public function test_filter_sources_keep_new_filter_state_in_the_query_string(): void
+    {
+        $pageSources = [
+            file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx')),
+            file_get_contents(resource_path('js/Pages/WorkList/Index.tsx')),
+        ];
+
+        foreach ($pageSources as $pageSource) {
+            $this->assertStringContainsString('planning_item_ids:', $pageSource);
+            $this->assertStringContainsString('include_incomplete_baseline:', $pageSource);
+            $this->assertStringContainsString('sort_by:', $pageSource);
+            $this->assertStringContainsString('Prioritas', $pageSource);
+        }
+    }
+
     public function test_daftar_kerja_props_allow_multi_site_action_bar_grouping(): void
     {
         [$planner, $firstSite, $secondSite] = $this->createRegionUserAndSites();

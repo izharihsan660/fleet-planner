@@ -8,6 +8,7 @@ use App\Http\Requests\CompleteWorkOrderItemRequest;
 use App\Http\Requests\StoreManualFindingRequest;
 use App\Http\Requests\SubmitPostponeWorkOrderItemRequest;
 use App\Http\Requests\SubmitReplaceWorkOrderItemRequest;
+use App\Http\Requests\WorkOrderIndexRequest;
 use App\Http\Resources\SiteResource;
 use App\Http\Resources\UnitResource;
 use App\Http\Resources\WorkOrderResource;
@@ -24,6 +25,7 @@ use App\Services\PlanningIntervalResolver;
 use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +36,12 @@ use Inertia\Response;
 
 class WorkOrderController extends Controller
 {
+    private const PRIORITY_PLANNING_ITEM_NAMES = [
+        'PM Check / Reguler Services',
+        'Service A',
+        'Service B',
+    ];
+
     public function __construct(
         private PlanningIntervalResolver $intervalResolver,
         private WorkOrderProgressService $workOrderProgressService,
@@ -77,15 +85,26 @@ class WorkOrderController extends Controller
         ]);
     }
 
-    public function index(Request $request): Response
+    public function index(WorkOrderIndexRequest $request): Response
     {
         Gate::authorize('viewAny', WorkOrder::class);
 
-        $filters = $request->only(['site_id', 'status', 'unit_id', 'item_id', 'assignee_id']);
+        $filters = $request->validated();
+        $planningItemIds = collect($filters['planning_item_ids'] ?? [])->map(fn (mixed $id): int => (int) $id)->values()->all();
+        $includeIncompleteBaseline = ! array_key_exists('include_incomplete_baseline', $filters)
+            || $request->boolean('include_incomplete_baseline');
+        $sortBy = $filters['sort_by'] ?? 'priority';
+        $priorityPlanningItemIds = PlanningItem::query()
+            ->whereIn('name', self::PRIORITY_PLANNING_ITEM_NAMES)
+            ->pluck('id')
+            ->map(fn (int $id): int => $id)
+            ->all();
         $user = $request->user();
         $thresholds = $this->maintenanceThresholds();
 
         $workOrderQuery = WorkOrder::query()
+            ->select('work_orders.*')
+            ->addSelect($this->boardSortColumns())
             ->with([
                 'unit.site',
                 'site',
@@ -101,24 +120,31 @@ class WorkOrderController extends Controller
             ->withExists(['items as has_missing_baseline_items' => fn ($query) => $query
                 ->applicable()
                 ->missingBaseline()])
+            ->withExists(['items as has_priority_items' => fn ($query) => $query
+                ->applicable()
+                ->whereHas('planningItem', fn ($planningItemQuery) => $planningItemQuery->whereIn('name', self::PRIORITY_PLANNING_ITEM_NAMES))])
             ->whereHas('items', fn ($query) => $query->applicable())
             ->whereDoesntHave('items', fn ($query) => $query->applicable()->where('status', 'pending_create'))
             ->tap(fn ($query) => $this->applyCurrentUnitSiteScope($query, $user))
             ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('site_id', $siteId)))
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
-            ->when($filters['item_id'] ?? null, fn ($query, string $itemId) => $query->whereHas('items', fn ($items) => $items->applicable()->where('planning_item_id', $itemId)))
+            ->when($planningItemIds !== [], fn ($query) => $query->whereHas('items', fn ($items) => $items->applicable()->whereIn('planning_item_id', $planningItemIds)))
+            ->when(! $includeIncompleteBaseline, fn ($query) => $query->whereHas('unit', fn (Builder $unitQuery): Builder => $this->applyCompleteUnitBaselineScope($unitQuery)))
             ->when($filters['assignee_id'] ?? null, fn ($query, string $assigneeId) => $query->where('assigned_mechanic_id', $assigneeId));
 
-        $openWorkOrders = (clone $workOrderQuery)->where('status', 'open')->latest()->paginate(20, ['*'], 'open_page')->withQueryString();
-        $inProgressWorkOrders = (clone $workOrderQuery)->where('status', 'in_progress')->latest()->paginate(20, ['*'], 'in_progress_page')->withQueryString();
-        $completeWorkOrders = (clone $workOrderQuery)
+        $openWorkOrders = $this->applyBoardSort((clone $workOrderQuery)->where('status', 'open'), $sortBy)
+            ->paginate(20, ['*'], 'open_page')
+            ->withQueryString();
+        $inProgressWorkOrders = $this->applyBoardSort((clone $workOrderQuery)->where('status', 'in_progress'), $sortBy)
+            ->paginate(20, ['*'], 'in_progress_page')
+            ->withQueryString();
+        $completeWorkOrders = $this->applyBoardSort((clone $workOrderQuery)
             ->where('status', 'complete')
             ->whereDoesntHave('items', fn ($query) => $query
                 ->applicable()
                 ->where('status', '!=', 'blocked')
-                ->whereNotIn('status', ['complete', 'postponed']))
-            ->latest()
+                ->whereNotIn('status', ['complete', 'postponed'])), $sortBy)
             ->paginate(20, ['*'], 'complete_page')
             ->withQueryString();
 
@@ -128,8 +154,8 @@ class WorkOrderController extends Controller
 
         return Inertia::render('WorkOrders/Index', [
             'boardColumns' => [
-                'upcoming' => $this->previewItems($request, 'upcoming'),
-                'preparation' => $this->previewItems($request, 'preparation'),
+                'upcoming' => $this->previewItems($request, 'upcoming', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds),
+                'preparation' => $this->previewItems($request, 'preparation', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds),
                 'open' => WorkOrderResource::collection($openWorkOrders),
                 'in_progress' => WorkOrderResource::collection($inProgressWorkOrders),
                 'complete' => WorkOrderResource::collection($completeWorkOrders),
@@ -142,7 +168,15 @@ class WorkOrderController extends Controller
             'canAssignMechanic' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
             'canReviewWorkOrders' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::SpvHo]),
             'canApproveWorkOrders' => $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
-            'filters' => $filters,
+            'filters' => [
+                'site_id' => isset($filters['site_id']) ? (string) $filters['site_id'] : '',
+                'status' => $filters['status'] ?? '',
+                'unit_id' => isset($filters['unit_id']) ? (string) $filters['unit_id'] : '',
+                'assignee_id' => isset($filters['assignee_id']) ? (string) $filters['assignee_id'] : '',
+                'planning_item_ids' => $planningItemIds,
+                'include_incomplete_baseline' => $includeIncompleteBaseline,
+                'sort_by' => $sortBy,
+            ],
         ]);
     }
 
@@ -595,6 +629,15 @@ class WorkOrderController extends Controller
 
     private function appendBoardMeta(WorkOrder $workOrder, array $thresholds): void
     {
+        $workOrder->setRelation('items', $workOrder->items
+            ->sort(function (WorkOrderItem $left, WorkOrderItem $right): int {
+                $leftRank = in_array($left->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true) ? 0 : 1;
+                $rightRank = in_array($right->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true) ? 0 : 1;
+
+                return ($leftRank <=> $rightRank) ?: ($left->id <=> $right->id);
+            })
+            ->values());
+
         $nearest = $workOrder->items
             ->map(fn (WorkOrderItem $item): ?array => $this->dueMeta($workOrder->unit, $item->unitPlanning, $thresholds))
             ->filter()
@@ -644,9 +687,15 @@ class WorkOrderController extends Controller
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function previewItems(Request $request, string $zone)
-    {
-        $filters = $request->only(['site_id', 'unit_id', 'item_id']);
+    private function previewItems(
+        WorkOrderIndexRequest $request,
+        string $zone,
+        array $planningItemIds,
+        bool $includeIncompleteBaseline,
+        string $sortBy,
+        array $priorityPlanningItemIds,
+    ) {
+        $filters = $request->validated();
         $user = $request->user();
         $thresholds = $this->maintenanceThresholds();
         $pageName = $zone.'_page';
@@ -663,10 +712,13 @@ class WorkOrderController extends Controller
             ->when($user->hasRole(UserRole::PlannerArea) && $user->region_id === null, fn ($query) => $query->where('units.site_id', $user->site_id))
             ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->where('units.site_id', $siteId))
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
-            ->when($filters['item_id'] ?? null, fn ($query, string $itemId) => $query->where('planning_item_id', $itemId))
-            ->where(fn ($query) => $this->applyPreviewZoneScope($query, $zone, $thresholds))
-            ->orderByRaw('COALESCE(unit_plannings.next_due_date, date(\'9999-12-31\'))')
-            ->orderBy('unit_plannings.next_due_km')
+            ->when($planningItemIds !== [], fn ($query) => $query->whereIn('planning_item_id', $planningItemIds))
+            ->when(! $includeIncompleteBaseline, fn ($query) => $query->whereHas('unit', fn (Builder $unitQuery): Builder => $this->applyCompleteUnitBaselineScope($unitQuery)))
+            ->where(fn ($query) => $this->applyPreviewZoneScope($query, $zone, $thresholds));
+
+        $this->applyPreviewSort($items, $sortBy, $priorityPlanningItemIds);
+
+        $items = $items
             ->paginate(20, ['unit_plannings.*'], $pageName)
             ->withQueryString()
             ->through(fn (UnitPlanning $planning): array => [
@@ -681,6 +733,7 @@ class WorkOrderController extends Controller
                 'next_due_date' => $planning->next_due_date?->toDateString(),
                 'due' => $this->dueMeta($planning->unit, $planning, $thresholds),
                 'approval_status' => $this->previewApprovalStatus($planning),
+                'is_priority' => in_array($planning->planningItem->name, self::PRIORITY_PLANNING_ITEM_NAMES, true),
             ]);
 
         return [
@@ -694,6 +747,97 @@ class WorkOrderController extends Controller
                 'total' => $items->total(),
             ],
         ];
+    }
+
+    /**
+     * @return array<string, Builder>
+     */
+    private function boardSortColumns(): array
+    {
+        return [
+            'nearest_due_date_sort' => UnitPlanning::query()
+                ->select('unit_plannings.next_due_date')
+                ->join('work_order_items as due_date_items', 'due_date_items.unit_planning_id', '=', 'unit_plannings.id')
+                ->whereColumn('due_date_items.work_order_id', 'work_orders.id')
+                ->where('unit_plannings.is_excluded', false)
+                ->whereNotNull('unit_plannings.next_due_date')
+                ->orderBy('unit_plannings.next_due_date')
+                ->limit(1),
+            'nearest_due_km_sort' => UnitPlanning::query()
+                ->select('unit_plannings.next_due_km')
+                ->join('work_order_items as due_km_items', 'due_km_items.unit_planning_id', '=', 'unit_plannings.id')
+                ->whereColumn('due_km_items.work_order_id', 'work_orders.id')
+                ->where('unit_plannings.is_excluded', false)
+                ->whereNotNull('unit_plannings.next_due_km')
+                ->orderBy('unit_plannings.next_due_km')
+                ->limit(1),
+        ];
+    }
+
+    private function applyBoardSort(Builder $query, string $sortBy): Builder
+    {
+        if ($sortBy === 'due_date') {
+            return $query
+                ->orderByRaw('nearest_due_date_sort IS NULL')
+                ->orderBy('nearest_due_date_sort')
+                ->orderByRaw('nearest_due_km_sort IS NULL')
+                ->orderBy('nearest_due_km_sort')
+                ->orderByDesc('work_orders.created_at')
+                ->orderByDesc('work_orders.id');
+        }
+
+        if ($sortBy === 'due_km') {
+            return $query
+                ->orderByRaw('nearest_due_km_sort IS NULL')
+                ->orderBy('nearest_due_km_sort')
+                ->orderByRaw('nearest_due_date_sort IS NULL')
+                ->orderBy('nearest_due_date_sort')
+                ->orderByDesc('work_orders.created_at')
+                ->orderByDesc('work_orders.id');
+        }
+
+        return $query
+            ->orderByDesc('has_priority_items')
+            ->orderByRaw('nearest_due_date_sort IS NULL')
+            ->orderBy('nearest_due_date_sort')
+            ->orderByRaw('nearest_due_km_sort IS NULL')
+            ->orderBy('nearest_due_km_sort')
+            ->orderByDesc('work_orders.created_at')
+            ->orderByDesc('work_orders.id');
+    }
+
+    private function applyPreviewSort(Builder $query, string $sortBy, array $priorityPlanningItemIds): void
+    {
+        if ($sortBy === 'priority' && $priorityPlanningItemIds !== []) {
+            $placeholders = implode(', ', array_fill(0, count($priorityPlanningItemIds), '?'));
+            $query->orderByRaw("CASE WHEN unit_plannings.planning_item_id IN ({$placeholders}) THEN 0 ELSE 1 END", $priorityPlanningItemIds);
+        }
+
+        if ($sortBy === 'due_km') {
+            $query
+                ->orderByRaw('CASE WHEN unit_plannings.next_due_km IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('unit_plannings.next_due_km')
+                ->orderByRaw('CASE WHEN unit_plannings.next_due_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('unit_plannings.next_due_date')
+                ->orderBy('unit_plannings.id');
+
+            return;
+        }
+
+        $query
+            ->orderByRaw('CASE WHEN unit_plannings.next_due_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('unit_plannings.next_due_date')
+            ->orderByRaw('CASE WHEN unit_plannings.next_due_km IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('unit_plannings.next_due_km')
+            ->orderBy('unit_plannings.id');
+    }
+
+    private function applyCompleteUnitBaselineScope(Builder $query): Builder
+    {
+        return $query
+            ->where($query->qualifyColumn('has_odometer_reading'), true)
+            ->whereHas('unitPlannings', fn (Builder $planningQuery): Builder => $planningQuery
+                ->where($planningQuery->qualifyColumn('last_done_km'), '!=', 0));
     }
 
     private function applyPreviewZoneScope($query, string $zone, array $thresholds): void

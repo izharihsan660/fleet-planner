@@ -1,7 +1,7 @@
 import { Badge } from '@/Components/ui/badge';
 import { cn } from '@/lib/utils';
 
-type StatusTone = 'safe' | 'warning' | 'danger' | 'info' | 'neutral' | 'blocked' | 'rejected' | 'warranty' | 'highUsage';
+type StatusTone = 'safe' | 'warning' | 'danger' | 'info' | 'neutral' | 'blocked' | 'rejected' | 'warranty' | 'highUsage' | 'priority';
 
 type StatusBadgeProps = {
     children: React.ReactNode;
@@ -19,6 +19,7 @@ const toneClasses: Record<StatusTone, string> = {
     rejected: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200',
     warranty: 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-500/40 dark:bg-teal-500/15 dark:text-teal-200',
     highUsage: 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-200',
+    priority: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 dark:border-fuchsia-500/40 dark:bg-fuchsia-500/15 dark:text-fuchsia-200',
 };
 
 export default function StatusBadge({ children, tone = 'neutral', className }: StatusBadgeProps) {
