@@ -89,11 +89,23 @@ services:
     <<: *fleet-planner-app-base
     container_name: fleet-planner-worker
     command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=3", "--timeout=120"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'queue:work' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   fleet-planner-scheduler:
     <<: *fleet-planner-app-base
     container_name: fleet-planner-scheduler
     command: ["php", "artisan", "schedule:work"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'schedule:work' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   fleet-planner-mysql:
     image: mysql:8.4
