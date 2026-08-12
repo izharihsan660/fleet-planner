@@ -108,7 +108,7 @@ class ReportController extends Controller
         [$label, $headings, $rows] = match ($tab) {
             'wo' => ['rekap-wo', ['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $this->woSummaryRows($request, $filters)],
             'item' => ['per-item', ['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $this->byItemRows($request, $filters)],
-            'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
+            'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Total Item', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
             'overdue' => ['terlambat', ['Lokasi', 'Total Terlambat', 'Item Terlambat'], $this->overdueByAreaRows($request, $filters)],
             'baseline' => ['baseline-belum-diisi', ['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item'], $this->baselineIncompleteRows($request, $filters)],
         };
@@ -254,6 +254,7 @@ class ReportController extends Controller
             ->selectRaw('work_orders.unit_id as unit_id')
             ->selectRaw('units.current_plate as plat_nomor')
             ->selectRaw('sites.name as site')
+            ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
             ->whereMonth('work_orders.created_at', $filters['month'])
@@ -396,6 +397,7 @@ class ReportController extends Controller
         return $this->byUnitQuery($request, $filters)->get()->map(fn ($row): array => [
             $row->plat_nomor,
             $row->site,
+            (int) $row->total_item,
             (int) $row->total_complete,
             (int) $row->total_overdue,
         ]);

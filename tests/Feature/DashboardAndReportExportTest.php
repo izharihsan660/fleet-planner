@@ -233,6 +233,51 @@ class DashboardAndReportExportTest extends TestCase
         $this->assertCount(2, $rows);
     }
 
+    public function test_report_by_unit_export_counts_items_not_work_orders(): void
+    {
+        [$site] = $this->createRegionScenario();
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        // Satu unit, satu WO, dua item — persis kasus di mana hitungan lama
+        // (COUNT DISTINCT work_orders.id) bilang 1 padahal pekerjaannya dua.
+        $firstItem = $this->createItem($site, 'KT 2201 AA', 'complete', '2026-07-05');
+        $secondPlanningItem = PlanningItem::query()->create(['name' => 'Brake Pad', 'interval_km' => 20000, 'interval_days' => 180]);
+        $secondPlanning = UnitPlanning::query()->create([
+            'unit_id' => $firstItem->workOrder->unit_id,
+            'planning_item_id' => $secondPlanningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => now()->subDays(180)->toDateString(),
+            'next_due_km' => 20000,
+            'next_due_date' => now()->addDays(20)->toDateString(),
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $firstItem->work_order_id,
+            'unit_planning_id' => $secondPlanning->id,
+            'planning_item_id' => $secondPlanningItem->id,
+            'status' => 'overdue',
+        ]);
+
+        $response = $this->actingAs($user)->get(route('reports.export', [
+            'tab' => 'unit',
+            'month' => 7,
+            'year' => 2026,
+            'site_id' => $site->id,
+        ]));
+
+        $response->assertOk()->assertDownload('laporan-per-unit-2026-07.xlsx');
+
+        $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
+        $rows = $spreadsheet->getActiveSheet()->toArray();
+
+        $this->assertSame(['Plat Nomor', 'Lokasi', 'Total Item', 'Selesai', 'Terlambat'], $rows[0]);
+        $this->assertSame('KT 2201 AA', $rows[1][0]);
+        $this->assertSame($site->name, $rows[1][1]);
+        $this->assertSame(2, (int) $rows[1][2]);
+        $this->assertSame(1, (int) $rows[1][3]);
+        $this->assertSame(1, (int) $rows[1][4]);
+        $this->assertCount(2, $rows);
+    }
+
     public function test_report_by_item_export_calculates_average_completion_days(): void
     {
         [$site] = $this->createRegionScenario();
