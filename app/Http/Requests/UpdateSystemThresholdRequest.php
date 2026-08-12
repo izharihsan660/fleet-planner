@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\SystemThreshold;
+use App\Services\CompletionBackdatePolicy;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -25,17 +26,47 @@ class UpdateSystemThresholdRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
-            $this->validatePreviewThresholdOrder($validator);
+            $values = $this->thresholdValuesWithSubmitted();
+
+            $this->validateOrderedGroup($validator, $values, 'days', 'upcoming_days', 'ancang_ancang_days', 'warning_days');
+            $this->validateOrderedGroup($validator, $values, 'km', 'upcoming_km', 'ancang_ancang_km', 'warning_km');
+            $this->validateBackdateWindow($validator, $values);
         }];
     }
 
-    private function validatePreviewThresholdOrder(Validator $validator): void
+    /**
+     * Nilai threshold yang sedang aktif, ditimpa nilai yang sedang diajukan —
+     * jadi kombinasinya dinilai sebagai hasil akhir, bukan per baris.
+     *
+     * @return array<string, int>
+     */
+    private function thresholdValuesWithSubmitted(): array
     {
         $values = SystemThreshold::query()->pluck('value', 'key')->map(fn (string $value): int => (int) $value)->all();
         $values[$this->string('key')->toString()] = $this->integer('value');
 
-        $this->validateOrderedGroup($validator, $values, 'days', 'upcoming_days', 'ancang_ancang_days', 'warning_days');
-        $this->validateOrderedGroup($validator, $values, 'km', 'upcoming_km', 'ancang_ancang_km', 'warning_km');
+        return $values;
+    }
+
+    /**
+     * Batas isi sendiri di atas batas maksimal tidak pernah terpakai: backdate
+     * sejauh itu sudah ditolak lebih dulu oleh batas maksimal. Dicek dua arah,
+     * jadi menurunkan batas maksimal ke bawah batas isi sendiri juga ditolak.
+     *
+     * @param  array<string, int>  $values
+     */
+    private function validateBackdateWindow(Validator $validator, array $values): void
+    {
+        $selfServiceKey = CompletionBackdatePolicy::SELF_SERVICE_DAYS_KEY;
+        $maxKey = CompletionBackdatePolicy::MAX_DAYS_KEY;
+
+        if (! isset($values[$selfServiceKey], $values[$maxKey])) {
+            return;
+        }
+
+        if ($values[$selfServiceKey] > $values[$maxKey]) {
+            $validator->errors()->add('value', 'Batas isi sendiri tidak boleh lebih besar dari batas maksimal.');
+        }
     }
 
     /**
