@@ -70,8 +70,8 @@ class UnitPlanningExclusionTest extends TestCase
         $this->actingAs($admin)->get(route('reports.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('summary.total_wo', 0)
                 ->where('summary.total_items', 0)
+                ->missing('summary.total_wo')
                 ->has('byItem.data', 0)
                 ->has('byUnit.data', 0));
 

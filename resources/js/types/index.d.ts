@@ -200,6 +200,42 @@ export interface WorkOrder {
     assigned_mechanic?: User | null;
 }
 
+export type BoardItemPhase = 'on_hold' | 'in_progress' | 'complete';
+
+export interface BoardItemBadge {
+    key: string;
+    tone: 'safe' | 'warning' | 'danger' | 'info' | 'neutral' | 'blocked' | 'rejected' | 'warranty' | 'highUsage' | 'priority';
+    label: string;
+}
+
+export interface WorkOrderBoardItem {
+    id: number;
+    work_order_id: number;
+    unit_id: number | null;
+    site_id: number | null;
+    unit_plate: string;
+    site_name: string | null;
+    item_name: string;
+    due_km: number | null;
+    due_date: string | null;
+    due: DueMeta | null;
+    phase: BoardItemPhase;
+    badges: BoardItemBadge[];
+    other_active_items_count: number;
+    is_priority: boolean;
+    status: WorkOrderItemStatus;
+    action: WorkOrderItemAction | null;
+    baseline_missing: boolean;
+    unit_breakdown: boolean;
+    unit_current_odo: number;
+    reason: string | null;
+    new_due_km: number | null;
+    new_due_date: string | null;
+    completed_date: string | null;
+    assigned_mechanic_id: number | null;
+    scheduled_date: string | null;
+}
+
 export interface WorkOrderPreviewItem {
     id: number;
     unit_id: number;
@@ -286,8 +322,14 @@ export interface ProjectionWarning {
     message: string;
 }
 
+export interface ProjectionPeriodOption {
+    months: number;
+    days: number;
+}
+
 export interface ProjectionResult {
     period_months: number;
+    period_days: number;
     period_end: string;
     by_unit: PaginatedCollection<ProjectionUnit>;
     by_item: PaginatedCollection<ProjectionItem>;
@@ -354,7 +396,6 @@ export interface Notification {
 }
 
 export interface ReportSummary {
-    total_wo?: number;
     total_items?: number;
     total_complete?: number;
     total_overdue?: number;

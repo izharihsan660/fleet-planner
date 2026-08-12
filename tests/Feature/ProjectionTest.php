@@ -91,6 +91,16 @@ class ProjectionTest extends TestCase
         $this->assertStringContainsString('Sembunyikan daftar', $projectionSource);
         $this->assertStringContainsString('max-h-80 overflow-y-auto', $projectionSource);
         $this->assertStringNotContainsString("projection.warnings.map((warning) => warning.plate_number).join(', ')", $projectionSource);
+        // Label periode menyebut jumlah hari, dan jumlah harinya diturunkan dari
+        // period_options kiriman backend — bukan literal di frontend yang bisa
+        // basi kalau basis di ProjectionService berubah.
+        $this->assertStringContainsString('${option.months} Bulan (${option.days} hari)', $projectionSource);
+        $this->assertStringContainsString('periodRangeLabel(periodOptions)', $projectionSource);
+        $this->assertStringContainsString('periodOptions.map((option) =>', $projectionSource);
+
+        foreach (['(30 hari)', '(60 hari)', '(90 hari)', '30/60/90', 'Kebutuhan 1-3 Bulan'] as $hardcoded) {
+            $this->assertStringNotContainsString($hardcoded, $projectionSource, 'Jumlah hari periode tidak boleh ditulis literal di frontend.');
+        }
         $this->assertStringContainsString('Filter Lokasi', $projectionSource);
         $this->assertStringContainsString('Semua Lokasi', $projectionSource);
         $this->assertStringContainsString('Kalender hanya untuk monitoring', $projectionSource);
@@ -167,9 +177,14 @@ class ProjectionTest extends TestCase
 
         $result = app(ProjectionService::class)->calculate(1);
 
+        // Item due tepat 30 hari dari hari ini harus selalu masuk proyeksi 1 bulan,
+        // apa pun panjang bulan kalender berjalan.
+        $this->assertSame(CarbonImmutable::today()->addDays(30)->toDateString(), $result['period_end']);
+
         $byUnit = collect($result['by_unit'])->firstWhere('plate_number', 'DD 7777 AA');
         $this->assertNotNull($byUnit);
         $this->assertFalse($byUnit['insufficient_data']);
+        $this->assertContains('Test Item Rolling Unique', collect($byUnit['items'])->pluck('planning_item_name')->all());
         $rollingAvg = $byUnit['avg_km_per_day'];
         $this->assertSame(round((3000 - 2500) / 15, 2), $rollingAvg);
     }
@@ -194,6 +209,110 @@ class ProjectionTest extends TestCase
         $this->assertNotNull($byUnit);
         $this->assertFalse($byUnit['insufficient_data']);
         $this->assertSame(round(300 / 10, 2), $byUnit['avg_km_per_day']);
+    }
+
+    public function test_projection_period_days_and_options_follow_the_shipped_30_day_basis(): void
+    {
+        $service = app(ProjectionService::class);
+        $today = CarbonImmutable::today();
+
+        foreach ([1 => 30, 2 => 60, 3 => 90] as $months => $expectedDays) {
+            $result = $service->calculate($months);
+
+            $this->assertSame($expectedDays, $result['period_days']);
+            $this->assertSame($today->addDays($expectedDays)->toDateString(), $result['period_end']);
+        }
+
+        $this->assertSame(
+            [['months' => 1, 'days' => 30], ['months' => 2, 'days' => 60], ['months' => 3, 'days' => 90]],
+            $service->periodOptions(),
+        );
+    }
+
+    public function test_period_days_sent_to_frontend_follow_the_service_basis(): void
+    {
+        // Basis hari sengaja diganti lewat subclass: kalau ada angka hari yang
+        // ditulis terpisah (di resource, controller, atau label frontend),
+        // nilai yang sampai ke halaman tidak akan ikut berubah dan test gagal.
+        $this->app->bind(ProjectionService::class, fn (): ProjectionService => new class extends ProjectionService
+        {
+            public const DAYS_PER_PERIOD_MONTH = 7;
+        });
+
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->actingAs($user)->get(route('projections.index', ['months' => 2]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('projection.period_months', 2)
+                ->where('projection.period_days', 14)
+                ->where('projection.period_end', CarbonImmutable::today()->addDays(14)->toDateString())
+                ->where('period_options', [
+                    ['months' => 1, 'days' => 7],
+                    ['months' => 2, 'days' => 14],
+                    ['months' => 3, 'days' => 21],
+                ])
+            );
+
+        // Frontend hanya merangkai "X Bulan (Y hari)" dari angka di atas.
+        $this->assertStringContainsString(
+            '${option.months} Bulan (${option.days} hari)',
+            file_get_contents(resource_path('js/Pages/Projections/Index.tsx')),
+        );
+    }
+
+    public function test_projection_period_uses_30_day_basis_at_end_of_january(): void
+    {
+        // Akhir Januari adalah kasus terburuk untuk basis bulan kalender:
+        // 2026-01-30 + 1 bulan = 2026-02-28, sehingga item yang due tepat
+        // 30 hari lagi (2026-03-01) dulu terlempar keluar proyeksi 1 bulan.
+        $this->travelTo('2026-01-30');
+
+        SystemThreshold::query()->updateOrCreate(['key' => 'min_inspection_data'], ['value' => '2']);
+        SystemThreshold::query()->updateOrCreate(['key' => 'rolling_window_days'], ['value' => '30']);
+
+        $site = Site::query()->create(['name' => 'Site Akhir Januari', 'region' => 'Region Test']);
+        $dueOnDay30 = PlanningItem::query()->create(['name' => 'Service Hari Ke-30', 'interval_km' => 5000, 'interval_days' => 90]);
+        $dueOnDay31 = PlanningItem::query()->create(['name' => 'Service Hari Ke-31', 'interval_km' => 5000, 'interval_days' => 90]);
+        $unit = Unit::query()->create([
+            'site_id' => $site->id,
+            'customer' => 'Customer A',
+            'current_plate' => 'DD 3001 FB',
+            'type' => 'Pickup',
+            'brand' => 'Toyota',
+            'year' => 2024,
+            'current_odo' => 1000,
+            'status' => 'active',
+        ]);
+
+        // Tanpa data inspeksi, jalur KM mati — yang diuji murni jendela tanggal.
+        foreach ([[$dueOnDay30, '2026-03-01'], [$dueOnDay31, '2026-03-02']] as [$planningItem, $nextDueDate]) {
+            UnitPlanning::query()->updateOrCreate(
+                ['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id],
+                [
+                    'last_done_km' => 1000,
+                    'last_done_date' => '2025-12-01',
+                    'next_due_km' => 999000,
+                    'next_due_date' => $nextDueDate,
+                ],
+            );
+        }
+
+        $oneMonth = app(ProjectionService::class)->calculate(1);
+
+        // 1 bulan = 30 hari, bukan 2026-02-28 versi bulan kalender.
+        $this->assertSame('2026-03-01', $oneMonth['period_end']);
+
+        $byUnit = collect($oneMonth['by_unit'])->firstWhere('plate_number', 'DD 3001 FB');
+        $this->assertNotNull($byUnit);
+
+        $itemNames = collect($byUnit['items'])->pluck('planning_item_name')->all();
+        $this->assertContains('Service Hari Ke-30', $itemNames, 'Item due tepat 30 hari lagi harus masuk proyeksi 1 bulan.');
+        $this->assertNotContains('Service Hari Ke-31', $itemNames, 'Item due 31 hari lagi harus di luar proyeksi 1 bulan.');
+
+        // Batas 2 dan 3 bulan ikut basis hari yang sama.
+        $this->assertSame('2026-03-31', app(ProjectionService::class)->calculate(2)['period_end']);
+        $this->assertSame('2026-04-30', app(ProjectionService::class)->calculate(3)['period_end']);
     }
 
     public function test_projection_matches_manual_km_calculation_for_one_and_two_month_periods(): void
@@ -249,15 +368,17 @@ class ProjectionTest extends TestCase
             $oneMonthUnit = collect($oneMonth['by_unit'])->firstWhere('unit_id', $unit->id);
             $twoMonthUnit = collect($twoMonths['by_unit'])->firstWhere('unit_id', $unit->id);
 
-            $this->assertSame('2026-08-01', $oneMonth['period_end']);
+            // 1 bulan = 30 hari: 2026-07-01 + 30 hari = 2026-07-31 (bukan 2026-08-01).
+            $this->assertSame('2026-07-31', $oneMonth['period_end']);
             $this->assertSame(100.0, $oneMonthUnit['avg_km_per_day']);
-            $this->assertSame(13100, $oneMonthUnit['estimated_period_odo']);
+            $this->assertSame(10000 + (100 * 30), $oneMonthUnit['estimated_period_odo']);
             $this->assertSame(['Service July'], collect($oneMonthUnit['items'])->pluck('planning_item_name')->all());
             $this->assertSame('2026-07-21', $oneMonthUnit['items'][0]['estimated_due_date']);
 
-            $this->assertSame('2026-09-01', $twoMonths['period_end']);
+            // 2 bulan = 60 hari: 2026-07-01 + 60 hari = 2026-08-30 (bukan 2026-09-01).
+            $this->assertSame('2026-08-30', $twoMonths['period_end']);
             $this->assertSame(100.0, $twoMonthUnit['avg_km_per_day']);
-            $this->assertSame(16200, $twoMonthUnit['estimated_period_odo']);
+            $this->assertSame(10000 + (100 * 60), $twoMonthUnit['estimated_period_odo']);
             $this->assertEqualsCanonicalizing(
                 ['Service July', 'Service August'],
                 collect($twoMonthUnit['items'])->pluck('planning_item_name')->all(),

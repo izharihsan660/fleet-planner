@@ -10,6 +10,7 @@ use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Support\WorkOrderMerger;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -171,11 +172,7 @@ class HighUsageService
      */
     private function createWorkOrderItem(HighUsageFlag $flag, User $actor, bool $triggeredByHighUsage, array $data = []): WorkOrderItem
     {
-        $workOrder = WorkOrder::query()
-            ->where('unit_id', $flag->unit_id)
-            ->where('status', 'open')
-            ->latest('id')
-            ->first();
+        $workOrder = WorkOrderMerger::openWorkOrderFor($flag->unit_id);
 
         if (! $workOrder) {
             $workOrder = WorkOrder::query()->create([

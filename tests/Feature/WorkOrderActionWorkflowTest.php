@@ -118,7 +118,8 @@ class WorkOrderActionWorkflowTest extends TestCase
         $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin);
-        $requestedDueDate = '2026-08-15';
+        // Relatif ke hari ini: new_due_date divalidasi after_or_equal:today.
+        $requestedDueDate = today()->addDays(4)->toDateString();
 
         $this->actingAs($admin)
             ->post(route('work-orders.items.postpone', [$workOrder, $item]), [
@@ -309,10 +310,14 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('complete', $firstItem->refresh()->status);
         $this->assertSame('overdue', $secondItem->refresh()->status);
 
+        // WO turun ke 'open', tapi item overdue-nya masih tugas mekanik yang sama.
         $this->actingAs($mechanic)
             ->get(route('mechanic.tasks'))
             ->assertOk()
-            ->assertInertia(fn ($page) => $page->has('tasks', 0));
+            ->assertInertia(fn ($page) => $page
+                ->has('tasks', 1)
+                ->where('tasks.0.id', $secondItem->id)
+            );
 
         $this->actingAs($planner)
             ->post(route('work-orders.items.replace', [$workOrder, $secondItem]), [
@@ -343,6 +348,114 @@ class WorkOrderActionWorkflowTest extends TestCase
             ->assertRedirect(route('mechanic.tasks'));
 
         $this->assertSame('complete', $workOrder->refresh()->status);
+    }
+
+    /**
+     * Regresi pola "visibility ikut status container": Tugas Saya dulu memfilter
+     * work_orders.status = 'in_progress', jadi begitu item in_progress terakhir
+     * selesai WO turun ke 'open' dan seluruh sisa tugas mekanik ikut hilang.
+     */
+    public function test_completing_one_task_does_not_hide_the_mechanic_remaining_tasks(): void
+    {
+        [$site, $unit, $planningA] = $this->makePlanningContext(80000);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $otherMechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $planningB = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => PlanningItem::query()->create([
+                'name' => 'Brake Pad Regresi',
+                'interval_km' => 10000,
+                'interval_days' => 180,
+            ])->id,
+            'last_done_km' => 69000,
+            'last_done_date' => today()->subDays(180)->toDateString(),
+            'next_due_km' => 79000,
+            'next_due_date' => today()->subDays(4)->toDateString(),
+        ]);
+
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'in_progress',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+            'approved_at' => now(),
+        ]);
+
+        $itemA = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planningA->id,
+            'planning_item_id' => $planningA->planning_item_id,
+            'status' => 'in_progress',
+        ]);
+        $itemB = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planningB->id,
+            'planning_item_id' => $planningB->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        // Item A dan B sama-sama tampil sebelum ada yang diselesaikan.
+        $this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Mechanic/Tasks')
+                ->has('tasks', 2)
+            );
+
+        $this->actingAs($mechanic)
+            ->post(route('work-orders.items.complete', [$workOrder, $itemA]), [
+                'completed_odo' => 80500,
+                'completed_date' => today()->toDateString(),
+            ])
+            ->assertRedirect(route('mechanic.tasks'));
+
+        $this->assertSame('complete', $itemA->refresh()->status);
+        $this->assertSame('overdue', $itemB->refresh()->status);
+
+        // Item in_progress terakhir sudah selesai, jadi WO induk turun ke 'open'.
+        $this->assertSame('open', $workOrder->refresh()->status);
+
+        $tasks = collect($this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->inertiaProps('tasks'));
+
+        $this->assertSame(
+            [$itemB->id],
+            $tasks->pluck('id')->all(),
+            'Item overdue yang belum selesai tetap jadi tugas mekanik walau status WO sudah turun.'
+        );
+        $this->assertSame($unit->current_plate, $tasks->first()['unit_name']);
+        $this->assertSame('Brake Pad Regresi', $tasks->first()['item_name']);
+
+        // Item yang sudah selesai tidak ikut tertinggal di daftar tugas.
+        $this->assertFalse($tasks->pluck('id')->contains($itemA->id));
+
+        // Item B masih bisa diselesaikan dari daftar tugas, tanpa perlu WO di-approve ulang.
+        $this->actingAs($mechanic)
+            ->post(route('work-orders.items.complete', [$workOrder, $itemB]), [
+                'completed_odo' => 80600,
+                'completed_date' => today()->toDateString(),
+            ])
+            ->assertRedirect(route('mechanic.tasks'));
+
+        $this->assertSame('complete', $itemB->refresh()->status);
+        $this->assertSame('complete', $workOrder->refresh()->status);
+
+        $this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->has('tasks', 0));
+
+        // Tugas tetap milik mekanik yang di-assign, bukan bocor ke mekanik lain.
+        $this->actingAs($otherMechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->has('tasks', 0));
     }
 
     public function test_spv_approve_work_order_approves_mixed_pending_actions_together(): void

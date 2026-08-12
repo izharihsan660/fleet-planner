@@ -93,6 +93,41 @@ class HighUsageTest extends TestCase
         $this->assertSame('triggered', $flag->action_taken);
     }
 
+    public function test_high_usage_item_merges_into_work_order_that_is_already_in_progress(): void
+    {
+        [$unit, $unitPlanning] = $this->createHighUsageScenario();
+        $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
+        $otherPlanningItem = PlanningItem::query()->create(['name' => 'Service Lain', 'interval_km' => 1000, 'interval_days' => 30]);
+        $otherPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $otherPlanningItem->id,
+            'last_done_km' => 1000,
+            'last_done_date' => now()->subDays(20)->toDateString(),
+            'next_due_km' => 4200,
+            'next_due_date' => now()->addDays(20)->toDateString(),
+        ]);
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'normal', 'status' => 'in_progress']);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $otherPlanning->id,
+            'planning_item_id' => $otherPlanning->planning_item_id,
+            'status' => 'in_progress',
+        ]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
+
+        $this->actingAs($admin)->post(route('high-usage.action', $flag), [
+            'action' => 'triggered',
+        ])->assertRedirect();
+
+        $this->assertSame(1, WorkOrder::query()->count());
+        $this->assertDatabaseHas('work_order_items', [
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $unitPlanning->id,
+            'status' => 'on_hold',
+            'triggered_by_high_usage' => true,
+        ]);
+    }
+
     public function test_rejected_item_does_not_block_high_usage_work_order_item(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
@@ -124,8 +159,9 @@ class HighUsageTest extends TestCase
         $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
         $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
-        $availableDate = '2026-08-10';
-        $newDueDate = '2026-08-20';
+        // Relatif ke hari ini: keduanya divalidasi after_or_equal:today.
+        $availableDate = today()->addDays(3)->toDateString();
+        $newDueDate = today()->addDays(13)->toDateString();
 
         $this->actingAs($admin)->post(route('high-usage.action', $flag), [
             'action' => 'deferred',

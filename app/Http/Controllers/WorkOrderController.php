@@ -30,6 +30,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
@@ -43,6 +44,37 @@ class WorkOrderController extends Controller
         'Service A',
         'Service B',
     ];
+
+    /**
+     * Item yang menunggu tindakan dan belum dikerjakan mekanik.
+     *
+     * @var array<int, string>
+     */
+    private const ON_HOLD_ITEM_STATUSES = [
+        'on_hold',
+        'overdue',
+        'blocked',
+        'breakdown',
+        'replace',
+        'postpone',
+    ];
+
+    /**
+     * Item rejected hanya perlu ditindak ulang bila pengajuannya Replace/Postpone.
+     *
+     * @var array<int, string>
+     */
+    private const RESUBMITTABLE_REJECTED_ACTIONS = ['replace', 'postpone'];
+
+    /**
+     * Tugas mekanik ditentukan per item, bukan dari status WO induknya: WO turun
+     * ke 'open' begitu item in_progress terakhir selesai, padahal item overdue
+     * lain di WO yang sama masih jadi tanggung jawab mekanik yang sama.
+     * Sama dengan daftar status yang boleh di-complete pada self::complete().
+     *
+     * @var array<int, string>
+     */
+    private const MECHANIC_TASK_ITEM_STATUSES = ['in_progress', 'overdue'];
 
     public function __construct(
         private PlanningIntervalResolver $intervalResolver,
@@ -60,12 +92,9 @@ class WorkOrderController extends Controller
         $items = WorkOrderItem::query()
             ->applicable()
             ->with(['planningItem:id,name', 'workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name'])
-            ->whereIn('work_order_items.status', ['in_progress', 'overdue'])
+            ->whereIn('work_order_items.status', self::MECHANIC_TASK_ITEM_STATUSES)
             ->withBaseline()
-            ->whereHas('workOrder', fn ($query) => $query
-                ->where('assigned_mechanic_id', $user->id)
-                ->where('work_orders.status', 'in_progress')
-            )
+            ->whereHas('workOrder', fn ($query) => $query->where('assigned_mechanic_id', $user->id))
             ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
             ->select('work_order_items.*')
             ->orderByRaw('CASE WHEN work_orders.scheduled_date IS NULL THEN 1 ELSE 0 END')
@@ -104,59 +133,13 @@ class WorkOrderController extends Controller
         $user = $request->user();
         $thresholds = $this->maintenanceThresholds();
 
-        $workOrderQuery = WorkOrder::query()
-            ->select('work_orders.*')
-            ->addSelect($this->boardSortColumns())
-            ->with([
-                'unit.site',
-                'site',
-                'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
-                'assignedMechanic:id,name',
-            ])
-            ->withCount(['items' => fn ($query) => $query->applicable()])
-            ->withExists(['items as has_blocked_items' => fn ($query) => $query->applicable()->where('status', 'blocked')])
-            ->withExists(['items as has_high_usage_items' => fn ($query) => $query
-                ->applicable()
-                ->where('triggered_by_high_usage', true)
-                ->withBaseline()])
-            ->withExists(['items as has_missing_baseline_items' => fn ($query) => $query
-                ->applicable()
-                ->missingBaseline()])
-            ->withExists(['items as has_priority_items' => fn ($query) => $query
-                ->applicable()
-                ->whereHas('planningItem', fn ($planningItemQuery) => $planningItemQuery->whereIn('name', self::PRIORITY_PLANNING_ITEM_NAMES))])
-            ->whereHas('items', fn ($query) => $query->applicable())
-            ->whereDoesntHave('items', fn ($query) => $query->applicable()->where('status', 'pending_create'))
-            ->tap(fn ($query) => $this->applyCurrentUnitSiteScope($query, $user))
-            ->when($filters['site_id'] ?? null, fn ($query, string $siteId) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('site_id', $siteId)))
-            ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
-            ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
-            ->when($planningItemIds !== [], fn ($query) => $query->whereHas('items', fn ($items) => $items->applicable()->whereIn('planning_item_id', $planningItemIds)))
-            ->when(! $includeIncompleteBaseline, fn ($query) => $query->whereHas('unit', fn (Builder $unitQuery): Builder => $this->applyCompleteUnitBaselineScope($unitQuery)))
-            ->when($filters['assignee_id'] ?? null, fn ($query, string $assigneeId) => $query->where('assigned_mechanic_id', $assigneeId));
-
-        $openWorkOrders = $this->applyBoardSort((clone $workOrderQuery)->where('status', 'open'), $sortBy)
-            ->paginate(20, ['*'], 'open_page')
-            ->withQueryString();
-        $inProgressWorkOrders = $this->applyBoardSort((clone $workOrderQuery)->where('status', 'in_progress'), $sortBy)
-            ->paginate(20, ['*'], 'in_progress_page')
-            ->withQueryString();
-        $completeWorkOrders = $this->applyBoardSort((clone $workOrderQuery)
-            ->where('status', 'complete'), $sortBy)
-            ->paginate(20, ['*'], 'complete_page')
-            ->withQueryString();
-
-        $openWorkOrders->getCollection()->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
-        $inProgressWorkOrders->getCollection()->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
-        $completeWorkOrders->getCollection()->each(fn (WorkOrder $workOrder) => $this->appendBoardMeta($workOrder, $thresholds));
-
         return Inertia::render('WorkOrders/Index', [
             'boardColumns' => [
                 'upcoming' => $this->previewItems($request, 'upcoming', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds),
                 'preparation' => $this->previewItems($request, 'preparation', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds),
-                'open' => WorkOrderResource::collection($openWorkOrders),
-                'in_progress' => WorkOrderResource::collection($inProgressWorkOrders),
-                'complete' => WorkOrderResource::collection($completeWorkOrders),
+                'open' => $this->boardItems($request, 'open', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds, $thresholds),
+                'in_progress' => $this->boardItems($request, 'in_progress', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds, $thresholds),
+                'complete' => $this->boardItems($request, 'complete', $planningItemIds, $includeIncompleteBaseline, $sortBy, $priorityPlanningItemIds, $thresholds),
             ],
             'sites' => SiteResource::collection($this->visibleSites($request)),
             'units' => UnitResource::collection($this->visibleUnits($request)),
@@ -164,9 +147,10 @@ class WorkOrderController extends Controller
             'planningItems' => PlanningItem::query()->orderBy('name')->get(['id', 'name']),
             'canCreateUpcomingTask' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
             'canAssignMechanic' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
-            'canReviewWorkOrders' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::SpvHo]),
-            'canApproveWorkOrders' => $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo]),
+            'canSubmitItemActions' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
+            'canConditionItems' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::Mekanik]),
             'filters' => [
+                'search' => $this->searchTerm($request),
                 'site_id' => isset($filters['site_id']) ? (string) $filters['site_id'] : '',
                 'status' => $filters['status'] ?? '',
                 'unit_id' => isset($filters['unit_id']) ? (string) $filters['unit_id'] : '',
@@ -534,7 +518,7 @@ class WorkOrderController extends Controller
         $this->abortIfPlanningIsExcluded($item);
         $this->abortIfBaselineIsMissing($item);
 
-        if (! in_array($item->status, ['in_progress', 'overdue'], true)) {
+        if (! in_array($item->status, self::MECHANIC_TASK_ITEM_STATUSES, true)) {
             return back()->withErrors(['action' => 'Item harus In Progress atau Overdue sebelum bisa diselesaikan.']);
         }
 
@@ -633,70 +617,403 @@ class WorkOrderController extends Controller
         ];
     }
 
-    private function appendBoardMeta(WorkOrder $workOrder, array $thresholds): void
-    {
-        $workOrder->setRelation('items', $workOrder->items
-            ->sort(function (WorkOrderItem $left, WorkOrderItem $right): int {
-                $leftRank = in_array($left->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true) ? 0 : 1;
-                $rightRank = in_array($right->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true) ? 0 : 1;
+    /**
+     * Kanban On Hold / In Progress / Complete memakai 1 card per work_order_item.
+     *
+     * @param  array<int, int>  $planningItemIds
+     * @param  array<int, int>  $priorityPlanningItemIds
+     * @param  array{warning_days: int, warning_km: int, ancang_ancang_days: int, ancang_ancang_km: int, upcoming_days: int, upcoming_km: int}  $thresholds
+     * @return array{data: array<int, array<string, mixed>>, meta: array<string, mixed>}
+     */
+    private function boardItems(
+        WorkOrderIndexRequest $request,
+        string $column,
+        array $planningItemIds,
+        bool $includeIncompleteBaseline,
+        string $sortBy,
+        array $priorityPlanningItemIds,
+        array $thresholds,
+    ): array {
+        $filters = $request->validated();
+        $user = $request->user();
+        $statusFilter = $filters['status'] ?? null;
 
-                return ($leftRank <=> $rightRank) ?: ($left->id <=> $right->id);
-            })
-            ->values());
+        $query = WorkOrderItem::query()
+            ->select('work_order_items.*')
+            ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
+            ->join('units', 'units.id', '=', 'work_orders.unit_id')
+            ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
+            ->where('unit_plannings.is_excluded', false)
+            ->with([
+                'planningItem:id,name',
+                'unitPlanning',
+                'workOrder.unit.site',
+                'workOrder.assignedMechanic:id,name',
+            ])
+            ->when($statusFilter !== null && $statusFilter !== $column, fn (Builder $query): Builder => $query->whereRaw('1 = 0'))
+            ->tap(fn (Builder $query) => $this->applyBoardItemSiteScope($query, $user))
+            ->when($filters['site_id'] ?? null, fn (Builder $query, string $siteId): Builder => $query->where('units.site_id', $siteId))
+            ->when($filters['unit_id'] ?? null, fn (Builder $query, string $unitId): Builder => $query->where('work_orders.unit_id', $unitId))
+            ->when($filters['assignee_id'] ?? null, fn (Builder $query, string $assigneeId): Builder => $query->where('work_orders.assigned_mechanic_id', $assigneeId))
+            ->when($planningItemIds !== [], fn (Builder $query): Builder => $query->whereIn('work_order_items.planning_item_id', $planningItemIds))
+            ->when(! $includeIncompleteBaseline, fn (Builder $query) => $this->applyJoinedCompleteBaselineScope($query))
+            ->when($this->searchTerm($request) !== '', fn (Builder $query) => $this->applySearchScope($query, $this->searchTerm($request)))
+            ->tap(fn (Builder $query) => $this->applyBoardItemColumnScope($query, $column));
 
-        $nearest = $workOrder->items
-            ->map(fn (WorkOrderItem $item): ?array => $this->dueMeta($workOrder->unit, $item->unitPlanning, $thresholds))
+        $this->applyBoardItemSort($query, $column, $sortBy, $priorityPlanningItemIds);
+
+        $items = $query
+            ->paginate(20, ['work_order_items.*'], $column.'_page')
+            ->withQueryString();
+
+        $unitIds = collect($items->items())
+            ->map(fn (WorkOrderItem $item): ?int => $item->workOrder?->unit_id)
             ->filter()
-            ->sortBy('sort_value')
-            ->first();
+            ->unique()
+            ->values()
+            ->all();
+        $actionableCounts = $this->actionableItemCountsByUnit($unitIds);
 
-        $activeItemBreakdown = $this->workOrderProgressService->activeItemBreakdown($workOrder->items);
-        $activeItemCounts = collect($activeItemBreakdown)->pluck('count', 'key');
+        $items->through(fn (WorkOrderItem $item): array => $this->boardItemPayload($item, $thresholds, $actionableCounts));
 
-        $workOrder->setAttribute('planning_item_names', $workOrder->items->pluck('planningItem.name')->filter()->values()->all());
-        $workOrder->setAttribute('completed_items_count', $this->completedItemsCount($workOrder));
-        $workOrder->setAttribute('remaining_items_count', $this->remainingItemsCount($workOrder));
-        $workOrder->setAttribute('active_item_breakdown', $activeItemBreakdown);
-        $workOrder->setAttribute('blocked_items_count', $workOrder->items->where('status', 'blocked')->count());
-        $workOrder->setAttribute('is_direct_completion_ready', $this->workOrderProgressService->isDirectCompletionReady($workOrder->items));
-        $workOrder->setAttribute('baseline_incomplete_items_count', (int) $activeItemCounts->get('baseline_incomplete', 0));
-        $workOrder->setAttribute('overdue_items_count', (int) $activeItemCounts->get('overdue', 0));
-        $workOrder->setAttribute('rejected_items_count', (int) $activeItemCounts->get('rejected', 0));
-        $workOrder->setAttribute('nearest_due', $nearest);
-        $workOrder->setAttribute('sub_status', $this->subStatus($workOrder));
-        $workOrder->setAttribute('has_overdue_items', $workOrder->status !== 'complete' && $nearest !== null && $nearest['level'] === 'red');
-        $workOrder->setAttribute('has_rejected_items', $workOrder->items->contains('status', 'rejected'));
+        return [
+            'data' => $items->items(),
+            'meta' => [
+                'current_page' => $items->currentPage(),
+                'from' => $items->firstItem(),
+                'last_page' => $items->lastPage(),
+                'per_page' => $items->perPage(),
+                'to' => $items->lastItem(),
+                'total' => $items->total(),
+            ],
+        ];
     }
 
-    private function subStatus(WorkOrder $workOrder): ?array
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    private function applyBoardItemSiteScope(Builder $query, User $user): Builder
     {
-        if ($workOrder->items->contains(fn (WorkOrderItem $item): bool => in_array($item->status, ['replace', 'postpone', 'pending_create'], true))) {
-            return ['key' => 'waiting_approval', 'label' => 'Menunggu Approval'];
+        if ($this->canAccessAllSites($user)) {
+            return $query;
         }
 
-        if ($workOrder->status !== 'in_progress') {
-            return null;
+        if ($user->hasRole(UserRole::Mekanik)) {
+            return $query->where('units.site_id', $user->site_id);
         }
 
-        if ($workOrder->assignedMechanic !== null && $workOrder->scheduled_date !== null) {
-            return ['key' => 'assigned', 'label' => 'Mekanik: '.$workOrder->assignedMechanic->name];
+        if ($user->hasRole(UserRole::PlannerArea)) {
+            if ($user->region_id === null) {
+                return $query->where('units.site_id', $user->site_id);
+            }
+
+            return $query->whereIn('units.site_id', Site::query()->select('id')->where('region_id', $user->region_id));
         }
 
-        if ($workOrder->items->contains(fn (WorkOrderItem $item): bool => $item->action === 'replace' && $item->status === 'in_progress')) {
-            return ['key' => 'waiting_part', 'label' => 'Menunggu Part'];
-        }
-
-        return ['key' => 'working', 'label' => 'Dikerjakan'];
+        return $query;
     }
 
-    private function completedItemsCount(WorkOrder $workOrder): int
+    private function searchTerm(Request $request): string
     {
-        return $this->workOrderProgressService->completedItemsCount($workOrder->items);
+        return trim((string) $request->input('search', ''));
     }
 
-    private function remainingItemsCount(WorkOrder $workOrder): int
+    /**
+     * Pencarian cepat lintas kolom: cocok ke sebagian plat unit atau sebagian
+     * nama item maintenance, tanpa membedakan huruf besar/kecil maupun spasi
+     * pada plat. Dipakai baik untuk query item board maupun preview planning
+     * karena keduanya sudah men-join tabel units dan punya relasi planningItem.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    private function applySearchScope(Builder $query, string $search): Builder
     {
-        return $this->workOrderProgressService->remainingItemsCount($workOrder->items);
+        $needle = '%'.mb_strtolower($search).'%';
+        $compactNeedle = '%'.str_replace(' ', '', mb_strtolower($search)).'%';
+
+        return $query->where(fn (Builder $searchQuery): Builder => $searchQuery
+            ->whereRaw('lower(units.current_plate) like ?', [$needle])
+            ->orWhereRaw("replace(lower(units.current_plate), ' ', '') like ?", [$compactNeedle])
+            ->orWhereHas('planningItem', fn (Builder $planningItemQuery): Builder => $planningItemQuery
+                ->whereRaw('lower(planning_items.name) like ?', [$needle])));
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    private function applyJoinedCompleteBaselineScope(Builder $query): Builder
+    {
+        return $query
+            ->where('units.has_odometer_reading', true)
+            ->whereExists(fn ($baselineQuery) => $baselineQuery
+                ->selectRaw('1')
+                ->from('unit_plannings as baseline_plannings')
+                ->whereColumn('baseline_plannings.unit_id', 'units.id')
+                ->where('baseline_plannings.last_done_km', '!=', 0));
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    private function applyBoardItemColumnScope(Builder $query, string $column): Builder
+    {
+        $today = CarbonImmutable::today()->toDateString();
+
+        if ($column === 'complete') {
+            return $query->where('work_order_items.status', 'complete');
+        }
+
+        if ($column === 'in_progress') {
+            return $query
+                ->where('work_order_items.status', 'in_progress')
+                ->whereNotNull('work_orders.assigned_mechanic_id')
+                ->whereNotNull('work_orders.scheduled_date')
+                ->whereDate('work_orders.scheduled_date', '<=', $today);
+        }
+
+        return $query->where(fn (Builder $onHoldQuery): Builder => $onHoldQuery
+            ->whereIn('work_order_items.status', self::ON_HOLD_ITEM_STATUSES)
+            ->orWhere(fn (Builder $rejectedQuery): Builder => $rejectedQuery
+                ->where('work_order_items.status', 'rejected')
+                ->whereIn('work_order_items.action', self::RESUBMITTABLE_REJECTED_ACTIONS))
+            ->orWhere(fn (Builder $notStartedQuery): Builder => $notStartedQuery
+                ->where('work_order_items.status', 'in_progress')
+                ->where(fn (Builder $scheduleQuery): Builder => $scheduleQuery
+                    ->whereNull('work_orders.assigned_mechanic_id')
+                    ->orWhereNull('work_orders.scheduled_date')
+                    ->orWhereDate('work_orders.scheduled_date', '>', $today))));
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @param  array<int, int>  $priorityPlanningItemIds
+     */
+    private function applyBoardItemSort(Builder $query, string $column, string $sortBy, array $priorityPlanningItemIds): void
+    {
+        if ($column === 'complete') {
+            $query
+                ->orderByRaw('CASE WHEN work_order_items.completed_date IS NULL THEN 1 ELSE 0 END')
+                ->orderByDesc('work_order_items.completed_date')
+                ->orderByDesc('work_order_items.id');
+
+            return;
+        }
+
+        if ($sortBy === 'priority' && $priorityPlanningItemIds !== []) {
+            $placeholders = implode(', ', array_fill(0, count($priorityPlanningItemIds), '?'));
+            $query->orderByRaw("CASE WHEN work_order_items.planning_item_id IN ({$placeholders}) THEN 0 ELSE 1 END", $priorityPlanningItemIds);
+        }
+
+        if ($sortBy === 'due_km') {
+            $query
+                ->orderByRaw('CASE WHEN unit_plannings.next_due_km IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('unit_plannings.next_due_km')
+                ->orderByRaw('CASE WHEN unit_plannings.next_due_date IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('unit_plannings.next_due_date')
+                ->orderBy('work_order_items.id');
+
+            return;
+        }
+
+        $query
+            ->orderByRaw('CASE WHEN unit_plannings.next_due_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('unit_plannings.next_due_date')
+            ->orderByRaw('CASE WHEN unit_plannings.next_due_km IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('unit_plannings.next_due_km')
+            ->orderBy('work_order_items.id');
+    }
+
+    /**
+     * Jumlah item yang masih perlu ditindak per unit, tanpa terpengaruh filter tampilan.
+     *
+     * @param  array<int, int>  $unitIds
+     * @return Collection<int, int>
+     */
+    private function actionableItemCountsByUnit(array $unitIds): Collection
+    {
+        if ($unitIds === []) {
+            return collect();
+        }
+
+        return WorkOrderItem::query()
+            ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
+            ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
+            ->where('unit_plannings.is_excluded', false)
+            ->whereIn('work_orders.unit_id', $unitIds)
+            ->where(fn (Builder $query): Builder => $query
+                ->whereIn('work_order_items.status', [...self::ON_HOLD_ITEM_STATUSES, 'in_progress'])
+                ->orWhere(fn (Builder $rejectedQuery): Builder => $rejectedQuery
+                    ->where('work_order_items.status', 'rejected')
+                    ->whereIn('work_order_items.action', self::RESUBMITTABLE_REJECTED_ACTIONS)))
+            ->groupBy('work_orders.unit_id')
+            ->selectRaw('work_orders.unit_id as unit_id, count(*) as actionable_count')
+            ->pluck('actionable_count', 'unit_id');
+    }
+
+    private function isActionableItem(WorkOrderItem $item): bool
+    {
+        if ($item->status === 'rejected') {
+            return in_array($item->action, self::RESUBMITTABLE_REJECTED_ACTIONS, true);
+        }
+
+        return in_array($item->status, [...self::ON_HOLD_ITEM_STATUSES, 'in_progress'], true);
+    }
+
+    private function boardItemPhase(WorkOrderItem $item): string
+    {
+        if ($item->status === 'complete') {
+            return 'complete';
+        }
+
+        if ($item->status === 'in_progress' && $this->mechanicWorkHasStarted($item->workOrder)) {
+            return 'in_progress';
+        }
+
+        return 'on_hold';
+    }
+
+    private function mechanicWorkHasStarted(?WorkOrder $workOrder): bool
+    {
+        if ($workOrder === null || $workOrder->assigned_mechanic_id === null || $workOrder->scheduled_date === null) {
+            return false;
+        }
+
+        return CarbonImmutable::parse($workOrder->scheduled_date)->lessThanOrEqualTo(CarbonImmutable::today());
+    }
+
+    /**
+     * @param  array{warning_days: int, warning_km: int, ancang_ancang_days: int, ancang_ancang_km: int, upcoming_days: int, upcoming_km: int}  $thresholds
+     * @param  Collection<int, int>  $actionableCounts
+     * @return array<string, mixed>
+     */
+    private function boardItemPayload(WorkOrderItem $item, array $thresholds, Collection $actionableCounts): array
+    {
+        $workOrder = $item->workOrder;
+        $unit = $workOrder?->unit;
+        $due = $this->dueMeta($unit, $item->unitPlanning, $thresholds);
+        $unitActionableCount = (int) $actionableCounts->get($unit?->id, 0);
+        $otherActionableCount = max($unitActionableCount - ($this->isActionableItem($item) ? 1 : 0), 0);
+
+        return [
+            'id' => $item->id,
+            'work_order_id' => $item->work_order_id,
+            'unit_id' => $unit?->id,
+            'site_id' => $unit?->site_id,
+            'unit_plate' => $unit?->current_plate ?? '-',
+            'site_name' => $unit?->site?->name,
+            'item_name' => $item->planningItem?->name ?? 'Pekerjaan maintenance',
+            'due_km' => $item->unitPlanning?->next_due_km,
+            'due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
+            'due' => $due,
+            'phase' => $this->boardItemPhase($item),
+            'badges' => $this->boardItemBadges($item, $due),
+            'other_active_items_count' => $otherActionableCount,
+            'is_priority' => in_array($item->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true),
+            'status' => $item->status,
+            'action' => $item->action,
+            'baseline_missing' => $item->unitPlanning?->isBaselineMissing() ?? true,
+            'unit_breakdown' => $unit?->status === 'breakdown',
+            'unit_current_odo' => (int) ($unit?->current_odo ?? 0),
+            'reason' => $item->reason,
+            'new_due_km' => $item->new_due_km,
+            'new_due_date' => $item->new_due_date?->toDateString(),
+            'completed_date' => $item->completed_date?->toDateString(),
+            'assigned_mechanic_id' => $workOrder?->assigned_mechanic_id,
+            'scheduled_date' => $workOrder?->scheduled_date?->toDateString(),
+        ];
+    }
+
+    /**
+     * Badge card memakai bahasa sehari-hari, tanpa nama status internal.
+     *
+     * @param  array<string, mixed>|null  $due
+     * @return array<int, array{key: string, tone: string, label: string}>
+     */
+    private function boardItemBadges(WorkOrderItem $item, ?array $due): array
+    {
+        $badges = [];
+
+        if ($item->status !== 'complete' && $due !== null && $due['level'] === 'red') {
+            $badges[] = [
+                'key' => 'late',
+                'tone' => 'danger',
+                'label' => $due['overdue_days'] !== null
+                    ? 'Terlambat '.$due['overdue_days'].' hari'
+                    : 'Lewat '.number_format((int) $due['overdue_km'], 0, ',', '.').' KM',
+            ];
+        }
+
+        if ($item->unitPlanning?->isBaselineMissing() ?? true) {
+            $badges[] = ['key' => 'baseline_missing', 'tone' => 'neutral', 'label' => 'Data awal belum diisi'];
+        }
+
+        $phaseBadge = $this->boardItemPhaseBadge($item);
+
+        if ($phaseBadge !== null) {
+            $badges[] = $phaseBadge;
+        }
+
+        return $badges;
+    }
+
+    /**
+     * @return array{key: string, tone: string, label: string}|null
+     */
+    private function boardItemPhaseBadge(WorkOrderItem $item): ?array
+    {
+        if (in_array($item->status, ['replace', 'postpone', 'pending_create'], true)) {
+            return ['key' => 'waiting_approval', 'tone' => 'info', 'label' => 'Menunggu persetujuan'];
+        }
+
+        if ($item->status === 'rejected') {
+            return ['key' => 'rejected', 'tone' => 'rejected', 'label' => 'Pengajuan ditolak, ajukan ulang'];
+        }
+
+        if ($item->status === 'blocked') {
+            return ['key' => 'waiting_part', 'tone' => 'warning', 'label' => 'Menunggu part'];
+        }
+
+        if ($item->status === 'breakdown') {
+            return ['key' => 'breakdown', 'tone' => 'danger', 'label' => 'Unit rusak, belum bisa dikerjakan'];
+        }
+
+        if ($item->status === 'complete') {
+            return [
+                'key' => 'done',
+                'tone' => 'safe',
+                'label' => 'Selesai'.($item->completed_date === null ? '' : ' '.$item->completed_date->toDateString()),
+            ];
+        }
+
+        if ($item->status === 'in_progress') {
+            $workOrder = $item->workOrder;
+
+            if ($this->mechanicWorkHasStarted($workOrder)) {
+                return ['key' => 'working', 'tone' => 'info', 'label' => 'Sedang dikerjakan'];
+            }
+
+            if ($workOrder?->assignedMechanic !== null && $workOrder->scheduled_date !== null) {
+                return [
+                    'key' => 'scheduled',
+                    'tone' => 'neutral',
+                    'label' => $workOrder->assignedMechanic->name.' - '.$workOrder->scheduled_date->toDateString(),
+                ];
+            }
+
+            if ($item->action === 'replace') {
+                return ['key' => 'waiting_part', 'tone' => 'warning', 'label' => 'Menunggu part'];
+            }
+
+            return ['key' => 'waiting_mechanic', 'tone' => 'neutral', 'label' => 'Menunggu jadwal mekanik'];
+        }
+
+        return ['key' => 'not_started', 'tone' => 'neutral', 'label' => 'Belum ada tindakan'];
     }
 
     /**
@@ -729,6 +1046,7 @@ class WorkOrderController extends Controller
             ->when($filters['unit_id'] ?? null, fn ($query, string $unitId) => $query->where('unit_id', $unitId))
             ->when($planningItemIds !== [], fn ($query) => $query->whereIn('planning_item_id', $planningItemIds))
             ->when(! $includeIncompleteBaseline, fn ($query) => $query->whereHas('unit', fn (Builder $unitQuery): Builder => $this->applyCompleteUnitBaselineScope($unitQuery)))
+            ->when($this->searchTerm($request) !== '', fn (Builder $query) => $this->applySearchScope($query, $this->searchTerm($request)))
             ->where(fn ($query) => $this->applyPreviewZoneScope($query, $zone, $thresholds));
 
         $this->applyPreviewSort($items, $sortBy, $priorityPlanningItemIds);
@@ -762,63 +1080,6 @@ class WorkOrderController extends Controller
                 'total' => $items->total(),
             ],
         ];
-    }
-
-    /**
-     * @return array<string, Builder>
-     */
-    private function boardSortColumns(): array
-    {
-        return [
-            'nearest_due_date_sort' => UnitPlanning::query()
-                ->select('unit_plannings.next_due_date')
-                ->join('work_order_items as due_date_items', 'due_date_items.unit_planning_id', '=', 'unit_plannings.id')
-                ->whereColumn('due_date_items.work_order_id', 'work_orders.id')
-                ->where('unit_plannings.is_excluded', false)
-                ->whereNotNull('unit_plannings.next_due_date')
-                ->orderBy('unit_plannings.next_due_date')
-                ->limit(1),
-            'nearest_due_km_sort' => UnitPlanning::query()
-                ->select('unit_plannings.next_due_km')
-                ->join('work_order_items as due_km_items', 'due_km_items.unit_planning_id', '=', 'unit_plannings.id')
-                ->whereColumn('due_km_items.work_order_id', 'work_orders.id')
-                ->where('unit_plannings.is_excluded', false)
-                ->whereNotNull('unit_plannings.next_due_km')
-                ->orderBy('unit_plannings.next_due_km')
-                ->limit(1),
-        ];
-    }
-
-    private function applyBoardSort(Builder $query, string $sortBy): Builder
-    {
-        if ($sortBy === 'due_date') {
-            return $query
-                ->orderByRaw('nearest_due_date_sort IS NULL')
-                ->orderBy('nearest_due_date_sort')
-                ->orderByRaw('nearest_due_km_sort IS NULL')
-                ->orderBy('nearest_due_km_sort')
-                ->orderByDesc('work_orders.created_at')
-                ->orderByDesc('work_orders.id');
-        }
-
-        if ($sortBy === 'due_km') {
-            return $query
-                ->orderByRaw('nearest_due_km_sort IS NULL')
-                ->orderBy('nearest_due_km_sort')
-                ->orderByRaw('nearest_due_date_sort IS NULL')
-                ->orderBy('nearest_due_date_sort')
-                ->orderByDesc('work_orders.created_at')
-                ->orderByDesc('work_orders.id');
-        }
-
-        return $query
-            ->orderByDesc('has_priority_items')
-            ->orderByRaw('nearest_due_date_sort IS NULL')
-            ->orderBy('nearest_due_date_sort')
-            ->orderByRaw('nearest_due_km_sort IS NULL')
-            ->orderBy('nearest_due_km_sort')
-            ->orderByDesc('work_orders.created_at')
-            ->orderByDesc('work_orders.id');
     }
 
     private function applyPreviewSort(Builder $query, string $sortBy, array $priorityPlanningItemIds): void
@@ -936,6 +1197,8 @@ class WorkOrderController extends Controller
             'next_due_date' => $planning->next_due_date?->toDateString(),
             'level' => $isOverdue ? 'red' : ($isWarning ? 'yellow' : 'green'),
             'label' => $isOverdue ? 'Overdue '.abs((int) ($daysUntilDue ?? 0)).' hari' : ($isWarning ? 'Warning' : 'Aman'),
+            'overdue_days' => $daysUntilDue !== null && $daysUntilDue < 0 ? abs((int) $daysUntilDue) : null,
+            'overdue_km' => $kmUntilDue !== null && $kmUntilDue < 0 ? abs((int) $kmUntilDue) : null,
             'sort_value' => min($daysUntilDue ?? 999999, $kmUntilDue ?? 999999),
         ];
     }

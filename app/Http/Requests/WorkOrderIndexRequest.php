@@ -18,6 +18,7 @@ class WorkOrderIndexRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'search' => ['nullable', 'string', 'max:100'],
             'site_id' => ['nullable', 'integer', Rule::exists('sites', 'id')],
             'status' => ['nullable', 'string', Rule::in(['open', 'in_progress', 'complete'])],
             'unit_id' => ['nullable', 'integer', Rule::exists('units', 'id')],

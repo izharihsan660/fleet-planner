@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
@@ -103,16 +104,16 @@ class WorkOrderBoardTest extends TestCase
         $completeUnit->update(['has_odometer_reading' => true]);
         $priorityPlanning = $this->planning($completeUnit, 'PM Check / Reguler Services', 19000, today()->subDay()->toDateString());
         $priorityPlanning->update(['last_done_km' => 15000]);
-        $priorityWorkOrder = $this->workOrderForPlanning($priorityPlanning);
+        $priorityItem = $this->overdueItemForPlanning($priorityPlanning);
 
         $incompleteUnit = $this->unit($planner->site_id, 30000, 100);
         $incompleteUnit->update(['has_odometer_reading' => false]);
         $servicePlanning = $this->planning($incompleteUnit, 'Service A', 29000, today()->subDays(2)->toDateString());
-        $serviceWorkOrder = $this->workOrderForPlanning($servicePlanning);
+        $serviceItem = $this->overdueItemForPlanning($servicePlanning);
 
         $otherUnit = $this->unit($planner->site_id, 40000, 100);
         $otherPlanning = $this->planning($otherUnit, 'Brake Pad', 39000, today()->subDays(3)->toDateString());
-        $this->workOrderForPlanning($otherPlanning);
+        $this->overdueItemForPlanning($otherPlanning);
 
         $selectedPlanningItemIds = [$priorityPlanning->planning_item_id, $servicePlanning->planning_item_id];
 
@@ -133,7 +134,7 @@ class WorkOrderBoardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->has('boardColumns.open.data', 1)
-                ->where('boardColumns.open.data.0.id', $priorityWorkOrder->id)
+                ->where('boardColumns.open.data.0.id', $priorityItem->id)
                 ->where('filters.include_incomplete_baseline', false)
             );
 
@@ -142,7 +143,7 @@ class WorkOrderBoardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->has('boardColumns.open.data', 1)
-                ->where('boardColumns.open.data.0.id', $serviceWorkOrder->id)
+                ->where('boardColumns.open.data.0.id', $serviceItem->id)
                 ->where('filters.planning_item_ids', [$servicePlanning->planning_item_id])
             );
     }
@@ -152,18 +153,18 @@ class WorkOrderBoardTest extends TestCase
         $planner = $this->adminSite();
         $selectedUnit = $this->unit($planner->site_id, 8697, 100);
         $selectedPlanning = $this->planning($selectedUnit, 'Selected Unit Service', 8000, today()->subDay()->toDateString());
-        $selectedWorkOrder = $this->workOrderForPlanning($selectedPlanning);
+        $selectedItem = $this->overdueItemForPlanning($selectedPlanning);
 
         $otherUnit = $this->unit($planner->site_id, 1234, 100);
         $otherPlanning = $this->planning($otherUnit, 'Other Unit Service', 1200, today()->subDay()->toDateString());
-        $this->workOrderForPlanning($otherPlanning);
+        $this->overdueItemForPlanning($otherPlanning);
 
         $this->actingAs($planner)
             ->get(route('work-orders.index', ['unit_id' => $selectedUnit->id]))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->has('boardColumns.open.data', 1)
-                ->where('boardColumns.open.data.0.id', $selectedWorkOrder->id)
+                ->where('boardColumns.open.data.0.id', $selectedItem->id)
                 ->where('filters.unit_id', (string) $selectedUnit->id)
             );
 
@@ -176,16 +177,20 @@ class WorkOrderBoardTest extends TestCase
         $this->assertStringContainsString("unit.current_plate.toLocaleLowerCase('id-ID').includes(normalizedQuery)", $comboboxSource);
     }
 
-    public function test_board_exposes_mixed_work_order_item_counts(): void
+    public function test_board_places_every_item_of_one_work_order_in_its_own_card(): void
     {
         $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
         $unit = $this->unit($planner->site_id, 30000, 100);
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
             'site_id' => $unit->site_id,
-            'status' => 'open',
+            'status' => 'in_progress',
             'trigger_type' => 'normal',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
         ]);
+        $itemIds = [];
 
         foreach ([
             ['Flushing Rem', 'on_hold', true],
@@ -211,52 +216,372 @@ class WorkOrderBoardTest extends TestCase
                 ]);
             }
 
-            WorkOrderItem::query()->create([
+            $itemIds[$name] = WorkOrderItem::query()->create([
                 'work_order_id' => $workOrder->id,
                 'unit_planning_id' => $planning->id,
                 'planning_item_id' => $planning->planning_item_id,
                 'status' => $status,
-                'action' => in_array($status, ['replace', 'postpone', 'blocked', 'breakdown'], true) ? $status : null,
-            ]);
+                'action' => $status === 'rejected'
+                    ? 'replace'
+                    : (in_array($status, ['replace', 'postpone', 'blocked', 'breakdown'], true) ? $status : null),
+            ])->id;
         }
 
         $response = $this->actingAs($planner)
             ->get(route('work-orders.index'))
             ->assertOk();
 
-        $response->assertInertia(fn (Assert $page) => $page
-            ->where('boardColumns.open.data.0.id', $workOrder->id)
-            ->where('boardColumns.open.data.0.items_count', 11)
-            ->where('boardColumns.open.data.0.completed_items_count', 2)
-            ->where('boardColumns.open.data.0.remaining_items_count', 9)
-            ->where('boardColumns.open.data.0.blocked_items_count', 1)
-            ->where('boardColumns.open.data.0.is_direct_completion_ready', false)
-            ->where('boardColumns.open.data.0.overdue_items_count', 1)
-            ->where('boardColumns.open.data.0.rejected_items_count', 1)
-            ->where('boardColumns.open.data.0.baseline_incomplete_items_count', 1)
+        $onHoldIds = collect($response->inertiaProps('boardColumns.open.data'))->pluck('id');
+        $inProgressIds = collect($response->inertiaProps('boardColumns.in_progress.data'))->pluck('id');
+        $completeIds = collect($response->inertiaProps('boardColumns.complete.data'))->pluck('id');
+
+        $this->assertSame([$itemIds['Service A']], $inProgressIds->all());
+        $this->assertSame([$itemIds['Completed Item']], $completeIds->all());
+        $this->assertSame(8, $onHoldIds->count());
+        $this->assertEqualsCanonicalizing([
+            $itemIds['Flushing Rem'],
+            $itemIds['Brake Pad'],
+            $itemIds['Filter Udara'],
+            $itemIds['Greasing'],
+            $itemIds['Ban Depan'],
+            $itemIds['Ban Belakang'],
+            $itemIds['Engine Check'],
+            $itemIds['Waiting Part'],
+        ], $onHoldIds->all());
+
+        // Item postponed sudah tuntas untuk siklus ini dan tidak lagi memenuhi board.
+        $this->assertFalse($onHoldIds->merge($inProgressIds)->merge($completeIds)->contains($itemIds['Approved Postpone']));
+    }
+
+    public function test_unit_with_twenty_items_shows_one_in_progress_card_and_the_rest_on_hold(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
+        $unit = $this->unit($planner->site_id, 50000, 100);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'in_progress',
+            'trigger_type' => 'normal',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+        ]);
+
+        $workedPlanning = $this->planning($unit, 'Service B', 51000, today()->addDays(5)->toDateString());
+        $workedItem = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $workedPlanning->id,
+            'planning_item_id' => $workedPlanning->planning_item_id,
+            'status' => 'in_progress',
+        ]);
+
+        $onHoldItemIds = [];
+
+        for ($index = 1; $index <= 19; $index++) {
+            $isBaselineMissing = $index > 10;
+            $planning = $this->planning($unit, 'Item Antre '.$index, 49000, today()->subDays($index)->toDateString());
+
+            if ($isBaselineMissing) {
+                $planning->update(['last_done_km' => 0, 'last_done_date' => null, 'next_due_km' => null, 'next_due_date' => null]);
+            }
+
+            $onHoldItemIds[] = WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => 'on_hold',
+            ])->id;
+        }
+
+        $response = $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk();
+
+        $inProgressCards = collect($response->inertiaProps('boardColumns.in_progress.data'));
+        $onHoldCards = collect($response->inertiaProps('boardColumns.open.data'));
+
+        $this->assertSame([$workedItem->id], $inProgressCards->pluck('id')->all());
+        $this->assertSame(19, $onHoldCards->count());
+        $this->assertEqualsCanonicalizing($onHoldItemIds, $onHoldCards->pluck('id')->all());
+        $this->assertSame([19], $inProgressCards->pluck('other_active_items_count')->unique()->values()->all());
+        $this->assertSame([19], $onHoldCards->pluck('other_active_items_count')->unique()->values()->all());
+    }
+
+    public function test_completing_one_item_moves_only_that_item_and_keeps_sibling_statuses(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 60000, 100);
+        $unit->update(['has_odometer_reading' => true]);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'open',
+            'trigger_type' => 'normal',
+        ]);
+
+        $targetPlanning = $this->planning($unit, 'Service A', 59000, today()->subDay()->toDateString());
+        $targetPlanning->update(['last_done_km' => 49000]);
+        $targetItem = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $targetPlanning->id,
+            'planning_item_id' => $targetPlanning->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        $siblingStatuses = ['on_hold', 'overdue', 'replace', 'postpone', 'blocked', 'rejected'];
+        $siblingItems = [];
+
+        foreach ($siblingStatuses as $index => $status) {
+            $planning = $this->planning($unit, 'Sibling '.$status, 61000 + $index, today()->addDays(5)->toDateString());
+            $siblingItems[] = WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => $status,
+                'action' => in_array($status, ['replace', 'postpone', 'blocked'], true) ? $status : ($status === 'rejected' ? 'replace' : null),
+            ]);
+        }
+
+        $statusesBefore = WorkOrderItem::query()
+            ->whereKeyNot($targetItem->id)
+            ->pluck('status', 'id')
+            ->all();
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.complete', [$workOrder, $targetItem]), [
+                'completed_odo' => 60500,
+                'completed_date' => today()->toDateString(),
+            ])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('complete', $targetItem->refresh()->status);
+        $this->assertSame($statusesBefore, WorkOrderItem::query()->whereKeyNot($targetItem->id)->pluck('status', 'id')->all());
+
+        $response = $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk();
+
+        $onHoldIds = collect($response->inertiaProps('boardColumns.open.data'))->pluck('id');
+        $inProgressIds = collect($response->inertiaProps('boardColumns.in_progress.data'))->pluck('id');
+        $completeIds = collect($response->inertiaProps('boardColumns.complete.data'))->pluck('id');
+        $upcomingPlanningIds = collect($response->inertiaProps('boardColumns.upcoming.data'))->pluck('id')
+            ->merge(collect($response->inertiaProps('boardColumns.preparation.data'))->pluck('id'));
+
+        $this->assertFalse($onHoldIds->contains($targetItem->id));
+        $this->assertFalse($inProgressIds->contains($targetItem->id));
+        $this->assertTrue($completeIds->contains($targetItem->id));
+        $this->assertEqualsCanonicalizing(
+            collect($siblingItems)->pluck('id')->all(),
+            $onHoldIds->all(),
+            'Semua item lain tetap berada di kolom On Hold.'
         );
 
-        $card = collect($response->inertiaProps('boardColumns.open.data'))->firstWhere('id', $workOrder->id);
-        $breakdown = collect($card['active_item_breakdown']);
+        // Item yang selesai baru muncul lagi di preview saat jadwal berikutnya mendekat.
+        $this->assertFalse($upcomingPlanningIds->contains($targetPlanning->id));
+        $this->assertTrue($targetPlanning->refresh()->next_due_date->greaterThan(today()->addDays(30)));
+    }
 
-        $this->assertSame($card['remaining_items_count'], $breakdown->sum('count'));
-        $this->assertSame([
-            'overdue' => 1,
-            'rejected' => 1,
-            'baseline_incomplete' => 1,
-            'in_progress' => 1,
-            'on_hold' => 1,
-            'replace' => 1,
-            'postpone' => 1,
-            'breakdown' => 1,
-            'blocked' => 1,
-        ], $breakdown->pluck('count', 'key')->all());
+    /**
+     * Regresi model lama (1 card per WO): begitu 1 item di-complete, seluruh WO
+     * hilang dari board bersama item yang belum selesai. Di model card per item
+     * visibility tiap item harus berdiri sendiri.
+     */
+    public function test_completing_one_item_does_not_hide_the_other_items_of_the_same_unit(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
+        $unit = $this->unit($planner->site_id, 70000, 100);
+        $unit->update(['has_odometer_reading' => true]);
+
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'in_progress',
+            'trigger_type' => 'normal',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+            'approved_by' => $planner->id,
+            'approved_at' => now(),
+        ]);
+
+        // Item A: sedang dikerjakan mekanik hari ini.
+        $planningA = $this->planning($unit, 'Service A', 71000, today()->addDays(5)->toDateString());
+        $planningA->update(['last_done_km' => 61000]);
+        $itemA = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planningA->id,
+            'planning_item_id' => $planningA->planning_item_id,
+            'status' => 'in_progress',
+        ]);
+
+        // Item B: overdue 3 hari dan lewat 1.000 KM.
+        $planningB = $this->planning($unit, 'Brake Pad', 69000, today()->subDays(3)->toDateString());
+        $planningB->update(['last_done_km' => 59000]);
+        $itemB = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planningB->id,
+            'planning_item_id' => $planningB->planning_item_id,
+            'status' => 'overdue',
+        ]);
+
+        // Item C: baseline belum diisi, jadi belum punya due sama sekali.
+        $planningC = $this->planning($unit, 'Flushing Rem', 72000, today()->addDays(9)->toDateString());
+        $planningC->update([
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_km' => null,
+            'next_due_date' => null,
+        ]);
+        $itemC = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planningC->id,
+            'planning_item_id' => $planningC->planning_item_id,
+            'status' => 'on_hold',
+        ]);
+
+        $boardBefore = $this->boardSnapshot($planner);
+
+        $this->assertSame([$itemA->id], $boardBefore['in_progress']->pluck('id')->all());
+        $this->assertEqualsCanonicalizing([$itemB->id, $itemC->id], $boardBefore['open']->pluck('id')->all());
+        $this->assertSame([], $boardBefore['complete']->pluck('id')->all());
+
+        $cardBBefore = $boardBefore['open']->firstWhere('id', $itemB->id);
+        $cardCBefore = $boardBefore['open']->firstWhere('id', $itemC->id);
+
+        // Mekanik klik Complete pada item A saja.
+        $this->actingAs($mechanic)
+            ->post(route('work-orders.items.complete', [$workOrder, $itemA]), [
+                'completed_odo' => 70500,
+                'completed_date' => today()->toDateString(),
+            ])
+            ->assertRedirect(route('mechanic.tasks'));
+
+        $this->assertSame('complete', $itemA->refresh()->status);
+        $this->assertSame('overdue', $itemB->refresh()->status);
+        $this->assertSame('on_hold', $itemC->refresh()->status);
+
+        $boardAfter = $this->boardSnapshot($planner);
+
+        // Item A pindah ke Complete, dan hanya item A.
+        $this->assertSame([$itemA->id], $boardAfter['complete']->pluck('id')->all());
+        $this->assertSame(1, $boardAfter['completeTotal']);
+        $this->assertSame([], $boardAfter['in_progress']->pluck('id')->all());
+
+        // Item B dan C tetap di On Hold, bukan 0 dan bukan hilang bersama WO.
+        $this->assertEqualsCanonicalizing(
+            [$itemB->id, $itemC->id],
+            $boardAfter['open']->pluck('id')->all(),
+            'Item lain di unit yang sama tetap muncul di kolom On Hold.'
+        );
+        $this->assertSame(2, $boardAfter['openTotal']);
+
+        $cardBAfter = $boardAfter['open']->firstWhere('id', $itemB->id);
+        $cardCAfter = $boardAfter['open']->firstWhere('id', $itemC->id);
+
+        // Item B: status overdue-nya persis sama seperti sebelum item A selesai.
+        $this->assertSame('overdue', $cardBAfter['status']);
+        $this->assertSame('on_hold', $cardBAfter['phase']);
+        $this->assertSame('red', $cardBAfter['due']['level']);
+        $this->assertSame(3, $cardBAfter['due']['overdue_days']);
+        $this->assertSame(1000, $cardBAfter['due']['overdue_km']);
+        $this->assertFalse($cardBAfter['baseline_missing']);
+        $this->assertContains('Terlambat 3 hari', collect($cardBAfter['badges'])->pluck('label')->all());
+        $this->assertSame($cardBBefore['badges'], $cardBAfter['badges']);
+        $this->assertSame($cardBBefore['due'], $cardBAfter['due']);
+
+        // Item C: tetap ditandai baseline belum diisi, tanpa due palsu.
+        $this->assertSame('on_hold', $cardCAfter['status']);
+        $this->assertSame('on_hold', $cardCAfter['phase']);
+        $this->assertTrue($cardCAfter['baseline_missing']);
+        $this->assertNull($cardCAfter['due']);
+        $this->assertContains('Data awal belum diisi', collect($cardCAfter['badges'])->pluck('label')->all());
+        $this->assertSame($cardCBefore['badges'], $cardCAfter['badges']);
+
+        // Sisa item aktif dihitung per unit, bukan per WO.
+        $this->assertSame([1], $boardAfter['open']->pluck('other_active_items_count')->unique()->values()->all());
+
+        // work_orders.status ikut berubah setelah sebagian item selesai, tapi tidak
+        // boleh dipakai sebagai filter yang menyembunyikan item B dan C.
+        $this->assertSame('open', $workOrder->refresh()->status);
+
+        $workOrder->update(['status' => 'complete']);
+
+        $boardWithCompletedWorkOrder = $this->boardSnapshot($planner);
+
+        $this->assertEqualsCanonicalizing(
+            [$itemB->id, $itemC->id],
+            $boardWithCompletedWorkOrder['open']->pluck('id')->all(),
+            'work_orders.status = complete tidak boleh menyembunyikan item yang belum selesai.'
+        );
+        $this->assertSame(2, $boardWithCompletedWorkOrder['openTotal']);
+        $this->assertSame([$itemA->id], $boardWithCompletedWorkOrder['complete']->pluck('id')->all());
+    }
+
+    public function test_board_cards_hide_work_order_numbers_and_use_plain_language_badges(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id, 'name' => 'Budi']);
+        $unit = $this->unit($planner->site_id, 30000, 100);
+        $latePlanning = $this->planning($unit, 'Brake Pad', 31000, today()->subDays(3)->toDateString());
+        $baselinePlanning = $this->planning($unit, 'Flushing Rem', 31000, today()->addDays(5)->toDateString());
+        $baselinePlanning->update(['last_done_km' => 0, 'last_done_date' => null, 'next_due_km' => null, 'next_due_date' => null]);
+        $approvalPlanning = $this->planning($unit, 'Ban Depan', 31000, today()->addDays(5)->toDateString());
+        $scheduledPlanning = $this->planning($unit, 'Service A', 31000, today()->addDays(5)->toDateString());
+
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'in_progress',
+            'trigger_type' => 'normal',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->addDays(2)->toDateString(),
+        ]);
+
+        $lateItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $latePlanning->id, 'planning_item_id' => $latePlanning->planning_item_id, 'status' => 'on_hold']);
+        $baselineItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $baselinePlanning->id, 'planning_item_id' => $baselinePlanning->planning_item_id, 'status' => 'on_hold']);
+        $approvalItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $approvalPlanning->id, 'planning_item_id' => $approvalPlanning->planning_item_id, 'status' => 'replace', 'action' => 'replace']);
+        $scheduledItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $scheduledPlanning->id, 'planning_item_id' => $scheduledPlanning->planning_item_id, 'status' => 'in_progress']);
+
+        $cards = collect($this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->inertiaProps('boardColumns.open.data'))->keyBy('id');
+
+        $labelsFor = fn (int $itemId): array => collect($cards[$itemId]['badges'])->pluck('label')->all();
+
+        $this->assertContains('Terlambat 3 hari', $labelsFor($lateItem->id));
+        $this->assertContains('Data awal belum diisi', $labelsFor($baselineItem->id));
+        $this->assertContains('Menunggu persetujuan', $labelsFor($approvalItem->id));
+        $this->assertContains('Budi - '.today()->addDays(2)->toDateString(), $labelsFor($scheduledItem->id));
+        $this->assertSame('Brake Pad', $cards[$lateItem->id]['item_name']);
+        $this->assertSame($unit->current_plate, $cards[$lateItem->id]['unit_plate']);
+
+        foreach ($cards as $card) {
+            $this->assertSame(3, $card['other_active_items_count']);
+            $this->assertStringNotContainsString('Overdue', implode(' ', collect($card['badges'])->pluck('label')->all()));
+        }
 
         $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx'));
 
-        $this->assertStringContainsString('`Tinjau ${remainingItems} Item →`', $pageSource);
-        $this->assertStringContainsString('`Selesaikan ${remainingItems} Item →`', $pageSource);
-        $this->assertStringNotContainsString('Lihat & Selesaikan', $pageSource);
+        $this->assertStringNotContainsString('WO #', $pageSource);
+        $this->assertStringContainsString('Unit ini juga punya {item.other_active_items_count} item lain yang perlu ditindak', $pageSource);
+        $this->assertStringContainsString("route('work-orders.show', item.work_order_id)", $pageSource);
+    }
+
+    public function test_single_item_unit_card_omits_other_items_hint(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 30000, 100);
+        $planning = $this->planning($unit, 'Brake Pad', 31000, today()->addDays(5)->toDateString());
+        $item = $this->overdueItemForPlanning($planning);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('boardColumns.open.data.0.id', $item->id)
+                ->where('boardColumns.open.data.0.other_active_items_count', 0)
+            );
     }
 
     public function test_board_defaults_to_priority_and_supports_due_date_and_due_km_sorting(): void
@@ -265,19 +590,19 @@ class WorkOrderBoardTest extends TestCase
 
         $regularUnit = $this->unit($planner->site_id, 50000, 100);
         $regularPlanning = $this->planning($regularUnit, 'Brake Shoe', 51000, today()->addDay()->toDateString());
-        $regularWorkOrder = $this->workOrderForPlanning($regularPlanning);
+        $regularItem = $this->overdueItemForPlanning($regularPlanning);
 
         $priorityUnit = $this->unit($planner->site_id, 60000, 100);
         $priorityPlanning = $this->planning($priorityUnit, 'Service B', 65000, today()->addDays(5)->toDateString());
-        $priorityWorkOrder = $this->workOrderForPlanning($priorityPlanning);
+        $priorityItem = $this->overdueItemForPlanning($priorityPlanning);
 
         $this->actingAs($planner)
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('boardColumns.open.data.0.id', $priorityWorkOrder->id)
-                ->where('boardColumns.open.data.0.has_priority_items', true)
-                ->where('boardColumns.open.data.0.planning_item_names.0', 'Service B')
+                ->where('boardColumns.open.data.0.id', $priorityItem->id)
+                ->where('boardColumns.open.data.0.is_priority', true)
+                ->where('boardColumns.open.data.0.item_name', 'Service B')
                 ->where('filters.sort_by', 'priority')
             );
 
@@ -286,7 +611,7 @@ class WorkOrderBoardTest extends TestCase
                 ->get(route('work-orders.index', ['sort_by' => $sortBy]))
                 ->assertOk()
                 ->assertInertia(fn (Assert $page) => $page
-                    ->where('boardColumns.open.data.0.id', $regularWorkOrder->id)
+                    ->where('boardColumns.open.data.0.id', $regularItem->id)
                     ->where('filters.sort_by', $sortBy)
                 );
         }
@@ -299,10 +624,10 @@ class WorkOrderBoardTest extends TestCase
         $this->assertStringContainsString('const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig>', $pageSource);
         $this->assertStringContainsString('Belum ada task Upcoming', $pageSource);
         $this->assertStringContainsString('Belum ada task Ancang-ancang', $pageSource);
-        $this->assertStringContainsString('Belum ada WO yang menunggu tindak lanjut', $pageSource);
-        $this->assertStringContainsString('Belum ada WO yang aktif dikerjakan', $pageSource);
-        $this->assertStringContainsString('WO akan pindah ke sini setelah item di-approve Spv HO dan berstatus in_progress.', $pageSource);
-        $this->assertStringContainsString('Belum ada WO yang selesai', $pageSource);
+        $this->assertStringContainsString('Belum ada pekerjaan yang perlu ditindak', $pageSource);
+        $this->assertStringContainsString('Belum ada pekerjaan yang sedang dikerjakan', $pageSource);
+        $this->assertStringContainsString('Pekerjaan pindah ke sini saat mekanik sudah mulai mengerjakannya sesuai tanggal rencana.', $pageSource);
+        $this->assertStringContainsString('Belum ada pekerjaan yang selesai', $pageSource);
         $this->assertStringContainsString("label: 'Lihat kolom On Hold'", $pageSource);
         $this->assertStringContainsString("targetColumn: 'open'", $pageSource);
         $this->assertStringContainsString("element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });", $pageSource);
@@ -576,7 +901,7 @@ class WorkOrderBoardTest extends TestCase
         $this->assertSame('breakdown', $breakdownItem->refresh()->status);
     }
 
-    public function test_work_order_card_exposes_total_and_remaining_item_counts(): void
+    public function test_completed_item_leaves_the_active_columns_while_sibling_stays(): void
     {
         $planner = $this->adminSite();
         $unit = $this->unit($planner->site_id, 10000, 100);
@@ -589,13 +914,15 @@ class WorkOrderBoardTest extends TestCase
             'trigger_type' => 'normal',
         ]);
 
-        WorkOrderItem::query()->create([
+        $completeItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $completePlanning->id,
             'planning_item_id' => $completePlanning->planning_item_id,
             'status' => 'complete',
+            'completed_date' => today()->toDateString(),
+            'completed_odo' => 10000,
         ]);
-        WorkOrderItem::query()->create([
+        $overdueItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $overduePlanning->id,
             'planning_item_id' => $overduePlanning->planning_item_id,
@@ -606,14 +933,17 @@ class WorkOrderBoardTest extends TestCase
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('boardColumns.open.data.0.id', $workOrder->id)
-                ->where('boardColumns.open.data.0.items_count', 2)
-                ->where('boardColumns.open.data.0.completed_items_count', 1)
-                ->where('boardColumns.open.data.0.remaining_items_count', 1)
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $overdueItem->id)
+                ->where('boardColumns.open.data.0.other_active_items_count', 0)
+                ->has('boardColumns.in_progress.data', 0)
+                ->has('boardColumns.complete.data', 1)
+                ->where('boardColumns.complete.data.0.id', $completeItem->id)
+                ->where('boardColumns.complete.data.0.badges.0.label', 'Selesai '.today()->toDateString())
             );
     }
 
-    public function test_work_order_board_exposes_multi_item_progress_and_assigned_mechanic_meta(): void
+    public function test_item_is_in_progress_only_after_the_scheduled_mechanic_day_arrives(): void
     {
         $planner = $this->adminSite();
         $mechanic = User::factory()->create([
@@ -630,71 +960,41 @@ class WorkOrderBoardTest extends TestCase
             'assigned_mechanic_id' => $mechanic->id,
             'scheduled_date' => today()->toDateString(),
         ]);
-
-        foreach ([
-            'Complete A' => 'complete',
-            'Complete B' => 'complete',
-            'Postpone C' => 'postponed',
-            'Blocked D' => 'blocked',
-            'Belum Disentuh E' => 'in_progress',
-        ] as $name => $status) {
-            $planning = $this->planning($unit, $name, 12000, today()->addDays(10)->toDateString());
-
-            WorkOrderItem::query()->create([
-                'work_order_id' => $workOrder->id,
-                'unit_planning_id' => $planning->id,
-                'planning_item_id' => $planning->planning_item_id,
-                'status' => $status,
-                'action' => $status === 'postponed' ? 'postpone' : null,
-            ]);
-        }
-
-        $this->actingAs($planner)
-            ->get(route('work-orders.index'))
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->where('boardColumns.in_progress.data.0.id', $workOrder->id)
-                ->where('boardColumns.in_progress.data.0.items_count', 5)
-                ->where('boardColumns.in_progress.data.0.completed_items_count', 3)
-                ->where('boardColumns.in_progress.data.0.remaining_items_count', 2)
-                ->where('boardColumns.in_progress.data.0.is_direct_completion_ready', false)
-                ->where('boardColumns.in_progress.data.0.sub_status.key', 'assigned')
-                ->where('boardColumns.in_progress.data.0.sub_status.label', 'Mekanik: '.$mechanic->name)
-                ->where('boardColumns.in_progress.data.0.assigned_mechanic.name', $mechanic->name)
-            );
-    }
-
-    public function test_complete_column_keeps_total_item_count_instead_of_zero(): void
-    {
-        $planner = $this->adminSite();
-        $unit = $this->unit($planner->site_id, 10000, 100);
-        $planning = $this->planning($unit, 'Greasing', 12000, today()->addDays(10)->toDateString());
-        $workOrder = WorkOrder::query()->create([
-            'unit_id' => $unit->id,
-            'site_id' => $unit->site_id,
-            'status' => 'complete',
-            'trigger_type' => 'normal',
-        ]);
-
-        WorkOrderItem::query()->create([
+        $planning = $this->planning($unit, 'Belum Disentuh E', 12000, today()->addDays(10)->toDateString());
+        $item = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $planning->id,
             'planning_item_id' => $planning->planning_item_id,
-            'status' => 'complete',
+            'status' => 'in_progress',
         ]);
 
         $this->actingAs($planner)
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('boardColumns.complete.data.0.id', $workOrder->id)
-                ->where('boardColumns.complete.data.0.items_count', 1)
-                ->where('boardColumns.complete.data.0.completed_items_count', 1)
-                ->where('boardColumns.complete.data.0.remaining_items_count', 0)
+                ->has('boardColumns.open.data', 0)
+                ->has('boardColumns.in_progress.data', 1)
+                ->where('boardColumns.in_progress.data.0.id', $item->id)
+                ->where('boardColumns.in_progress.data.0.phase', 'in_progress')
+                ->where('boardColumns.in_progress.data.0.badges.0.label', 'Sedang dikerjakan')
             );
+
+        $workOrder->update(['scheduled_date' => today()->addDays(3)->toDateString()]);
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.in_progress.data', 0)
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $item->id)
+                ->where('boardColumns.open.data.0.badges.0.label', $mechanic->name.' - '.today()->addDays(3)->toDateString())
+            );
+
+        $this->assertSame('in_progress', $item->refresh()->status);
     }
 
-    public function test_complete_work_order_remains_terminal_when_item_composition_is_mismatched(): void
+    public function test_complete_work_order_still_shows_its_unfinished_item_in_on_hold(): void
     {
         $planner = $this->adminSite();
         $unit = $this->unit($planner->site_id, 10000, 100);
@@ -707,13 +1007,13 @@ class WorkOrderBoardTest extends TestCase
             'trigger_type' => 'normal',
         ]);
 
-        WorkOrderItem::query()->create([
+        $completeItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $completePlanning->id,
             'planning_item_id' => $completePlanning->planning_item_id,
             'status' => 'complete',
         ]);
-        WorkOrderItem::query()->create([
+        $overdueItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $overduePlanning->id,
             'planning_item_id' => $overduePlanning->planning_item_id,
@@ -724,10 +1024,10 @@ class WorkOrderBoardTest extends TestCase
             ->get(route('work-orders.index'))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('boardColumns.complete.data.0.id', $workOrder->id)
-                ->where('boardColumns.complete.data.0.items_count', 2)
-                ->where('boardColumns.complete.data.0.completed_items_count', 1)
-                ->where('boardColumns.complete.data.0.remaining_items_count', 1)
+                ->has('boardColumns.complete.data', 1)
+                ->where('boardColumns.complete.data.0.id', $completeItem->id)
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $overdueItem->id)
             );
 
         $this->artisan('work-orders:audit-statuses')
@@ -739,6 +1039,210 @@ class WorkOrderBoardTest extends TestCase
             ->assertSuccessful();
 
         $this->assertSame('complete', $workOrder->refresh()->status);
+    }
+
+    public function test_quick_search_matches_partial_plate_across_every_column(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
+
+        $targetUnit = $this->unit($planner->site_id, 8473, 100);
+        $targetUnit->update(['current_plate' => 'KT 8473 ZH']);
+        $otherUnit = $this->unit($planner->site_id, 1200, 100);
+        $otherUnit->update(['current_plate' => 'KT 9911 AB']);
+
+        $targetWorkOrder = WorkOrder::query()->create([
+            'unit_id' => $targetUnit->id,
+            'site_id' => $targetUnit->site_id,
+            'status' => 'in_progress',
+            'trigger_type' => 'normal',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+        ]);
+
+        $targetOnHold = WorkOrderItem::query()->create([
+            'work_order_id' => $targetWorkOrder->id,
+            'unit_planning_id' => $this->planning($targetUnit, 'Brake Pad', 9000, today()->addDays(5)->toDateString())->id,
+            'planning_item_id' => PlanningItem::query()->where('name', 'Brake Pad')->value('id'),
+            'status' => 'on_hold',
+        ]);
+        $targetInProgress = WorkOrderItem::query()->create([
+            'work_order_id' => $targetWorkOrder->id,
+            'unit_planning_id' => $this->planning($targetUnit, 'Greasing', 9000, today()->addDays(5)->toDateString())->id,
+            'planning_item_id' => PlanningItem::query()->where('name', 'Greasing')->value('id'),
+            'status' => 'in_progress',
+        ]);
+        $targetComplete = WorkOrderItem::query()->create([
+            'work_order_id' => $targetWorkOrder->id,
+            'unit_planning_id' => $this->planning($targetUnit, 'Filter Oli', 9000, today()->addDays(5)->toDateString())->id,
+            'planning_item_id' => PlanningItem::query()->where('name', 'Filter Oli')->value('id'),
+            'status' => 'complete',
+            'completed_date' => today()->toDateString(),
+        ]);
+
+        $otherItem = $this->overdueItemForPlanning($this->planning($otherUnit, 'Ban Depan', 1100, today()->subDay()->toDateString()));
+
+        foreach (['8473', 'kt 8473', 'KT8473'] as $term) {
+            $response = $this->actingAs($planner)
+                ->get(route('work-orders.index', ['search' => $term]))
+                ->assertOk();
+
+            $this->assertSame([$targetOnHold->id], collect($response->inertiaProps('boardColumns.open.data'))->pluck('id')->all(), $term);
+            $this->assertSame([$targetInProgress->id], collect($response->inertiaProps('boardColumns.in_progress.data'))->pluck('id')->all(), $term);
+            $this->assertSame([$targetComplete->id], collect($response->inertiaProps('boardColumns.complete.data'))->pluck('id')->all(), $term);
+        }
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['search' => '8473']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('filters.search', '8473'));
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('filters.search', '')
+                ->where('boardColumns.open.data', fn ($items): bool => collect($items)->pluck('id')->contains($otherItem->id))
+            );
+    }
+
+    public function test_quick_search_matches_item_name_regardless_of_letter_case(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
+        $serviceB = PlanningItem::query()->create(['name' => 'Service B', 'interval_km' => 10000, 'interval_days' => 180]);
+
+        $matchingItemIds = [];
+
+        foreach ([['in_progress', 5000], ['on_hold', 6000]] as $index => [$status, $odo]) {
+            $unit = $this->unit($planner->site_id, $odo, 100);
+            $planning = UnitPlanning::query()->updateOrCreate(
+                ['unit_id' => $unit->id, 'planning_item_id' => $serviceB->id],
+                [
+                    'last_done_km' => 0,
+                    'last_done_date' => today()->subDays(180)->toDateString(),
+                    'next_due_km' => $odo + 1000,
+                    'next_due_date' => today()->addDays(5)->toDateString(),
+                ],
+            );
+            $workOrder = WorkOrder::query()->create([
+                'unit_id' => $unit->id,
+                'site_id' => $unit->site_id,
+                'status' => 'in_progress',
+                'trigger_type' => 'normal',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->toDateString(),
+            ]);
+
+            $matchingItemIds[$status] = WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $serviceB->id,
+                'status' => $status,
+            ])->id;
+
+            $otherPlanning = $this->planning($unit, 'Ban Belakang '.$index, $odo + 900, today()->addDays(5)->toDateString());
+            WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $otherPlanning->id,
+                'planning_item_id' => $otherPlanning->planning_item_id,
+                'status' => 'on_hold',
+            ]);
+        }
+
+        $response = $this->actingAs($planner)
+            ->get(route('work-orders.index', ['search' => 'service b']))
+            ->assertOk();
+
+        $this->assertSame([$matchingItemIds['on_hold']], collect($response->inertiaProps('boardColumns.open.data'))->pluck('id')->all());
+        $this->assertSame([$matchingItemIds['in_progress']], collect($response->inertiaProps('boardColumns.in_progress.data'))->pluck('id')->all());
+    }
+
+    public function test_quick_search_stacks_with_existing_dropdown_filters(): void
+    {
+        $planner = User::factory()->create(['role' => UserRole::Superadmin]);
+        $firstSite = Site::query()->create(['name' => 'Site Satu', 'region' => 'East']);
+        $secondSite = Site::query()->create(['name' => 'Site Dua', 'region' => 'East']);
+
+        SystemThreshold::query()->updateOrCreate(['key' => 'warning_days'], ['value' => '7']);
+        SystemThreshold::query()->updateOrCreate(['key' => 'warning_km'], ['value' => '1000']);
+
+        $firstUnit = $this->unit($firstSite->id, 7100, 100);
+        $firstUnit->update(['current_plate' => 'KT 8473 ZH']);
+        $secondUnit = $this->unit($secondSite->id, 7200, 100);
+        $secondUnit->update(['current_plate' => 'KT 8473 QQ']);
+
+        $firstItem = $this->overdueItemForPlanning($this->planning($firstUnit, 'Brake Pad Satu', 7000, today()->subDay()->toDateString()));
+        $secondItem = $this->overdueItemForPlanning($this->planning($secondUnit, 'Brake Pad Dua', 7000, today()->subDay()->toDateString()));
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['search' => '8473']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 2)
+                ->where('filters.search', '8473')
+            );
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['search' => '8473', 'site_id' => $firstSite->id]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 1)
+                ->where('boardColumns.open.data.0.id', $firstItem->id)
+                ->where('filters.search', '8473')
+                ->where('filters.site_id', (string) $firstSite->id)
+            );
+
+        $this->assertNotSame($firstItem->id, $secondItem->id);
+    }
+
+    public function test_search_box_filters_the_board_realtime_with_debounce_and_explains_empty_results(): void
+    {
+        $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx'));
+
+        $this->assertStringContainsString('placeholder="Cari unit atau item, misal: KT 8473 atau Service B"', $pageSource);
+        $this->assertStringContainsString('onChange={(event) => setSearch(event.target.value)}', $pageSource);
+        $this->assertStringContainsString('}, 300);', $pageSource);
+        $this->assertStringContainsString("only: ['boardColumns', 'filters']", $pageSource);
+        $this->assertStringContainsString("title: `Tidak ada hasil untuk '\${appliedSearch}'`", $pageSource);
+        $this->assertStringContainsString('search: search || undefined', $pageSource);
+        $this->assertStringContainsString('<UnitFilterCombobox units={units.data} value={unitId} onChange={setUnitId} />', $pageSource);
+        $this->assertStringContainsString('<MaintenanceItemFilter items={planningItems} selectedIds={planningItemIds} onChange={setPlanningItemIds} />', $pageSource);
+    }
+
+    public function test_search_without_matches_returns_empty_columns_and_keeps_the_keyword(): void
+    {
+        $planner = $this->adminSite();
+        $unit = $this->unit($planner->site_id, 3000, 100);
+        $this->overdueItemForPlanning($this->planning($unit, 'Brake Pad', 2900, today()->subDay()->toDateString()));
+
+        $this->actingAs($planner)
+            ->get(route('work-orders.index', ['search' => 'tidak-ada-plat-ini']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('boardColumns.open.data', 0)
+                ->has('boardColumns.in_progress.data', 0)
+                ->has('boardColumns.complete.data', 0)
+                ->where('filters.search', 'tidak-ada-plat-ini')
+            );
+    }
+
+    /**
+     * @return array{open: Collection<int, array<string, mixed>>, in_progress: Collection<int, array<string, mixed>>, complete: Collection<int, array<string, mixed>>, openTotal: int, completeTotal: int}
+     */
+    private function boardSnapshot(User $user): array
+    {
+        $response = $this->actingAs($user)
+            ->get(route('work-orders.index'))
+            ->assertOk();
+
+        return [
+            'open' => collect($response->inertiaProps('boardColumns.open.data')),
+            'in_progress' => collect($response->inertiaProps('boardColumns.in_progress.data')),
+            'complete' => collect($response->inertiaProps('boardColumns.complete.data')),
+            'openTotal' => (int) $response->inertiaProps('boardColumns.open.meta.total'),
+            'completeTotal' => (int) $response->inertiaProps('boardColumns.complete.meta.total'),
+        ];
     }
 
     private function adminSite(): User
@@ -807,7 +1311,7 @@ class WorkOrderBoardTest extends TestCase
         ])->load('workOrder.unit');
     }
 
-    private function workOrderForPlanning(UnitPlanning $planning): WorkOrder
+    private function overdueItemForPlanning(UnitPlanning $planning): WorkOrderItem
     {
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $planning->unit_id,
@@ -816,13 +1320,11 @@ class WorkOrderBoardTest extends TestCase
             'trigger_type' => 'normal',
         ]);
 
-        WorkOrderItem::query()->create([
+        return WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $planning->id,
             'planning_item_id' => $planning->planning_item_id,
             'status' => 'overdue',
         ]);
-
-        return $workOrder;
     }
 }

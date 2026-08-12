@@ -7,6 +7,7 @@ use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Support\WorkOrderMerger;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -35,11 +36,7 @@ class MaintenanceTriggerService
                 return [];
             }
 
-            $workOrder = WorkOrder::query()
-                ->where('unit_id', $unit->id)
-                ->where('status', 'open')
-                ->latest('id')
-                ->first();
+            $workOrder = WorkOrderMerger::openWorkOrderFor($unit->id);
 
             if (! $workOrder) {
                 $workOrder = WorkOrder::query()->create([

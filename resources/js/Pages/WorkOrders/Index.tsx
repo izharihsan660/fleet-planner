@@ -4,6 +4,7 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import StatusBadge from '@/Components/StatusBadge';
 import UnitFilterCombobox from '@/Components/UnitFilterCombobox';
+import { BlockedItemForm, CompleteItemForm, PostponeForm, ReplaceForm } from '@/Components/WorkOrderItemActionForms';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Checkbox } from '@/Components/ui/checkbox';
@@ -11,9 +12,9 @@ import { Input } from '@/Components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { cn } from '@/lib/utils';
-import { PageProps, PaginatedCollection, PlanningItem, Site, Unit, User, WorkOrder, WorkOrderPreviewItem } from '@/types';
+import { PageProps, PaginatedCollection, PlanningItem, Site, Unit, User, WorkOrderBoardItem, WorkOrderPreviewItem } from '@/types';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { ClipboardList, Inbox } from 'lucide-react';
+import { ClipboardList, Inbox, Search } from 'lucide-react';
 import { FormEvent, useEffect, useRef, useState } from 'react';
 
 interface ResourceCollection<T> {
@@ -42,9 +43,9 @@ type EmptyColumnConfig = {
 type BoardColumns = {
     upcoming: PaginatedCollection<WorkOrderPreviewItem>;
     preparation: PaginatedCollection<WorkOrderPreviewItem>;
-    open: PaginatedCollection<WorkOrder>;
-    in_progress: PaginatedCollection<WorkOrder>;
-    complete: PaginatedCollection<WorkOrder>;
+    open: PaginatedCollection<WorkOrderBoardItem>;
+    in_progress: PaginatedCollection<WorkOrderBoardItem>;
+    complete: PaginatedCollection<WorkOrderBoardItem>;
 };
 
 const columnPageParam: Record<ColumnKey, string> = {
@@ -65,20 +66,20 @@ const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig> = {
         description: 'Task akan muncul saat jadwal atau KM memasuki batas ancang-ancang.',
     },
     open: {
-        title: 'Belum ada WO yang menunggu tindak lanjut',
-        description: 'WO akan muncul di sini saat ada item yang perlu approval, penjadwalan, atau tindak lanjut.',
+        title: 'Belum ada pekerjaan yang perlu ditindak',
+        description: 'Pekerjaan muncul di sini saat sudah waktunya dikerjakan, menunggu persetujuan, atau menunggu part.',
     },
     in_progress: {
-        title: 'Belum ada WO yang aktif dikerjakan',
-        description: 'WO akan pindah ke sini setelah item di-approve Spv HO dan berstatus in_progress.',
+        title: 'Belum ada pekerjaan yang sedang dikerjakan',
+        description: 'Pekerjaan pindah ke sini saat mekanik sudah mulai mengerjakannya sesuai tanggal rencana.',
         action: {
             label: 'Lihat kolom On Hold',
             targetColumn: 'open',
         },
     },
     complete: {
-        title: 'Belum ada WO yang selesai',
-        description: 'Belum ada WO yang selesai dikerjakan pada periode atau filter ini.',
+        title: 'Belum ada pekerjaan yang selesai',
+        description: 'Pekerjaan yang sudah dituntaskan mekanik akan tercatat di sini.',
     },
 };
 
@@ -97,14 +98,6 @@ const dueTone = {
     red: 'danger',
 } as const;
 
-function itemSummary(names: string[] = []): string {
-    if (names.length <= 2) {
-        return names.join(', ') || '-';
-    }
-
-    return `${names.slice(0, 2).join(', ')} +${names.length - 2} lainnya`;
-}
-
 function selectValue(value: string): string {
     return value || 'all';
 }
@@ -113,10 +106,10 @@ function filterValue(value: string): string {
     return value === 'all' ? '' : value;
 }
 
-function AssignMechanicForm({ workOrder, mechanics, onCancel }: { workOrder: WorkOrder; mechanics: User[]; onCancel: () => void }) {
+function AssignMechanicForm({ item, mechanics, onCancel }: { item: WorkOrderBoardItem; mechanics: User[]; onCancel: () => void }) {
     const form = useForm({
-        assigned_mechanic_id: workOrder.assigned_mechanic_id?.toString() ?? '',
-        scheduled_date: workOrder.scheduled_date ?? '',
+        assigned_mechanic_id: item.assigned_mechanic_id?.toString() ?? '',
+        scheduled_date: item.scheduled_date ?? '',
     });
     const [showConfirm, setShowConfirm] = useState(false);
     const selectedMechanic = mechanics.find((mechanic) => mechanic.id.toString() === form.data.assigned_mechanic_id);
@@ -125,7 +118,7 @@ function AssignMechanicForm({ workOrder, mechanics, onCancel }: { workOrder: Wor
         event.preventDefault();
         setShowConfirm(true);
     };
-    const confirm = () => form.post(route('work-orders.assign-mechanic', workOrder.id), { onSuccess: onCancel, onFinish: () => setShowConfirm(false), preserveScroll: true });
+    const confirm = () => form.post(route('work-orders.assign-mechanic', item.work_order_id), { onSuccess: onCancel, onFinish: () => setShowConfirm(false), preserveScroll: true });
 
     return (
         <>
@@ -151,7 +144,7 @@ function AssignMechanicForm({ workOrder, mechanics, onCancel }: { workOrder: Wor
                     <SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton>
                 </div>
             </form>
-            <ConfirmDialog show={showConfirm} message={`Assign mekanik ${selectedMechanic?.name ?? '-'} ke WO #${workOrder.id} pada ${form.data.scheduled_date || '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} />
+            <ConfirmDialog show={showConfirm} message={`Jadwalkan ${selectedMechanic?.name ?? '-'} untuk ${item.unit_plate} pada ${form.data.scheduled_date || '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} />
         </>
     );
 }
@@ -204,95 +197,61 @@ function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewIte
     );
 }
 
-function WorkOrderProgress({ workOrder }: { workOrder: WorkOrder }) {
-    const totalItems = workOrder.items_count ?? workOrder.items?.length ?? 0;
-    const completedItems = workOrder.completed_items_count ?? 0;
-    const percentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
+type ItemFormType = 'replace' | 'postpone' | 'blocked' | 'complete' | 'assign';
 
-    if (totalItems <= 1) {
-        return null;
-    }
-
-    return (
-        <div className="space-y-1.5">
-            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percentage}%` }} />
-            </div>
-            <p className="text-xs text-muted-foreground">{completedItems} dari {totalItems} tuntas</p>
-        </div>
-    );
-}
-
-function WorkOrderCard({ workOrder, mechanics, canAssign, canReview, canApprove, assignId, setAssignId }: { workOrder: WorkOrder; mechanics: User[]; canAssign: boolean; canReview: boolean; canApprove: boolean; assignId: number | null; setAssignId: (id: number | null) => void }) {
-    const remainingItems = workOrder.remaining_items_count ?? workOrder.items_count ?? workOrder.items?.length ?? 0;
-    const itemBreakdown = workOrder.active_item_breakdown?.map((item) => `${item.count} ${item.label}`) ?? [];
-    const isWaitingApproval = workOrder.sub_status?.key === 'waiting_approval';
-    const isWaitingPart = workOrder.sub_status?.key === 'waiting_part';
-    const hasAssignedMechanic = workOrder.assigned_mechanic_id !== null;
-    const canShowAssign = canAssign && workOrder.status === 'in_progress' && !isWaitingApproval && !isWaitingPart && !hasAssignedMechanic;
-    const canShowReview = canReview && workOrder.status === 'open';
-    const canShowApproval = canApprove && isWaitingApproval;
-    const canShowCompletion = workOrder.status === 'in_progress' && hasAssignedMechanic && !isWaitingApproval && !isWaitingPart;
-    const completionCtaLabel = remainingItems === 0
-        ? 'Tinjau Work Order →'
-        : workOrder.is_direct_completion_ready
-            ? `Selesaikan ${remainingItems} Item →`
-            : `Tinjau ${remainingItems} Item →`;
+function BoardItemCard({ item, mechanics, canAssign, canSubmitActions, canCondition, activeForm, setActiveForm }: { item: WorkOrderBoardItem; mechanics: User[]; canAssign: boolean; canSubmitActions: boolean; canCondition: boolean; activeForm: { itemId: number; type: ItemFormType } | null; setActiveForm: (form: { itemId: number; type: ItemFormType } | null) => void }) {
+    const isOpenForm = (type: ItemFormType) => activeForm?.itemId === item.id && activeForm.type === type;
+    const toggleForm = (type: ItemFormType) => setActiveForm(isOpenForm(type) ? null : { itemId: item.id, type });
+    const closeForm = () => setActiveForm(null);
+    const actionsLocked = item.unit_breakdown;
+    const lockedMessage = 'Unit sedang rusak. Input KM baru dan isi part yang diganti sebelum melanjutkan.';
+    const canSubmitNewAction = canSubmitActions && !item.baseline_missing && ['on_hold', 'blocked', 'overdue'].includes(item.status);
+    const canResubmitRejected = canSubmitActions && !item.baseline_missing && item.status === 'rejected' && ['replace', 'postpone'].includes(item.action ?? '');
+    const canMarkWaitingPart = canCondition && !item.baseline_missing && ['on_hold', 'in_progress', 'overdue'].includes(item.status);
+    const canComplete = canCondition && !item.baseline_missing && item.phase === 'in_progress';
+    const canSchedule = canAssign && item.phase === 'on_hold' && item.status === 'in_progress' && item.assigned_mechanic_id === null;
 
     return (
         <Card className="gap-3 shadow-xs transition hover:border-ring/40 hover:shadow-sm">
             <CardContent className="space-y-3">
-                <Link href={route('work-orders.show', workOrder.id)} className="block">
-                    <div className="flex flex-wrap items-start gap-2">
-                        <div className="min-w-0 flex-1 basis-36">
-                            <p className="truncate whitespace-nowrap font-semibold text-foreground">{workOrder.unit?.current_plate}</p>
-                            <p className="text-sm text-muted-foreground">WO #{workOrder.id} · {workOrder.site?.name}</p>
-                        </div>
-                        {workOrder.nearest_due && <div className="shrink-0 basis-full sm:basis-auto"><StatusBadge tone={dueTone[workOrder.nearest_due.level]}>{workOrder.nearest_due.label}</StatusBadge></div>}
-                    </div>
-                    <p className="mt-3 text-sm font-medium text-foreground">{itemSummary(workOrder.planning_item_names)}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{remainingItems} item aktif{itemBreakdown.length > 0 ? ` (${itemBreakdown.join(', ')})` : ''} · {workOrder.trigger_type}</span>{workOrder.trigger_type === 'manual' && <StatusBadge tone="blocked">Temuan Manual</StatusBadge>}</div>
+                <Link href={route('work-orders.show', item.work_order_id)} className="block">
+                    <p className="truncate whitespace-nowrap text-lg font-semibold text-foreground">{item.unit_plate}</p>
+                    {item.site_name && <p className="text-xs text-muted-foreground">{item.site_name}</p>}
+                    <p className="mt-2 text-sm font-medium text-foreground">{item.item_name}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Due: {item.due_date ?? '-'} · KM {item.due_km?.toLocaleString('id-ID') ?? '-'}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                        {workOrder.has_priority_items && <StatusBadge tone="priority">Prioritas</StatusBadge>}
-                        {workOrder.sub_status && workOrder.sub_status.key !== 'assigned' && <StatusBadge tone="neutral">{workOrder.sub_status.label}</StatusBadge>}
-                        {workOrder.has_missing_baseline_items && <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>}
-                        {workOrder.has_high_usage_items && <StatusBadge tone="highUsage">High Usage</StatusBadge>}
-                        {workOrder.has_overdue_items && <StatusBadge tone="danger">Overdue</StatusBadge>}
-                        {workOrder.has_blocked_items && <StatusBadge tone="blocked">Blocked</StatusBadge>}
-                        {workOrder.has_rejected_items && <StatusBadge tone="rejected">Rejected</StatusBadge>}
+                        {item.is_priority && <StatusBadge tone="priority">Prioritas</StatusBadge>}
+                        {item.badges.map((badge) => <StatusBadge key={badge.key} tone={badge.tone}>{badge.label}</StatusBadge>)}
                     </div>
                 </Link>
-                <WorkOrderProgress workOrder={workOrder} />
-                {hasAssignedMechanic && workOrder.assigned_mechanic && (
-                    <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md bg-muted px-3 py-2 text-xs font-medium text-muted-foreground" title={workOrder.assigned_mechanic.name}>
-                        Mekanik: {workOrder.assigned_mechanic.name}
-                    </p>
+                {item.other_active_items_count > 0 && (
+                    <p className="text-xs text-muted-foreground">Unit ini juga punya {item.other_active_items_count} item lain yang perlu ditindak</p>
                 )}
-                {canShowReview && (
+                {item.baseline_missing && (
                     <Button asChild variant="secondary" className="w-full text-xs normal-case">
-                        <Link href={route('work-orders.show', workOrder.id)}>Tinjau &amp; Tindak Lanjuti</Link>
+                        <Link href={route('work-orders.show', item.work_order_id)}>Isi data awal →</Link>
                     </Button>
                 )}
-                {canShowApproval && (
-                    <div className="grid grid-cols-2 gap-2">
-                        <Button type="button" className="text-xs normal-case" onClick={() => router.post(route('work-orders.approve', workOrder.id), {}, { preserveScroll: true })}>Approve</Button>
-                        <Button type="button" variant="destructive" className="text-xs normal-case" onClick={() => router.post(route('work-orders.reject', workOrder.id), {}, { preserveScroll: true })}>Reject</Button>
-                    </div>
+                {actionsLocked && (canSubmitNewAction || canResubmitRejected || canMarkWaitingPart || canComplete) && (
+                    <p className="text-xs font-medium text-destructive">{lockedMessage}</p>
                 )}
-                {canShowAssign && (
-                    <div>
-                        <SecondaryButton type="button" className="w-full text-xs normal-case" onClick={() => setAssignId(assignId === workOrder.id ? null : workOrder.id)}>
-                            Assign Mekanik
-                        </SecondaryButton>
-                        {assignId === workOrder.id && <AssignMechanicForm workOrder={workOrder} mechanics={mechanics} onCancel={() => setAssignId(null)} />}
-                    </div>
-                )}
-                {canShowCompletion && (
-                    <Button asChild className="h-auto min-h-8 w-full whitespace-normal px-3 py-2 text-center text-xs leading-snug normal-case">
-                        <Link href={route('work-orders.show', workOrder.id)}>
-                            {completionCtaLabel}
-                        </Link>
-                    </Button>
+                {!actionsLocked && (
+                    <>
+                        <div className="flex flex-wrap gap-2">
+                            {canSubmitNewAction && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Submit Replace</SecondaryButton>}
+                            {canSubmitNewAction && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Submit Postpone</SecondaryButton>}
+                            {canResubmitRejected && item.action === 'replace' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Submit Ulang Replace</SecondaryButton>}
+                            {canResubmitRejected && item.action === 'postpone' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Submit Ulang Postpone</SecondaryButton>}
+                            {canMarkWaitingPart && item.status !== 'blocked' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('blocked')}>Blocked</SecondaryButton>}
+                            {canSchedule && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('assign')}>Jadwalkan Mekanik</SecondaryButton>}
+                            {canComplete && <PrimaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('complete')}>Selesaikan</PrimaryButton>}
+                        </div>
+                        {isOpenForm('replace') && <ReplaceForm workOrderId={item.work_order_id} itemId={item.id} itemName={item.item_name} defaultReason={item.reason} mechanics={mechanics.filter((mechanic) => mechanic.site_id === item.site_id)} assignedMechanicId={item.assigned_mechanic_id} scheduledDate={item.scheduled_date} onCancel={closeForm} />}
+                        {isOpenForm('postpone') && <PostponeForm workOrderId={item.work_order_id} itemId={item.id} itemName={item.item_name} defaultReason={item.reason} defaultDueKm={item.new_due_km ?? item.due_km} defaultDueDate={item.new_due_date ?? item.due_date} onCancel={closeForm} />}
+                        {isOpenForm('blocked') && <BlockedItemForm itemId={item.id} itemName={item.item_name} onCancel={closeForm} />}
+                        {isOpenForm('complete') && <CompleteItemForm workOrderId={item.work_order_id} itemId={item.id} itemName={item.item_name} currentOdo={item.unit_current_odo} stacked onCancel={closeForm} onSuccess={closeForm} />}
+                        {isOpenForm('assign') && <AssignMechanicForm item={item} mechanics={mechanics.filter((mechanic) => mechanic.site_id === item.site_id)} onCancel={closeForm} />}
+                    </>
                 )}
             </CardContent>
         </Card>
@@ -318,8 +277,9 @@ function EmptyColumn({ config, onNavigate }: { config: EmptyColumnConfig; onNavi
     );
 }
 
-export default function Index({ boardColumns, sites, units, mechanics, planningItems, filters, canCreateUpcomingTask, canAssignMechanic, canReviewWorkOrders, canApproveWorkOrders }: PageProps<{ boardColumns: BoardColumns; sites: ResourceCollection<Site>; units: ResourceCollection<Unit>; mechanics: User[]; planningItems: PlanningItem[]; filters: { site_id: string; status: string; unit_id: string; assignee_id: string; planning_item_ids: number[]; include_incomplete_baseline: boolean; sort_by: 'priority' | 'due_date' | 'due_km' }; canCreateUpcomingTask: boolean; canAssignMechanic: boolean; canReviewWorkOrders: boolean; canApproveWorkOrders: boolean }>) {
+export default function Index({ boardColumns, sites, units, mechanics, planningItems, filters, canCreateUpcomingTask, canAssignMechanic, canSubmitItemActions, canConditionItems }: PageProps<{ boardColumns: BoardColumns; sites: ResourceCollection<Site>; units: ResourceCollection<Unit>; mechanics: User[]; planningItems: PlanningItem[]; filters: { search: string; site_id: string; status: string; unit_id: string; assignee_id: string; planning_item_ids: number[]; include_incomplete_baseline: boolean; sort_by: 'priority' | 'due_date' | 'due_km' }; canCreateUpcomingTask: boolean; canAssignMechanic: boolean; canSubmitItemActions: boolean; canConditionItems: boolean }>) {
     const [visibleColumns, setVisibleColumns] = useState(boardColumns);
+    const [search, setSearch] = useState(filters.search ?? '');
     const [siteId, setSiteId] = useState(filters.site_id ?? '');
     const [status, setStatus] = useState(filters.status ?? '');
     const [unitId, setUnitId] = useState(filters.unit_id ?? '');
@@ -327,12 +287,14 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
     const [assigneeId, setAssigneeId] = useState(filters.assignee_id ?? '');
     const [includeIncompleteBaseline, setIncludeIncompleteBaseline] = useState(filters.include_incomplete_baseline ?? true);
     const [sortBy, setSortBy] = useState<'priority' | 'due_date' | 'due_km'>(filters.sort_by ?? 'priority');
-    const [assignId, setAssignId] = useState<number | null>(null);
+    const [activeForm, setActiveForm] = useState<{ itemId: number; type: ItemFormType } | null>(null);
     const [highlightedColumn, setHighlightedColumn] = useState<ColumnKey | null>(null);
 
     const isLoadingMore = useRef(false);
     const columnRefs = useRef<Partial<Record<ColumnKey, HTMLElement | null>>>({});
     const highlightTimer = useRef<number | null>(null);
+    const requestedSearch = useRef(filters.search ?? '');
+    const appliedSearch = filters.search ?? '';
 
     useEffect(() => {
         if (isLoadingMore.current) {
@@ -371,33 +333,50 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
         }, 2500);
     };
 
+    const filterQuery = (overrides: Record<string, unknown> = {}) => ({
+        search: search || undefined,
+        site_id: siteId || undefined,
+        status: status || undefined,
+        unit_id: unitId || undefined,
+        assignee_id: assigneeId || undefined,
+        planning_item_ids: planningItemIds.length > 0 ? planningItemIds : undefined,
+        include_incomplete_baseline: includeIncompleteBaseline ? 1 : 0,
+        sort_by: sortBy,
+        ...overrides,
+    });
+
+    useEffect(() => {
+        if (search === requestedSearch.current) {
+            return;
+        }
+
+        const timer = window.setTimeout(() => {
+            requestedSearch.current = search;
+            router.get(route('work-orders.index'), filterQuery(), {
+                only: ['boardColumns', 'filters'],
+                preserveScroll: true,
+                preserveState: true,
+                replace: true,
+            });
+        }, 300);
+
+        return () => window.clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [search]);
+
     const filter = (event: FormEvent) => {
         event.preventDefault();
-        router.get(route('work-orders.index'), {
-            site_id: siteId || undefined,
-            status: status || undefined,
-            unit_id: unitId || undefined,
-            assignee_id: assigneeId || undefined,
-            planning_item_ids: planningItemIds.length > 0 ? planningItemIds : undefined,
-            include_incomplete_baseline: includeIncompleteBaseline ? 1 : 0,
-            sort_by: sortBy,
-        }, { preserveState: true, replace: true });
+        requestedSearch.current = search;
+        router.get(route('work-orders.index'), filterQuery(), { preserveState: true, replace: true });
     };
 
     const loadMore = (column: ColumnKey) => {
         const currentColumn = visibleColumns[column];
         isLoadingMore.current = true;
 
-        router.get(route('work-orders.index'), {
-            site_id: siteId || undefined,
-            status: status || undefined,
-            unit_id: unitId || undefined,
-            assignee_id: assigneeId || undefined,
-            planning_item_ids: planningItemIds.length > 0 ? planningItemIds : undefined,
-            include_incomplete_baseline: includeIncompleteBaseline ? 1 : 0,
-            sort_by: sortBy,
+        router.get(route('work-orders.index'), filterQuery({
             [columnPageParam[column]]: currentColumn.meta.current_page + 1,
-        }, {
+        }), {
             only: ['boardColumns'],
             preserveScroll: true,
             preserveState: true,
@@ -426,6 +405,18 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                     <Card>
                         <CardContent>
                             <form onSubmit={filter} className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                <div className="relative md:col-span-2 xl:col-span-4">
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        type="search"
+                                        value={search}
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        aria-label="Cari unit atau item"
+                                        placeholder="Cari unit atau item, misal: KT 8473 atau Service B"
+                                        maxLength={100}
+                                        className="pl-9"
+                                    />
+                                </div>
                                 <Select value={selectValue(siteId)} onValueChange={(value) => setSiteId(filterValue(value))}>
                                     <SelectTrigger><SelectValue placeholder="Semua Site" /></SelectTrigger>
                                     <SelectContent>
@@ -494,8 +485,9 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                         <CardContent className="space-y-3">
                                             {column.key === 'upcoming' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
                                             {column.key === 'preparation' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
-                                            {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrder[]).map((workOrder) => <WorkOrderCard key={workOrder.id} workOrder={workOrder} mechanics={mechanics} canAssign={canAssignMechanic} canReview={canReviewWorkOrders} canApprove={canApproveWorkOrders} assignId={assignId} setAssignId={setAssignId} />)}
-                                            {count === 0 && <EmptyColumn config={emptyColumnConfig[columnKey]} onNavigate={focusColumn} />}
+                                            {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrderBoardItem[]).map((item) => <BoardItemCard key={item.id} item={item} mechanics={mechanics} canAssign={canAssignMechanic} canSubmitActions={canSubmitItemActions} canCondition={canConditionItems} activeForm={activeForm} setActiveForm={setActiveForm} />)}
+                                            {count === 0 && appliedSearch !== '' && <EmptyColumn config={{ title: `Tidak ada hasil untuk '${appliedSearch}'`, description: 'Coba kata kunci lain, misal sebagian plat unit atau nama item maintenance.' }} onNavigate={focusColumn} />}
+                                            {count === 0 && appliedSearch === '' && <EmptyColumn config={emptyColumnConfig[columnKey]} onNavigate={focusColumn} />}
                                             {hasMore && (
                                                 <Button type="button" variant="outline" className="w-full" onClick={() => loadMore(columnKey)}>
                                                     Muat Lebih Banyak

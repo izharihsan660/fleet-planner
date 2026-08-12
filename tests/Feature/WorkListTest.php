@@ -45,6 +45,67 @@ class WorkListTest extends TestCase
         $this->assertNotContains($outsideItem->id, collect($this->actingAs($planner)->get(route('work-list.index'))->viewData('page')['props']['items'])->pluck('id'));
     }
 
+    /**
+     * Regresi pola "visibility ikut status container": Daftar Kerja dulu memfilter
+     * work_orders.status in ('open','in_progress'), jadi item yang kembali
+     * applicable di bawah WO yang sudah terminal — misalnya lewat jalur
+     * exclude → complete → un-exclude — hilang dari daftar padahal masih overdue.
+     */
+    public function test_daftar_kerja_shows_applicable_items_under_terminal_work_orders(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $completeWorkOrderItem = $this->createWorkListItem($site, 'KT 4004 DD', 'Filter Solar', 'overdue', today()->subDays(6)->toDateString());
+        $completeWorkOrderItem->workOrder->update(['status' => 'complete']);
+
+        $cancelledWorkOrderItem = $this->createWorkListItem($site, 'KT 5005 EE', 'Filter Udara', 'on_hold', today()->addDays(3)->toDateString());
+        $cancelledWorkOrderItem->workOrder->update(['status' => 'cancelled']);
+
+        $this->actingAs($planner)
+            ->get(route('work-list.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('items', 2)
+                ->where('items.0.id', $completeWorkOrderItem->id)
+                ->where('items.0.status_label', 'Telat 6 hari')
+                ->where('items.1.id', $cancelledWorkOrderItem->id)
+            );
+
+        // Item yang benar-benar selesai tetap tidak boleh muncul — yang menentukan
+        // status itemnya sendiri, bukan status WO induknya (ke dua arah).
+        $completeWorkOrderItem->update(['status' => 'complete']);
+
+        $this->actingAs($planner)
+            ->get(route('work-list.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('items', 1)
+                ->where('items.0.id', $cancelledWorkOrderItem->id)
+            );
+    }
+
+    public function test_item_under_terminal_work_order_can_still_be_submitted_from_daftar_kerja(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $item = $this->createWorkListItem($site, 'KT 6006 FF', 'Filter Oli', 'overdue', today()->subDays(4)->toDateString());
+        $item->workOrder->update(['status' => 'complete']);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        User::factory()->create(['role' => UserRole::SpvHo]);
+
+        $this->actingAs($planner)
+            ->post(route('work-list.store'), [
+                'groups' => [[
+                    'site_id' => $site->id,
+                    'action' => 'replace',
+                    'item_ids' => [$item->id],
+                    'assigned_mechanic_id' => $mechanic->id,
+                    'scheduled_date' => today()->addDay()->toDateString(),
+                ]],
+            ])
+            ->assertRedirect(route('work-list.index'));
+
+        $this->assertSame('replace', $item->refresh()->status);
+    }
+
     public function test_daftar_kerja_filters_multiple_items_and_can_hide_incomplete_baselines(): void
     {
         [$planner, $site] = $this->createRegionUserAndSites();

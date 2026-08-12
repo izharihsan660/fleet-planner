@@ -70,8 +70,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
 
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 px-4 sm:px-6 lg:px-8">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                        <SummaryCard label="Total WO" value={summary.total_wo ?? 0} />
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                         <SummaryCard label="Total Item" value={summary.total_items ?? 0} />
                         <SummaryCard label="Complete" value={summary.total_complete ?? 0} />
                         <SummaryCard label="Terlambat" value={summary.total_overdue ?? 0} tone="danger" />
@@ -93,9 +92,9 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                                 <TabsList>
                                     {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
                                 </TabsList>
-                                <TabsContent value="wo"><ReportTab exportHref={exportUrl('wo')}><DataTable headers={['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan']} rows={woSummary.data.map((row) => [row.site, row.total_wo, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></ReportTab></TabsContent>
-                                <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_wo, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
-                                <TabsContent value="unit"><ReportTab exportHref={exportUrl('unit')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_wo, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="wo"><ReportTab exportHref={exportUrl('wo')}><DataTable headers={['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan']} rows={woSummary.data.map((row) => [row.site, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_item, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="unit"><ReportTab exportHref={exportUrl('unit')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="overdue"><ReportTab exportHref={exportUrl('overdue')}><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="baseline"><ReportTab exportHref={exportUrl('baseline')}><DataTable headers={['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item']} rows={baselineIncomplete.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.missing_baseline_count, row.items?.join(', ') || '-'])} meta={baselineIncomplete.meta} /></ReportTab></TabsContent>
                                 {accuracy && <TabsContent value="accuracy"><AccuracyTab accuracy={accuracy} /></TabsContent>}

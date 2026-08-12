@@ -34,7 +34,6 @@ class ReportController extends Controller
 
         return Inertia::render('Reports/Index', [
             'summary' => ReportSummaryResource::make([
-                'total_wo' => $this->visibleWorkOrders($request)->count(),
                 'total_items' => $this->visibleWorkOrderItems($request)->count(),
                 'total_complete' => $this->visibleWorkOrderItems($request)->where('status', 'complete')->count(),
                 'total_overdue' => $this->visibleWorkOrderItems($request)
@@ -107,9 +106,9 @@ class ReportController extends Controller
         });
 
         [$label, $headings, $rows] = match ($tab) {
-            'wo' => ['rekap-wo', ['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $this->woSummaryRows($request, $filters)],
-            'item' => ['per-item', ['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $this->byItemRows($request, $filters)],
-            'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Total WO', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
+            'wo' => ['rekap-wo', ['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $this->woSummaryRows($request, $filters)],
+            'item' => ['per-item', ['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $this->byItemRows($request, $filters)],
+            'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
             'overdue' => ['terlambat', ['Lokasi', 'Total Terlambat', 'Item Terlambat'], $this->overdueByAreaRows($request, $filters)],
             'baseline' => ['baseline-belum-diisi', ['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item'], $this->baselineIncompleteRows($request, $filters)],
         };
@@ -179,7 +178,6 @@ class ReportController extends Controller
             ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
             ->leftJoin('sites', 'sites.id', '=', 'work_orders.site_id')
             ->selectRaw('sites.name as site')
-            ->selectRaw('COUNT(DISTINCT work_orders.id) as total_wo')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as overdue")
@@ -212,7 +210,7 @@ class ReportController extends Controller
             ->join('planning_items', 'planning_items.id', '=', 'work_order_items.planning_item_id')
             ->join('unit_plannings', 'unit_plannings.id', '=', 'work_order_items.unit_planning_id')
             ->selectRaw('planning_items.name as item')
-            ->selectRaw('COUNT(work_order_items.id) as total_wo')
+            ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
             ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN {$this->completionDaysExpression()} END), 1) as avg_hari_penyelesaian")
@@ -256,7 +254,6 @@ class ReportController extends Controller
             ->selectRaw('work_orders.unit_id as unit_id')
             ->selectRaw('units.current_plate as plat_nomor')
             ->selectRaw('sites.name as site')
-            ->selectRaw('COUNT(DISTINCT work_orders.id) as total_wo')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
             ->whereMonth('work_orders.created_at', $filters['month'])
@@ -368,7 +365,6 @@ class ReportController extends Controller
     {
         return $this->woSummaryQuery($request, $filters)->get()->map(fn ($row): array => [
             $row->site,
-            (int) $row->total_wo,
             (int) $row->total_item,
             (int) $row->complete,
             (int) $row->overdue,
@@ -384,7 +380,7 @@ class ReportController extends Controller
     {
         return $this->byItemQuery($request, $filters)->get()->map(fn ($row): array => [
             $row->item,
-            (int) $row->total_wo,
+            (int) $row->total_item,
             (int) $row->total_complete,
             (int) $row->total_overdue,
             $row->avg_hari_penyelesaian,
@@ -400,7 +396,6 @@ class ReportController extends Controller
         return $this->byUnitQuery($request, $filters)->get()->map(fn ($row): array => [
             $row->plat_nomor,
             $row->site,
-            (int) $row->total_wo,
             (int) $row->total_complete,
             (int) $row->total_overdue,
         ]);

@@ -52,6 +52,7 @@ class ProjectionController extends Controller
                 'region_id' => $regionId,
             ],
             'calendar' => $calendar,
+            'period_options' => $service->periodOptions(),
             'permissions' => [
                 'can_filter_site' => $canFilterSite,
                 'can_filter_region' => $canFilterRegion,

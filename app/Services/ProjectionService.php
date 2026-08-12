@@ -12,13 +12,52 @@ use Illuminate\Support\Collection;
 class ProjectionService
 {
     /**
-     * @return array{period_months: int, period_end: string, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
+     * Jendela proyeksi dihitung berbasis hari, bukan bulan kalender, supaya
+     * basisnya sama dengan due date unit_plannings (next_due_date =
+     * last_done_date + interval_days). 1 bulan = 30 hari, 2 bulan = 60 hari,
+     * 3 bulan = 90 hari.
+     *
+     * Ini satu-satunya sumber angka basis periode. Semua tempat lain —
+     * validasi request, response, sampai label di frontend — menurunkan
+     * nilainya lewat periodDays()/periodOptions(), tidak menulis ulang
+     * angkanya sendiri.
+     */
+    public const DAYS_PER_PERIOD_MONTH = 30;
+
+    /**
+     * Pilihan periode yang boleh diminta dari halaman Proyeksi.
+     *
+     * @var array<int, int>
+     */
+    public const SELECTABLE_PERIOD_MONTHS = [1, 2, 3];
+
+    public function periodDays(int $months): int
+    {
+        return max(0, $months) * static::DAYS_PER_PERIOD_MONTH;
+    }
+
+    /**
+     * Daftar pilihan periode beserta panjang harinya, untuk dipakai frontend
+     * sebagai sumber label dropdown.
+     *
+     * @return array<int, array{months: int, days: int}>
+     */
+    public function periodOptions(): array
+    {
+        return array_map(
+            fn (int $months): array => ['months' => $months, 'days' => $this->periodDays($months)],
+            static::SELECTABLE_PERIOD_MONTHS,
+        );
+    }
+
+    /**
+     * @return array{period_months: int, period_days: int, period_end: string, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
      */
     public function calculate(int $months, ?int $siteId = null, ?int $regionId = null): array
     {
         $periodStart = CarbonImmutable::today();
-        $periodEnd = $periodStart->addMonthsNoOverflow($months);
-        $remainingDays = max(0, $periodStart->diffInDays($periodEnd));
+        $remainingDays = $this->periodDays($months);
+        $periodEnd = $periodStart->addDays($remainingDays);
 
         $thresholds = SystemThreshold::query()
             ->whereIn('key', ['min_inspection_data', 'rolling_window_days'])
@@ -113,6 +152,7 @@ class ProjectionService
 
         return [
             'period_months' => $months,
+            'period_days' => $remainingDays,
             'period_end' => $periodEnd->toDateString(),
             'by_unit' => $byUnit,
             'by_item' => $this->groupByPlanningItem($flatItems),

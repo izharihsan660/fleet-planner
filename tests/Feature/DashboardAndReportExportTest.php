@@ -227,7 +227,7 @@ class DashboardAndReportExportTest extends TestCase
         $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
         $rows = $spreadsheet->getActiveSheet()->toArray();
 
-        $this->assertSame(['Lokasi', 'Total WO', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $rows[0]);
+        $this->assertSame(['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $rows[0]);
         $this->assertSame($firstSite->name, $rows[1][0]);
         $this->assertSame(1, (int) $rows[1][1]);
         $this->assertCount(2, $rows);
@@ -253,7 +253,7 @@ class DashboardAndReportExportTest extends TestCase
         $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
         $rows = $spreadsheet->getActiveSheet()->toArray();
 
-        $this->assertSame(['Item', 'Total WO', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $rows[0]);
+        $this->assertSame(['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $rows[0]);
         $this->assertSame('Filter Oli', $rows[1][0]);
         $this->assertSame(2, (int) $rows[1][1]);
         $this->assertSame(4.0, (float) $rows[1][4]);

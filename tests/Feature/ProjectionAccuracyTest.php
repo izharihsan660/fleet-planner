@@ -21,6 +21,7 @@ use Tests\TestCase;
  * yang bisa dihitung tangan: laju konstan tepat 100 km/hari selama 10 hari.
  *
  *   avg_km_per_day        = (1100 - 100) / 10          = 100
+ *   akhir_periode         = hari ini + (bulan × 30 hari)
  *   est_odo_akhir_periode = 1100 + (100 × sisa_hari)
  *   item masuk proyeksi   = next_due_km <= est_odo  ATAU  next_due_date <= akhir periode
  *   est_due_date (by KM)  = hari ini + ceil((next_due_km - current_odo) / avg)
@@ -48,8 +49,9 @@ class ProjectionAccuracyTest extends TestCase
             'status' => 'active',
         ]);
 
-        // Item A due di 3.100 KM -> selalu masuk proyeksi 1 bulan (est odo minimal 3.900 di bulan terpendek).
-        // Item B due di 6.600 KM -> selalu di luar 1 bulan (est odo maksimal 4.200) dan masuk 2 bulan (est odo minimal 7.000).
+        // Periode proyeksi berbasis hari: 1 bulan = 30 hari, 2 bulan = 60 hari.
+        // Item A due di 3.100 KM -> masuk proyeksi 1 bulan (est odo 1.100 + 100 x 30 = 4.100).
+        // Item B due di 6.600 KM -> di luar 1 bulan (4.100) dan masuk 2 bulan (1.100 + 100 x 60 = 7.100).
         $itemA = PlanningItem::query()->create(['name' => 'Golden A', 'interval_km' => 2000, 'interval_days' => 365]);
         $itemB = PlanningItem::query()->create(['name' => 'Golden B', 'interval_km' => 5500, 'interval_days' => 365]);
 
@@ -79,7 +81,9 @@ class ProjectionAccuracyTest extends TestCase
 
         // ---- Proyeksi 1 bulan ----
         $oneMonth = $projection->calculate(1);
-        $remainingDaysOneMonth = (int) $today->diffInDays($today->addMonthsNoOverflow(1));
+        $remainingDaysOneMonth = 30;
+
+        $this->assertSame($today->addDays(30)->toDateString(), $oneMonth['period_end']);
 
         $byUnit = collect($oneMonth['by_unit'])->firstWhere('plate_number', 'QA 1000 GD');
 
@@ -99,7 +103,9 @@ class ProjectionAccuracyTest extends TestCase
 
         // ---- Proyeksi 2 bulan ----
         $twoMonths = $projection->calculate(2);
-        $remainingDaysTwoMonths = (int) $today->diffInDays($today->addMonthsNoOverflow(2));
+        $remainingDaysTwoMonths = 60;
+
+        $this->assertSame($today->addDays(60)->toDateString(), $twoMonths['period_end']);
 
         $byUnitTwoMonths = collect($twoMonths['by_unit'])->firstWhere('plate_number', 'QA 1000 GD');
 

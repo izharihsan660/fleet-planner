@@ -30,6 +30,18 @@ class WorkListController extends Controller
         'Service B',
     ];
 
+    /**
+     * Isi Daftar Kerja ditentukan per item, bukan dari status WO induknya.
+     * WO bisa berhenti di 'complete' sementara itemnya kembali applicable —
+     * misalnya lewat jalur exclude → complete → un-exclude pada planning item —
+     * dan item seperti itu tetap harus dikerjakan. Kedua status di bawah sudah
+     * non-final, jadi item yang sudah selesai/dibatalkan tidak ikut terbawa.
+     * Sama dengan cara Kanban dan Tugas Saya menentukan isinya.
+     *
+     * @var array<int, string>
+     */
+    private const ACTIONABLE_ITEM_STATUSES = ['on_hold', 'overdue'];
+
     public function index(WorkListIndexRequest $request): Response
     {
         Gate::authorize('viewAny', WorkOrder::class);
@@ -54,8 +66,7 @@ class WorkListController extends Controller
                     ->with('unitPlannings:id,unit_id,last_done_km'),
                 'workOrder.site:id,name,region,region_id',
             ])
-            ->whereIn('work_order_items.status', ['on_hold', 'overdue'])
-            ->whereHas('workOrder', fn (Builder $query) => $query->whereIn('status', ['open', 'in_progress']))
+            ->whereIn('work_order_items.status', self::ACTIONABLE_ITEM_STATUSES)
             ->whereHas('workOrder.site', fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
             ->when($filters['site_id'] ?? null, fn (Builder $query, string $siteId) => $query->whereHas('workOrder', fn (Builder $workOrderQuery) => $workOrderQuery->where('site_id', $siteId)))
             ->when($planningItemIds !== [], fn (Builder $query) => $query->whereIn('work_order_items.planning_item_id', $planningItemIds))
@@ -186,7 +197,7 @@ class WorkListController extends Controller
                         abort(422, 'Item yang dipilih harus sesuai dengan lokasi formnya.');
                     }
 
-                    if (! in_array($item->status, ['on_hold', 'overdue'], true)) {
+                    if (! in_array($item->status, self::ACTIONABLE_ITEM_STATUSES, true)) {
                         abort(422, 'Ada item yang sudah berubah status. Muat ulang halaman lalu pilih ulang.');
                     }
 

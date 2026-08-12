@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, ProjectionItem, ProjectionLine, ProjectionPart, ProjectionResult, Region, Site } from '@/types';
+import { PageProps, ProjectionItem, ProjectionLine, ProjectionPart, ProjectionPeriodOption, ProjectionResult, Region, Site } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 
@@ -45,6 +45,7 @@ interface ProjectionIndexProps extends PageProps {
         month: string;
         region_id: number | null;
     };
+    period_options: ProjectionPeriodOption[];
     permissions: {
         can_filter_site: boolean;
         can_filter_region: boolean;
@@ -65,6 +66,26 @@ const formatDate = (date: string | null): string => {
 };
 
 const formatKm = (value: number | null): string => (value === null ? '-' : `${new Intl.NumberFormat('id-ID').format(value)} KM`);
+
+// Periode proyeksi dihitung backend berbasis hari pasti (ProjectionService),
+// bukan bulan kalender. Jumlah harinya selalu diambil dari period_options
+// kiriman backend — tidak pernah ditulis ulang di sini — supaya label tidak
+// bisa menyimpang dari basis yang dipakai perhitungan.
+const periodLabel = (option: ProjectionPeriodOption): string => `${option.months} Bulan (${option.days} hari)`;
+
+const periodRangeLabel = (options: ProjectionPeriodOption[]): string => {
+    if (options.length === 0) {
+        return 'Periode Ke Depan';
+    }
+
+    if (options.length === 1) {
+        return `${periodLabel(options[0])} Ke Depan`;
+    }
+
+    const months = `${options[0].months}-${options[options.length - 1].months}`;
+
+    return `${months} Bulan (${options.map((option) => option.days).join('/')} hari) Ke Depan`;
+};
 
 const projectionUrl = (months: number, siteId: number | null, month: string, regionId: number | null): string => {
     const params = new URLSearchParams({ months: String(months) });
@@ -192,7 +213,7 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
     );
 }
 
-export default function Index({ projection, sites, regions, calendar, filters, permissions }: ProjectionIndexProps) {
+export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, permissions }: ProjectionIndexProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(permissions.default_tab);
     const [showWarningList, setShowWarningList] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -217,7 +238,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                     <Card>
                         <CardHeader className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
                             <div>
-                                <CardTitle>Kebutuhan 1-3 Bulan Ke Depan</CardTitle>
+                                <CardTitle>Kebutuhan {periodRangeLabel(periodOptions)}</CardTitle>
                                 <CardDescription>Periode berakhir pada {formatDate(projection.period_end)}.</CardDescription>
                             </div>
                             <div className="grid gap-3 sm:grid-cols-2">
@@ -226,7 +247,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     <Select value={String(filters.months)} onValueChange={(value) => navigateProjection({ months: Number(value) })}>
                                         <SelectTrigger className="min-w-40"><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            {[1, 2, 3].map((month) => <SelectItem key={month} value={String(month)}>{month} Bulan</SelectItem>)}
+                                            {periodOptions.map((option) => <SelectItem key={option.months} value={String(option.months)}>{periodLabel(option)}</SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 </div>

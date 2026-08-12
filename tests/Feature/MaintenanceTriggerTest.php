@@ -57,9 +57,9 @@ class MaintenanceTriggerTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('WorkOrders/Index')
-                ->where('boardColumns.open.data.0.id', $workOrder->id)
-                ->where('boardColumns.open.data.0.status', 'open')
-                ->where('boardColumns.open.data.0.unit.current_plate', $unit->current_plate)
+                ->where('boardColumns.open.data.0.id', WorkOrderItem::query()->value('id'))
+                ->where('boardColumns.open.data.0.status', 'on_hold')
+                ->where('boardColumns.open.data.0.unit_plate', $unit->current_plate)
             );
     }
 
@@ -161,6 +161,84 @@ class MaintenanceTriggerTest extends TestCase
         $this->assertSame(2, WorkOrderItem::query()->count());
         $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $firstPlanning->id)->count());
         $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $secondPlanning->id)->count());
+    }
+
+    public function test_trigger_merges_new_item_into_work_order_that_is_already_in_progress(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Merge', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $workingPlanning = $this->createPlanning($unit, 'Ganti Oli', 2000);
+        $newlyDuePlanning = $this->createPlanning($unit, 'Filter Solar', 1900);
+
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'in_progress',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+            'approved_at' => now(),
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $workingPlanning->id,
+            'planning_item_id' => $workingPlanning->planning_item_id,
+            'status' => 'in_progress',
+        ]);
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 1600,
+        ])->assertRedirect(route('inspections.create'));
+
+        $this->assertSame(1, WorkOrder::query()->count());
+        $this->assertDatabaseHas('work_order_items', [
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $newlyDuePlanning->id,
+            'status' => 'on_hold',
+        ]);
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
+    }
+
+    public function test_trigger_creates_new_work_order_when_previous_one_is_already_finished(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Fresh', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $donePlanning = $this->createPlanning($unit, 'Ganti Oli', 900);
+        $newlyDuePlanning = $this->createPlanning($unit, 'Filter Solar', 1900);
+
+        $completedWorkOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'complete',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $completedWorkOrder->id,
+            'unit_planning_id' => $donePlanning->id,
+            'planning_item_id' => $donePlanning->planning_item_id,
+            'status' => 'complete',
+        ]);
+
+        $this->actingAs($mechanic)->post(route('inspections.store'), [
+            'unit_id' => $unit->id,
+            'inspection_date' => now()->toDateString(),
+            'odometer' => 1600,
+        ])->assertRedirect(route('inspections.create'));
+
+        $this->assertSame(2, WorkOrder::query()->count());
+        $this->assertDatabaseHas('work_order_items', [
+            'work_order_id' => WorkOrder::query()->latest('id')->value('id'),
+            'unit_planning_id' => $newlyDuePlanning->id,
+            'status' => 'on_hold',
+        ]);
     }
 
     public function test_spv_ho_can_approve_work_order_and_complete_item_updates_planning(): void
