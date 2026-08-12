@@ -13,8 +13,13 @@ class WorkOrderItemCompletionService
         private PlanningIntervalResolver $intervalResolver,
         private WorkOrderProgressService $workOrderProgressService,
         private FleetNotificationService $notifications,
+        private CompletionBackdatePolicy $backdatePolicy,
     ) {}
 
+    /**
+     * @param  int|null  $backdateOverrideBy  Diisi hanya bila penyelesaian ini lewat
+     *                                        jalur Koreksi Tanggal Selesai milik Superadmin.
+     */
     public function complete(
         WorkOrder $workOrder,
         WorkOrderItem $item,
@@ -24,8 +29,9 @@ class WorkOrderItemCompletionService
         int $submittedBy,
         ?int $baselineLastDoneKm = null,
         ?CarbonImmutable $baselineLastDoneDate = null,
+        ?int $backdateOverrideBy = null,
     ): WorkOrderItem {
-        $item = DB::transaction(function () use ($workOrder, $item, $completedOdo, $completedDate, $notes, $submittedBy, $baselineLastDoneKm, $baselineLastDoneDate): WorkOrderItem {
+        $item = DB::transaction(function () use ($workOrder, $item, $completedOdo, $completedDate, $notes, $submittedBy, $baselineLastDoneKm, $baselineLastDoneDate, $backdateOverrideBy): WorkOrderItem {
             $item->load(['unitPlanning.planningItem', 'unitPlanning.unit']);
 
             $unitPlanning = $item->unitPlanning;
@@ -41,12 +47,17 @@ class WorkOrderItemCompletionService
                 ];
             }
 
+            $daysBackdated = $this->backdatePolicy->daysBackdated($completedDate);
+
             $item->update([
                 ...$baselineSnapshot,
                 'status' => 'complete',
                 'action' => 'replace',
                 'completed_odo' => $completedOdo,
                 'completed_date' => $completedDate->toDateString(),
+                'is_backdated' => $daysBackdated > 0,
+                'backdated_days' => $daysBackdated > 0 ? $daysBackdated : null,
+                'backdate_override_by' => $backdateOverrideBy,
                 'notes' => filled($notes) ? $notes : null,
                 'submitted_by' => $submittedBy,
             ]);

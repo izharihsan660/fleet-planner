@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ApprovalQueueController;
+use App\Http\Controllers\BackdateCompletionController;
 use App\Http\Controllers\BlockedBreakdownController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\HighUsageController;
@@ -72,6 +73,8 @@ Route::middleware('auth')->group(function () {
     Route::post('work-orders/{wo}/items/{item}/postpone', [WorkOrderController::class, 'submitPostpone'])->name('work-orders.items.postpone');
     Route::post('work-orders/{wo}/items/{item}/complete', [WorkOrderController::class, 'complete'])->name('work-orders.items.complete');
     Route::post('work-orders/{wo}/items/{item}/complete-with-baseline', [WorkOrderController::class, 'completeWithBaseline'])->name('work-orders.items.complete-with-baseline');
+    Route::get('work-orders/{wo}/items/{item}/backdate-completion', [BackdateCompletionController::class, 'edit'])->name('work-orders.items.backdate-completion.edit');
+    Route::post('work-orders/{wo}/items/{item}/backdate-completion', [BackdateCompletionController::class, 'update'])->name('work-orders.items.backdate-completion.update');
     Route::post('work-order-items/{item}/blocked', [BlockedBreakdownController::class, 'markBlocked'])->name('work-order-items.blocked');
     Route::post('work-order-items/{item}/resolve-blocked', [BlockedBreakdownController::class, 'resolveBlocked'])->name('work-order-items.resolve-blocked');
     Route::post('units/{unit}/breakdown', [BlockedBreakdownController::class, 'markBreakdown'])->name('units.breakdown');

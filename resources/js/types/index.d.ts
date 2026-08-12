@@ -412,6 +412,13 @@ export interface ReportSummary {
     missing_baseline_count?: number;
 }
 
+export interface BackdateThresholds {
+    self_service_days: number;
+    max_days: number;
+    self_service_note_min_length: number;
+    extended_note_min_length: number;
+}
+
 export interface UnitHistoryItem {
     id: number;
     work_order_id: number;
@@ -422,6 +429,9 @@ export interface UnitHistoryItem {
     notes: string | null;
     completed_odo: number | null;
     completed_date: string | null;
+    is_backdated: boolean;
+    backdated_days: number | null;
+    is_backdate_override: boolean;
     previous_due_km: number | null;
     previous_due_date: string | null;
     new_due_km: number | null;

@@ -27,6 +27,9 @@ class WorkOrderItem extends Model
         'freeze_end',
         'completed_odo',
         'completed_date',
+        'is_backdated',
+        'backdated_days',
+        'backdate_override_by',
         'submitted_by',
         'approved_by',
         'approved_at',
@@ -45,6 +48,7 @@ class WorkOrderItem extends Model
             'completed_date' => 'date',
             'approved_at' => 'datetime',
             'triggered_by_high_usage' => 'boolean',
+            'is_backdated' => 'boolean',
         ];
     }
 

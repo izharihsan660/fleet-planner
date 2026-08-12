@@ -21,6 +21,7 @@ use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Services\CompletionBackdatePolicy;
 use App\Services\FleetNotificationService;
 use App\Services\PlanningIntervalResolver;
 use App\Services\WorkOrderItemCompletionService;
@@ -145,6 +146,7 @@ class WorkOrderController extends Controller
             'units' => UnitResource::collection($this->visibleUnits($request)),
             'mechanics' => $this->visibleMechanics($request),
             'planningItems' => PlanningItem::query()->orderBy('name')->get(['id', 'name']),
+            'backdateThresholds' => app(CompletionBackdatePolicy::class)->toArray(),
             'canCreateUpcomingTask' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
             'canAssignMechanic' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
             'canSubmitItemActions' => $user->isOneOf([UserRole::Superadmin, UserRole::PlannerArea]),
@@ -191,6 +193,8 @@ class WorkOrderController extends Controller
                 ->orderBy('name')
                 ->get(['id', 'name', 'site_id']),
             'canManageBaselineItems' => $request->user()->isOneOf([UserRole::Superadmin, UserRole::PlannerArea, UserRole::SpvHo]),
+            'canBackdateCompletion' => $request->user()->hasRole(UserRole::Superadmin),
+            'backdateThresholds' => app(CompletionBackdatePolicy::class)->toArray(),
         ]);
     }
 

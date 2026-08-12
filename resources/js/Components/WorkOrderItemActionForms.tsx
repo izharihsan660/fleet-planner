@@ -5,9 +5,50 @@ import SecondaryButton from '@/Components/SecondaryButton';
 import TextInput from '@/Components/TextInput';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Textarea } from '@/Components/ui/textarea';
-import { User } from '@/types';
-import { useForm } from '@inertiajs/react';
+import { BackdateThresholds, PageProps, User } from '@/types';
+import { useForm, usePage } from '@inertiajs/react';
 import { FormEvent, useState } from 'react';
+
+export const DEFAULT_BACKDATE_THRESHOLDS: BackdateThresholds = {
+    self_service_days: 30,
+    max_days: 90,
+    self_service_note_min_length: 10,
+    extended_note_min_length: 30,
+};
+
+const daysBackdated = (completedDate: string): number => {
+    if (!completedDate) {
+        return 0;
+    }
+
+    const today = new Date();
+    const chosen = new Date(`${completedDate}T00:00:00`);
+    const diff = Math.floor((Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) - Date.UTC(chosen.getFullYear(), chosen.getMonth(), chosen.getDate())) / 86400000);
+
+    return Number.isNaN(diff) ? 0 : Math.max(0, diff);
+};
+
+/**
+ * Penanda mundur untuk form Complete. Ambangnya dikirim backend
+ * (system_thresholds), jadi tingkat penandanya ikut berubah tanpa deploy.
+ */
+export function BackdateNotice({ completedDate, thresholds, className }: { completedDate: string; thresholds: BackdateThresholds; className?: string }) {
+    const days = daysBackdated(completedDate);
+
+    if (days <= 0) {
+        return null;
+    }
+
+    if (days > thresholds.max_days) {
+        return <div role="alert" className={`rounded-lg border-2 border-red-400 bg-red-50 p-3 text-sm font-semibold text-red-800 dark:border-red-500/50 dark:bg-red-500/15 dark:text-red-200 ${className ?? ''}`}>Mundur {days} hari — melewati batas {thresholds.max_days} hari. Minta Superadmin mencatatnya lewat Koreksi Tanggal Selesai.</div>;
+    }
+
+    if (days > thresholds.self_service_days) {
+        return <div role="alert" className={`rounded-lg border-2 border-orange-400 bg-orange-50 p-3 text-sm font-semibold text-orange-900 dark:border-orange-500/50 dark:bg-orange-500/15 dark:text-orange-200 ${className ?? ''}`}>Mundur {days} hari — di atas batas isi sendiri {thresholds.self_service_days} hari. Wajib catatan rinci minimal {thresholds.extended_note_min_length} karakter.</div>;
+    }
+
+    return <div role="status" className={`rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200 ${className ?? ''}`}>Mundur {days} hari — isi catatan singkat minimal {thresholds.self_service_note_min_length} karakter.</div>;
+}
 
 type AssignmentFormData = {
     assigned_mechanic_id: string;
@@ -79,10 +120,13 @@ export function BlockedItemForm({ itemId, itemName, onCancel, onSuccess }: Omit<
 }
 
 export function CompleteItemForm({ workOrderId, itemId, itemName, currentOdo, onCancel, onSuccess, stacked = false }: ItemFormBase & { currentOdo: number; stacked?: boolean }) {
+    // Ambang dibaca dari props halaman supaya tidak perlu dioper lewat setiap
+    // kartu Kanban; halaman yang belum mengirimnya jatuh ke default backend.
+    const backdateThresholds = usePage<PageProps<{ backdateThresholds?: BackdateThresholds }>>().props.backdateThresholds ?? DEFAULT_BACKDATE_THRESHOLDS;
     const { data, setData, post, processing, errors } = useForm({ completed_odo: currentOdo.toString(), completed_date: new Date().toISOString().slice(0, 10), notes: '' });
     const [showConfirm, setShowConfirm] = useState(false);
     const submit = (event: FormEvent) => { event.preventDefault(); setShowConfirm(true); };
     const confirm = () => post(route('work-orders.items.complete', [workOrderId, itemId]), { preserveScroll: true, onSuccess: () => onSuccess?.(), onFinish: () => setShowConfirm(false) });
 
-    return <><form onSubmit={submit} className={stacked ? 'mt-3 space-y-2 rounded-xl border bg-muted/40 p-3' : 'mt-3 grid gap-3 rounded-md bg-gray-50 p-3 md:grid-cols-4'}><div><label className="mb-1 block text-xs font-medium text-muted-foreground">KM saat selesai</label><TextInput className="w-full" type="number" value={data.completed_odo} onChange={(event) => setData('completed_odo', event.target.value)} /><InputError message={errors.completed_odo} className="mt-1" /></div><div><label className="mb-1 block text-xs font-medium text-muted-foreground">Tanggal selesai</label><TextInput className="w-full" type="date" value={data.completed_date} onChange={(event) => setData('completed_date', event.target.value)} /><InputError message={errors.completed_date} className="mt-1" /></div><div><TextInput className="w-full" value={data.notes} placeholder="Catatan" onChange={(event) => setData('notes', event.target.value)} /><InputError message={errors.notes} className="mt-1" /></div><div className="flex gap-2"><PrimaryButton disabled={processing}>Selesai</PrimaryButton>{stacked && <SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton>}</div></form><ConfirmDialog show={showConfirm} message={`Selesaikan ${itemName} di KM ${data.completed_odo || '-'}?`} processing={processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
+    return <><form onSubmit={submit} className={stacked ? 'mt-3 space-y-2 rounded-xl border bg-muted/40 p-3' : 'mt-3 grid gap-3 rounded-md bg-gray-50 p-3 md:grid-cols-4'}><BackdateNotice completedDate={data.completed_date} thresholds={backdateThresholds} className={stacked ? undefined : 'md:col-span-4'} /><div><label className="mb-1 block text-xs font-medium text-muted-foreground">KM saat selesai</label><TextInput className="w-full" type="number" value={data.completed_odo} onChange={(event) => setData('completed_odo', event.target.value)} /><InputError message={errors.completed_odo} className="mt-1" /></div><div><label className="mb-1 block text-xs font-medium text-muted-foreground">Tanggal selesai</label><TextInput className="w-full" type="date" value={data.completed_date} onChange={(event) => setData('completed_date', event.target.value)} /><InputError message={errors.completed_date} className="mt-1" /></div><div><TextInput className="w-full" value={data.notes} placeholder="Catatan" onChange={(event) => setData('notes', event.target.value)} /><InputError message={errors.notes} className="mt-1" /></div><div className="flex gap-2"><PrimaryButton disabled={processing}>Selesai</PrimaryButton>{stacked && <SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton>}</div></form><ConfirmDialog show={showConfirm} message={`Selesaikan ${itemName} di KM ${data.completed_odo || '-'}?`} processing={processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
 }
