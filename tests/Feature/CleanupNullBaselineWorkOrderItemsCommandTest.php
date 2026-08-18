@@ -32,7 +32,7 @@ class CleanupNullBaselineWorkOrderItemsCommandTest extends TestCase
         $this->assertStringContainsString('Dilewati Manual', $output);
         $this->assertStringContainsString('on_hold', $output);
         $this->assertStringContainsString('postponed', $output);
-        $this->assertStringContainsString('Total item ditemukan (baseline NULL): 3', $output);
+        $this->assertStringContainsString('Total item ditemukan (KM baseline NULL/0): 3', $output);
         $this->assertStringContainsString('Akan dihapus (status on_hold): 2', $output);
         $this->assertStringContainsString('Dilewati untuk review manual (status lain): 1', $output);
 
@@ -88,7 +88,7 @@ class CleanupNullBaselineWorkOrderItemsCommandTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $deletablePlanningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => today()->subDays(83)->toDateString(),
         ]);
@@ -96,7 +96,7 @@ class CleanupNullBaselineWorkOrderItemsCommandTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $skippedPlanningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonths(2)->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => today()->subDays(83)->toDateString(),
         ]);

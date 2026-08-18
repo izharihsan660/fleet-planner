@@ -72,7 +72,7 @@ class InspectionInputTest extends TestCase
         $this->assertSame(20, $unit->unitPlannings()->count());
     }
 
-    public function test_first_mechanic_odometer_input_initializes_missing_km_due_baselines(): void
+    public function test_first_mechanic_odometer_input_keeps_zero_km_baselines_uninitialized(): void
     {
         $this->seed([SystemThresholdSeeder::class, PlanningItemSeeder::class]);
 
@@ -94,7 +94,7 @@ class InspectionInputTest extends TestCase
 
         $this->assertTrue($unit->has_odometer_reading);
         $this->assertSame(45000, $unit->current_odo);
-        $this->assertSame(50000, $unitPlanning->next_due_km);
+        $this->assertNull($unitPlanning->next_due_km);
         $this->assertSame(0, WorkOrder::query()->count());
         $this->assertSame(0, WorkOrderItem::query()->count());
     }
@@ -209,7 +209,7 @@ class InspectionInputTest extends TestCase
         $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1,
             'last_done_date' => now()->subMonth()->toDateString(),
             'next_due_km' => 1000,
             'next_due_date' => now()->addMonth()->toDateString(),
@@ -370,7 +370,7 @@ class InspectionInputTest extends TestCase
         UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1,
             'last_done_date' => now()->subMonth()->toDateString(),
             'next_due_km' => 1000,
             'next_due_date' => now()->addMonths(6)->toDateString(),

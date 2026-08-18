@@ -37,7 +37,7 @@ class ApprovalQueueController extends Controller
             ->applicable()
             ->with([
                 'planningItem:id,name',
-                'unitPlanning:id,last_done_km,last_done_date',
+                'unitPlanning:id,last_done_km,last_done_date,next_due_date',
                 'workOrder.unit' => fn ($query) => $query
                     ->select(['id', 'current_plate', 'current_odo', 'has_odometer_reading', 'site_id'])
                     ->with('unitPlannings:id,unit_id,last_done_km'),
@@ -60,6 +60,7 @@ class ApprovalQueueController extends Controller
                 $waitingHours = max(0, (int) $submittedAt->diffInHours($now));
                 $waitingDays = intdiv($waitingHours, 24);
                 $unit = $item->workOrder?->unit;
+                $currentDueDate = $item->unitPlanning?->next_due_date?->toDateString();
 
                 return [
                     'id' => $item->id,
@@ -73,9 +74,15 @@ class ApprovalQueueController extends Controller
                     'region_name' => $item->workOrder?->site?->area?->name ?? '-',
                     'submitted_by_name' => $item->submittedBy?->name ?? '-',
                     'submitted_at' => $item->updated_at?->toDateTimeString(),
+                    'submitted_date' => $item->created_at?->toDateString(),
+                    'due_date' => $item->action === 'postpone'
+                        ? $item->previous_due_date?->toDateString() ?? $currentDueDate
+                        : $currentDueDate,
+                    'new_due_date' => $item->new_due_date?->toDateString(),
                     'waiting_hours' => $waitingHours,
                     'waiting_label' => $waitingDays > 0 ? $waitingDays.' hari' : max(1, $waitingHours).' jam',
                     'is_warning' => $waitingHours > 48,
+                    'action' => $item->action,
                     'status' => $item->status,
                 ];
             })

@@ -62,6 +62,10 @@ function ItemStatusBadges({ item }: { item: WorkOrderItem }) {
     const workOrderData = page.props.workOrder.data;
     const [baselineAction, setBaselineAction] = useState<'complete' | 'baseline' | null>(null);
 
+    if (item.baseline_missing && item.action === 'replace' && ['replace', 'in_progress'].includes(item.status)) {
+        return <div className="basis-full rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/40 dark:bg-sky-500/15"><div className="flex flex-wrap gap-2"><StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge><StatusBadge tone="info">{item.status === 'replace' ? 'Menunggu Approval SPV' : 'Siap Dikerjakan Mekanik'}</StatusBadge></div><p className="mt-3 text-sm font-medium text-sky-900 dark:text-sky-100">Replace manual sudah diajukan. Baseline tetap kosong sampai Mekanik menyelesaikan pekerjaan dengan KM aktual.</p>{item.planned_date && <p className="mt-2 text-sm text-sky-800 dark:text-sky-200">Tanggal Rencana Replace: {item.planned_date}</p>}</div>;
+    }
+
     if (item.baseline_missing) {
         return <div className="basis-full rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/15"><StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge><p className="mt-3 text-sm font-medium text-amber-900 dark:text-amber-100">Perlu diisi oleh Admin/Planner sebelum bisa dijadwalkan.</p><p className="mt-1 text-sm text-amber-800 dark:text-amber-200">Pilih selesaikan sekarang jika part memang diganti hari ini, atau isi histori saja bila pekerjaan belum dilakukan.</p>{item.historical_reason && <p className="mt-3 rounded-md bg-background/70 p-3 text-sm text-muted-foreground">Riwayat alasan sebelumnya: {item.historical_reason}</p>}{page.props.canManageBaselineItems && workOrderData.unit && <><div className="mt-4 flex flex-wrap gap-2"><PrimaryButton type="button" onClick={() => setBaselineAction(baselineAction === 'complete' ? null : 'complete')}>Set Baseline &amp; Selesaikan</PrimaryButton><SecondaryButton type="button" onClick={() => setBaselineAction(baselineAction === 'baseline' ? null : 'baseline')}>Set Baseline Saja</SecondaryButton></div>{baselineAction === 'complete' && <BaselineAndCompleteForm item={item} workOrderId={workOrderData.id} currentOdo={workOrderData.unit.current_odo} onCancel={() => setBaselineAction(null)} />}{baselineAction === 'baseline' && <UnitPlanningBaselineForm unitId={workOrderData.unit.id} unitPlanningId={item.unit_planning_id} onCancel={() => setBaselineAction(null)} onSuccess={() => setBaselineAction(null)} />}</>}{!page.props.canManageBaselineItems && <p className="mt-3 text-sm text-muted-foreground">Hubungi Planner Area, Spv HO, atau Superadmin yang memiliki akses unit ini.</p>}</div>;
     }
@@ -77,7 +81,7 @@ export default function Show({ auth, workOrder, planningItems, mechanics, canBac
     const [breakdownInspectionMessage, setBreakdownInspectionMessage] = useState<string | null>(null);
     const [confirmAction, setConfirmAction] = useState<'approve' | 'reject' | 'blocked' | 'breakdown' | null>(null);
     const [blockedConfirmItemId, setBlockedConfirmItemId] = useState<number | null>(null);
-    const hasSubmittedAction = (workOrderData.items ?? []).some((item) => !item.baseline_missing && ['pending_create', 'replace', 'postpone'].includes(item.status));
+    const hasSubmittedAction = (workOrderData.items ?? []).some((item) => ['pending_create', 'replace', 'postpone'].includes(item.status));
     const canApprove = ['spv_ho', 'superadmin'].includes(auth.user.role) && hasSubmittedAction;
     const canCondition = ['superadmin', 'planner_area', 'mekanik'].includes(auth.user.role);
     const canSubmitAction = ['superadmin', 'planner_area'].includes(auth.user.role);

@@ -12,7 +12,6 @@ import { FormEvent, useState } from 'react';
 export const DEFAULT_BACKDATE_THRESHOLDS: BackdateThresholds = {
     self_service_days: 30,
     max_days: 90,
-    self_service_note_min_length: 10,
     extended_note_min_length: 30,
 };
 
@@ -44,16 +43,18 @@ export function BackdateNotice({ completedDate, thresholds, className }: { compl
     }
 
     if (days > thresholds.self_service_days) {
-        return <div role="alert" className={`rounded-lg border-2 border-orange-400 bg-orange-50 p-3 text-sm font-semibold text-orange-900 dark:border-orange-500/50 dark:bg-orange-500/15 dark:text-orange-200 ${className ?? ''}`}>Mundur {days} hari — di atas batas isi sendiri {thresholds.self_service_days} hari. Wajib catatan rinci minimal {thresholds.extended_note_min_length} karakter.</div>;
+        return <div role="alert" className={`rounded-lg border-2 border-orange-400 bg-orange-50 p-3 text-sm font-semibold text-orange-900 dark:border-orange-500/50 dark:bg-orange-500/15 dark:text-orange-200 ${className ?? ''}`}>Mundur {days} hari — masih dalam batas maksimal {thresholds.max_days} hari. Catatan penyelesaian opsional.</div>;
     }
 
-    return <div role="status" className={`rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200 ${className ?? ''}`}>Mundur {days} hari — isi catatan singkat minimal {thresholds.self_service_note_min_length} karakter.</div>;
+    return <div role="status" className={`rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200 ${className ?? ''}`}>Mundur {days} hari — catatan penyelesaian opsional.</div>;
 }
 
 type AssignmentFormData = {
     assigned_mechanic_id: string;
     scheduled_date: string;
 };
+
+type MechanicOption = Pick<User, 'id' | 'name' | 'site_id'>;
 
 type ItemFormBase = {
     workOrderId: number;
@@ -63,7 +64,7 @@ type ItemFormBase = {
     onSuccess?: () => void;
 };
 
-export function AssignmentFields({ mechanics, assignedMechanicId, scheduledDate, setAssignedMechanicId, setScheduledDate, mechanicError, scheduledDateError }: { mechanics: User[]; assignedMechanicId: string; scheduledDate: string; setAssignedMechanicId: (value: string) => void; setScheduledDate: (value: string) => void; mechanicError?: string; scheduledDateError?: string }) {
+export function AssignmentFields({ mechanics, assignedMechanicId, scheduledDate, setAssignedMechanicId, setScheduledDate, mechanicError, scheduledDateError }: { mechanics: MechanicOption[]; assignedMechanicId: string; scheduledDate: string; setAssignedMechanicId: (value: string) => void; setScheduledDate: (value: string) => void; mechanicError?: string; scheduledDateError?: string }) {
     return (
         <div className="grid gap-3 sm:grid-cols-2">
             <div>
@@ -92,13 +93,13 @@ export function ReasonForm({ title, onCancel, onSubmit, processing, reason, setR
     return <form onSubmit={onSubmit} className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/15"><h4 className="font-semibold text-amber-900 dark:text-amber-100">{title}</h4><Textarea className="text-sm" rows={3} value={reason} placeholder="Alasan" onChange={(event) => setReason(event.target.value)} /><InputError message={error} /><div className="flex gap-2"><PrimaryButton disabled={processing}>Simpan</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form>;
 }
 
-export function ReplaceForm({ workOrderId, itemId, itemName, onCancel, onSuccess, defaultReason, mechanics, assignedMechanicId, scheduledDate }: ItemFormBase & { defaultReason: string | null; mechanics: User[]; assignedMechanicId: number | null; scheduledDate: string | null }) {
-    const form = useForm<AssignmentFormData & { reason: string }>({ reason: defaultReason ?? '', assigned_mechanic_id: assignedMechanicId?.toString() ?? '', scheduled_date: scheduledDate ?? '' });
+export function ReplaceForm({ workOrderId, itemId, itemName, onCancel, onSuccess, defaultReason, plannedDate, mechanics, assignedMechanicId, scheduledDate }: ItemFormBase & { defaultReason: string | null; plannedDate?: string | null; mechanics: MechanicOption[]; assignedMechanicId: number | null; scheduledDate: string | null }) {
+    const form = useForm<AssignmentFormData & { reason: string; planned_date: string }>({ reason: defaultReason ?? '', planned_date: plannedDate ?? '', assigned_mechanic_id: assignedMechanicId?.toString() ?? '', scheduled_date: scheduledDate ?? '' });
     const [showConfirm, setShowConfirm] = useState(false);
     const submit = (event: FormEvent) => { event.preventDefault(); setShowConfirm(true); };
     const confirm = () => form.post(route('work-orders.items.replace', [workOrderId, itemId]), { preserveScroll: true, onSuccess: () => { onSuccess?.(); onCancel?.(); }, onFinish: () => setShowConfirm(false) });
 
-    return <><form onSubmit={submit} className="mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/40 dark:bg-sky-500/15"><h4 className="font-semibold text-sky-900 dark:text-sky-100">Submit Replace</h4><Textarea className="text-sm" rows={3} value={form.data.reason} placeholder="Catatan / alasan opsional" onChange={(event) => form.setData('reason', event.target.value)} /><InputError message={form.errors.reason} /><AssignmentFields mechanics={mechanics} assignedMechanicId={form.data.assigned_mechanic_id} scheduledDate={form.data.scheduled_date} setAssignedMechanicId={(value) => form.setData('assigned_mechanic_id', value)} setScheduledDate={(value) => form.setData('scheduled_date', value)} mechanicError={form.errors.assigned_mechanic_id} scheduledDateError={form.errors.scheduled_date} /><div className="flex gap-2"><PrimaryButton disabled={form.processing}>Submit Replace</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Submit Replace untuk ${itemName}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
+    return <><form onSubmit={submit} className="mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/40 dark:bg-sky-500/15"><h4 className="font-semibold text-sky-900 dark:text-sky-100">Ajukan Penggantian</h4><Textarea className="text-sm" rows={3} value={form.data.reason} placeholder="Catatan / alasan opsional" onChange={(event) => form.setData('reason', event.target.value)} /><InputError message={form.errors.reason} /><div><label className="mb-1 block text-xs font-medium text-muted-foreground">Tanggal Rencana Penggantian (Opsional)</label><TextInput className="w-full" type="date" value={form.data.planned_date} onChange={(event) => form.setData('planned_date', event.target.value)} /><InputError className="mt-1" message={form.errors.planned_date} /></div><AssignmentFields mechanics={mechanics} assignedMechanicId={form.data.assigned_mechanic_id} scheduledDate={form.data.scheduled_date} setAssignedMechanicId={(value) => form.setData('assigned_mechanic_id', value)} setScheduledDate={(value) => form.setData('scheduled_date', value)} mechanicError={form.errors.assigned_mechanic_id} scheduledDateError={form.errors.scheduled_date} /><div className="flex gap-2"><PrimaryButton disabled={form.processing}>Ajukan Penggantian</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Ajukan Penggantian untuk ${itemName}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
 }
 
 export function PostponeForm({ workOrderId, itemId, itemName, onCancel, onSuccess, defaultReason, defaultDueKm, defaultDueDate }: ItemFormBase & { defaultReason: string | null; defaultDueKm: number | null; defaultDueDate: string | null }) {
@@ -107,7 +108,7 @@ export function PostponeForm({ workOrderId, itemId, itemName, onCancel, onSucces
     const submit = (event: FormEvent) => { event.preventDefault(); setShowConfirm(true); };
     const confirm = () => form.post(route('work-orders.items.postpone', [workOrderId, itemId]), { preserveScroll: true, onSuccess: () => { onSuccess?.(); onCancel?.(); }, onFinish: () => setShowConfirm(false) });
 
-    return <><form onSubmit={submit} className="mt-4 grid gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/40 dark:bg-orange-500/15 md:grid-cols-3"><div className="md:col-span-3"><h4 className="font-semibold text-orange-900 dark:text-orange-100">Submit Postpone</h4><Textarea className="mt-2 text-sm" rows={3} value={form.data.reason} placeholder="Alasan postpone" onChange={(event) => form.setData('reason', event.target.value)} /><InputError message={form.errors.reason} /></div><div><TextInput className="w-full" type="number" value={form.data.new_due_km} onChange={(event) => form.setData('new_due_km', event.target.value)} /><InputError className="mt-1" message={form.errors.new_due_km} /></div><div><TextInput className="w-full" type="date" value={form.data.new_due_date} onChange={(event) => form.setData('new_due_date', event.target.value)} /><InputError className="mt-1" message={form.errors.new_due_date} /></div><div className="flex gap-2"><PrimaryButton disabled={form.processing}>Submit Postpone</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Submit Postpone untuk ${itemName} ke KM ${form.data.new_due_km || '-'} dan tanggal ${form.data.new_due_date || '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
+    return <><form onSubmit={submit} className="mt-4 grid gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/40 dark:bg-orange-500/15 md:grid-cols-3"><div className="md:col-span-3"><h4 className="font-semibold text-orange-900 dark:text-orange-100">Ajukan Penundaan</h4><Textarea className="mt-2 text-sm" rows={3} value={form.data.reason} placeholder="Alasan penundaan" onChange={(event) => form.setData('reason', event.target.value)} /><InputError message={form.errors.reason} /></div><div><TextInput className="w-full" type="number" value={form.data.new_due_km} onChange={(event) => form.setData('new_due_km', event.target.value)} /><InputError className="mt-1" message={form.errors.new_due_km} /></div><div><TextInput className="w-full" type="date" value={form.data.new_due_date} onChange={(event) => form.setData('new_due_date', event.target.value)} /><InputError className="mt-1" message={form.errors.new_due_date} /></div><div className="flex gap-2"><PrimaryButton disabled={form.processing}>Ajukan Penundaan</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Ajukan Penundaan untuk ${itemName} ke KM ${form.data.new_due_km || '-'} dan tanggal ${form.data.new_due_date || '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
 }
 
 export function BlockedItemForm({ itemId, itemName, onCancel, onSuccess }: Omit<ItemFormBase, 'workOrderId'>) {

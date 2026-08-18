@@ -36,10 +36,10 @@ class HighUsageTest extends TestCase
         ]);
     }
 
-    public function test_detection_skips_planning_with_missing_baseline_date(): void
+    public function test_detection_skips_planning_with_zero_baseline_km_even_when_date_exists(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
-        $unitPlanning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $unitPlanning->update(['last_done_km' => 0, 'last_done_date' => now()->subDays(20)->toDateString()]);
 
         $flags = app(HighUsageService::class)->detect($unit->refresh());
 

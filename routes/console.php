@@ -11,3 +11,4 @@ Artisan::command('inspire', function () {
 
 Schedule::call(fn () => app(HighUsageService::class)->checkPendingFlags())->daily();
 Schedule::command('maintenance:check-overdue')->daily();
+Schedule::command('notifications:send-km-input-summary')->daily()->withoutOverlapping();

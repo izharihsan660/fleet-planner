@@ -52,11 +52,11 @@ const months = Array.from({ length: 12 }, (_, index) => index + 1);
 
 export default function Index({ summary, woSummary, byItem, byUnit, overdueByArea, baselineIncomplete, accuracy, sites, filters, permissions }: ReportsPageProps) {
     const tabs = useMemo(() => [
-        permissions.can_view_wo_summary ? { key: 'wo', label: 'Rekap WO' } : null,
+        permissions.can_view_wo_summary ? { key: 'wo', label: 'Rekap Perintah Kerja (PK)' } : null,
         permissions.can_view_by_item ? { key: 'item', label: 'Per Item' } : null,
         permissions.can_view_by_unit ? { key: 'unit', label: 'Per Unit' } : null,
         permissions.can_view_overdue ? { key: 'overdue', label: `Terlambat — ${(summary.total_overdue ?? 0).toLocaleString('id-ID')}` } : null,
-        permissions.can_view_baseline ? { key: 'baseline', label: `Baseline Belum Diisi — ${baselineIncomplete.meta.total.toLocaleString('id-ID')}` } : null,
+        permissions.can_view_baseline ? { key: 'baseline', label: `Data Awal Belum Diisi — ${baselineIncomplete.meta.total.toLocaleString('id-ID')}` } : null,
         permissions.can_view_accuracy && accuracy ? { key: 'accuracy', label: 'Akurasi Proyeksi' } : null,
     ].filter(Boolean) as { key: ReportTabKey; label: string }[], [permissions, summary.total_overdue, baselineIncomplete.meta.total, accuracy]);
     const [activeTab, setActiveTab] = useState(tabs.find((tab) => tab.key === permissions.default_tab)?.key ?? tabs[0]?.key ?? 'item');
@@ -65,14 +65,14 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
     const exportUrl = (tab: typeof activeTab) => `${route('reports.export', tab)}?month=${filters.month}&year=${filters.year}${filters.site_id ? `&site_id=${filters.site_id}` : ''}`;
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Laporan & History</h2>}>
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Laporan & Riwayat</h2>}>
             <Head title="Laporan" />
 
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 px-4 sm:px-6 lg:px-8">
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                         <SummaryCard label="Total Item" value={summary.total_items ?? 0} />
-                        <SummaryCard label="Complete" value={summary.total_complete ?? 0} />
+                        <SummaryCard label="Selesai" value={summary.total_complete ?? 0} />
                         <SummaryCard label="Terlambat" value={summary.total_overdue ?? 0} tone="danger" />
                     </div>
 
@@ -81,7 +81,7 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                             <FilterSelect label="Bulan" value={filters.month} onChange={(value) => window.location.assign(reportUrl(Number(value), filters.year, filters.site_id?.toString() ?? ''))} options={months.map((month) => ({ value: month, label: month.toString().padStart(2, '0') }))} />
                             <FilterSelect label="Tahun" value={filters.year} onChange={(value) => window.location.assign(reportUrl(filters.month, Number(value), filters.site_id?.toString() ?? ''))} options={[filters.year - 1, filters.year, filters.year + 1].map((year) => ({ value: year, label: String(year) }))} />
-                            {permissions.can_filter_site && <FilterSelect label="Site" value={filters.site_id ?? ''} onChange={(value) => window.location.assign(reportUrl(filters.month, filters.year, String(value)))} options={[{ value: '', label: 'Semua Site' }, ...sites.data.map((site) => ({ value: site.id, label: site.name }))]} />}
+                            {permissions.can_filter_site && <FilterSelect label="Lokasi" value={filters.site_id ?? ''} onChange={(value) => window.location.assign(reportUrl(filters.month, filters.year, String(value)))} options={[{ value: '', label: 'Semua Lokasi' }, ...sites.data.map((site) => ({ value: site.id, label: site.name }))]} />}
                         </div>
                         </CardContent>
                     </Card>
@@ -93,10 +93,10 @@ export default function Index({ summary, woSummary, byItem, byUnit, overdueByAre
                                     {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
                                 </TabsList>
                                 <TabsContent value="wo"><ReportTab exportHref={exportUrl('wo')}><DataTable headers={['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan']} rows={woSummary.data.map((row) => [row.site, row.total_item, row.complete, row.overdue, row.in_progress])} meta={woSummary.meta} /></ReportTab></TabsContent>
-                                <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_item, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="item"><ReportTab exportHref={exportUrl('item')}><DataTable headers={['Item', 'Total Item', 'Selesai', 'Terlambat', 'Rata-rata Hari Penyelesaian']} rows={byItem.data.map((row) => [row.item, row.total_item, row.total_complete, row.total_overdue, row.avg_hari_penyelesaian])} meta={byItem.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="unit"><ReportTab exportHref={exportUrl('unit')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Total Item', 'Selesai', 'Terlambat']} rows={byUnit.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.total_item, row.total_complete, row.total_overdue])} meta={byUnit.meta} /></ReportTab></TabsContent>
                                 <TabsContent value="overdue"><ReportTab exportHref={exportUrl('overdue')}><DataTable headers={['Lokasi', 'Total Terlambat', 'Item Terlambat']} rows={overdueByArea.data.map((row) => [row.site, row.total_overdue, row.items?.join(', ') || '-'])} meta={overdueByArea.meta} /></ReportTab></TabsContent>
-                                <TabsContent value="baseline"><ReportTab exportHref={exportUrl('baseline')}><DataTable headers={['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item']} rows={baselineIncomplete.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.missing_baseline_count, row.items?.join(', ') || '-'])} meta={baselineIncomplete.meta} /></ReportTab></TabsContent>
+                                <TabsContent value="baseline"><ReportTab exportHref={exportUrl('baseline')}><DataTable headers={['Plat Nomor', 'Lokasi', 'Jumlah Item Kosong', 'Nama Item']} rows={baselineIncomplete.data.map((row) => [row.unit_id ? <Link className="font-medium text-primary hover:underline" href={route('units.history', row.unit_id)}>{row.plat_nomor}</Link> : row.plat_nomor, row.site, row.missing_baseline_count, row.items?.join(', ') || '-'])} meta={baselineIncomplete.meta} /></ReportTab></TabsContent>
                                 {accuracy && <TabsContent value="accuracy"><AccuracyTab accuracy={accuracy} /></TabsContent>}
                             </Tabs>
                         </CardContent>
@@ -129,7 +129,7 @@ function AccuracyTab({ accuracy }: { accuracy: AccuracyReport }) {
                 <UiTable>
                     <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>Terukur</TableHead><TableHead>Rata-rata Meleset</TableHead><TableHead>Akurat ±7 Hari</TableHead></TableRow></TableHeader>
                     <TableBody>
-                        {accuracy.formula.rows.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-muted-foreground">Belum ada item complete yang bisa diukur pada periode ini.</TableCell></TableRow>}
+                        {accuracy.formula.rows.length === 0 && <TableRow><TableCell colSpan={4} className="py-6 text-muted-foreground">Belum ada item selesai yang bisa diukur pada periode ini.</TableCell></TableRow>}
                         {accuracy.formula.rows.map((row) => (
                             <TableRow key={row.item_name}>
                                 <TableCell className="font-medium text-foreground">{row.item_name}</TableCell>
@@ -145,12 +145,12 @@ function AccuracyTab({ accuracy }: { accuracy: AccuracyReport }) {
             <section className="space-y-3">
                 <div>
                     <h3 className="text-base font-semibold text-foreground">Rapor eksekusi — jatuh tempo vs selesai</h3>
-                    <p className="text-sm text-muted-foreground">Mengukur keterlambatan operasional per site: berapa lama item menunggu setelah jatuh tempo, diurai per tahap. Di sinilah keterlambatan part, approval, dan kesibukan mekanik terlihat.</p>
+                    <p className="text-sm text-muted-foreground">Mengukur keterlambatan operasional per lokasi: berapa lama item menunggu setelah jatuh tempo, diurai per tahap. Di sinilah keterlambatan part, approval, dan kesibukan mekanik terlihat.</p>
                 </div>
                 <UiTable>
-                    <TableHeader><TableRow><TableHead>Site</TableHead><TableHead>Terukur</TableHead><TableHead>Rata-rata Telat dari Due</TableHead><TableHead>Rata-rata Menunggu Approval</TableHead><TableHead>Rata-rata Eksekusi Setelah Approve</TableHead></TableRow></TableHeader>
+                    <TableHeader><TableRow><TableHead>Lokasi</TableHead><TableHead>Terukur</TableHead><TableHead>Rata-rata Telat dari Jatuh Tempo</TableHead><TableHead>Rata-rata Menunggu Approval</TableHead><TableHead>Rata-rata Eksekusi Setelah Disetujui</TableHead></TableRow></TableHeader>
                     <TableBody>
-                        {accuracy.execution.rows.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-muted-foreground">Belum ada item complete dengan tanggal due pada periode ini.</TableCell></TableRow>}
+                        {accuracy.execution.rows.length === 0 && <TableRow><TableCell colSpan={5} className="py-6 text-muted-foreground">Belum ada item selesai dengan tanggal jatuh tempo pada periode ini.</TableCell></TableRow>}
                         {accuracy.execution.rows.map((row) => (
                             <TableRow key={row.site_name}>
                                 <TableCell className="font-medium text-foreground">{row.site_name}</TableCell>

@@ -142,7 +142,7 @@ class ProjectionAccuracyTest extends TestCase
         UnitPlanning::query()->updateOrCreate(
             ['unit_id' => $unit->id, 'planning_item_id' => $item->id],
             [
-                'last_done_km' => 0,
+                'last_done_km' => 1,
                 'last_done_date' => Carbon::today()->subDays(20)->toDateString(),
                 'next_due_km' => 5000,
                 'next_due_date' => Carbon::today()->addDays(10)->toDateString(),

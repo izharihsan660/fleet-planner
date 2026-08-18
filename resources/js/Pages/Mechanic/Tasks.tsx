@@ -14,6 +14,7 @@ type MechanicTask = {
     unit_name: string;
     item_name: string;
     scheduled_date: string | null;
+    planned_date: string | null;
     current_odo: number;
     site_name: string | null;
 };
@@ -130,6 +131,12 @@ export default function Tasks({ tasks }: PageProps<{ tasks: MechanicTask[] }>) {
                                                 <CalendarDays className="size-5" />
                                                 <span>{task.scheduled_date ?? 'Belum dijadwalkan'}</span>
                                             </div>
+                                            {task.planned_date && (
+                                                <div className="mt-2 flex items-center gap-2 text-base text-muted-foreground">
+                                                    <CalendarDays className="size-5" />
+                                                    <span>Rencana: {task.planned_date}</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     <Button type="button" className="min-h-14 w-full rounded-2xl text-lg font-bold" onClick={() => { setSelectedTask(task); form.setData('completed_odo', String(task.current_odo)); }}>

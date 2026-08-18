@@ -39,14 +39,14 @@ export default function Authenticated({
         }
 
         const items: Array<NavigationItem | false> = [
-            { label: 'Dashboard', href: route('dashboard'), active: route().current('dashboard') },
+            { label: 'Ringkasan', href: route('dashboard'), active: route().current('dashboard') },
             canAccess(user.role, ['superadmin', 'mekanik']) && {
                 label: 'Input KM',
                 href: route('inspections.create'),
                 active: route().current('inspections.create'),
             },
             { label: 'Riwayat Inspeksi', href: route('inspections.index'), active: route().current('inspections.index') },
-            { label: 'Work Orders', href: route('work-orders.index'), active: route().current('work-orders.*') },
+            { label: 'Perintah Kerja (PK)', href: route('work-orders.index'), active: route().current('work-orders.*') },
             canAccess(user.role, ['superadmin', 'spv_ho', 'planner_area']) && {
                 label: 'Daftar Kerja',
                 href: route('work-list.index'),
@@ -80,7 +80,7 @@ export default function Authenticated({
 
         return [
             { label: 'Lokasi', href: route('sites.index'), active: route().current('sites.*') },
-            { label: 'Region', href: route('regions.index'), active: route().current('regions.*') },
+            { label: 'Wilayah', href: route('regions.index'), active: route().current('regions.*') },
             { label: 'Unit', href: route('units.index'), active: route().current('units.*') && !route().current('units.history') },
             { label: 'Item Perawatan', href: route('planning-items.index'), active: route().current('planning-items.*') },
             { label: 'Pengecualian Interval', href: route('planning-item-overrides.index'), active: route().current('planning-item-overrides.*') },
@@ -149,7 +149,7 @@ export default function Authenticated({
 
                 {userNavigation.length > 0 && (
                     <div>
-                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Administration</div>
+                        <div className="px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Administrasi</div>
                         <div className="mt-2 space-y-1">
                             {userNavigation.map((item) => (
                                 <SidebarLink key={item.label} item={item} />
@@ -172,7 +172,7 @@ export default function Authenticated({
                 <div className="fixed inset-0 z-40 lg:hidden">
                     <button
                         type="button"
-                        aria-label="Close navigation menu"
+                        aria-label="Tutup menu navigasi"
                         className="absolute inset-0 bg-gray-900/50"
                         onClick={closeMobileSidebar}
                     />
@@ -191,14 +191,14 @@ export default function Authenticated({
                                 onClick={() => setShowingSidebar((previous) => !previous)}
                                 className="inline-flex items-center justify-center rounded-md p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground focus:bg-muted focus:outline-none lg:hidden"
                             >
-                                <span className="sr-only">Open navigation menu</span>
+                                <span className="sr-only">Buka menu navigasi</span>
                                 <svg className="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
                                 </svg>
                             </button>
 
                             <div className="truncate">
-                                {header ?? <h2 className="text-lg font-semibold leading-tight text-foreground">Dashboard</h2>}
+                                {header ?? <h2 className="text-lg font-semibold leading-tight text-foreground">Ringkasan</h2>}
                             </div>
                         </div>
 
@@ -206,7 +206,7 @@ export default function Authenticated({
                             <Dropdown>
                                 <Dropdown.Trigger>
                                     <button type="button" className="relative rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none">
-                                        <span className="sr-only">Notifications</span>
+                                        <span className="sr-only">Notifikasi</span>
                                         <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                             <path d="M10 2a6 6 0 00-6 6v2.586l-.707.707A1 1 0 004 13h12a1 1 0 00.707-1.707L16 10.586V8a6 6 0 00-6-6z" />
                                             <path d="M10 18a3 3 0 01-2.83-2h5.66A3 3 0 0110 18z" />
@@ -245,8 +245,8 @@ export default function Authenticated({
                                 </Dropdown.Trigger>
 
                                 <Dropdown.Content>
-                                    <Dropdown.Link href={route('profile.edit')}>Profile</Dropdown.Link>
-                                    <Dropdown.Link href={route('logout')} method="post" as="button">Log Out</Dropdown.Link>
+                                    <Dropdown.Link href={route('profile.edit')}>Profil</Dropdown.Link>
+                                    <Dropdown.Link href={route('logout')} method="post" as="button">Keluar</Dropdown.Link>
                                 </Dropdown.Content>
                             </Dropdown>
                         </div>

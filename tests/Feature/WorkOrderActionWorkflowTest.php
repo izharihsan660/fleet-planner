@@ -92,6 +92,99 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('in_progress', $item->refresh()->status);
     }
 
+    public function test_missing_baseline_replace_runs_through_approval_and_initializes_cycle_on_mechanic_completion(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planning->update([
+            'last_done_km' => 0,
+            'last_done_date' => today()->subMonth()->toDateString(),
+            'next_due_km' => null,
+            'next_due_date' => null,
+        ]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+        $plannedDate = today()->addDays(3)->toDateString();
+        $scheduledDate = today()->addDay()->toDateString();
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$workOrder, $item]), [
+                'reason' => 'Inisialisasi cycle lewat penggantian aktual.',
+                'planned_date' => $plannedDate,
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => $scheduledDate,
+            ])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertDatabaseHas('work_order_items', [
+            'id' => $item->id,
+            'status' => 'replace',
+            'action' => 'replace',
+            'submitted_by' => $planner->id,
+        ]);
+        $this->assertSame($plannedDate, $item->refresh()->planned_date?->toDateString());
+        $this->assertTrue($planning->refresh()->isBaselineMissing());
+        $this->assertNull($planning->next_due_km);
+        $this->assertNull($planning->next_due_date);
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('in_progress', $item->refresh()->status);
+        $this->assertNotNull($item->approved_at);
+        $this->assertTrue($planning->refresh()->isBaselineMissing());
+
+        $this->actingAs($mechanic)
+            ->get(route('mechanic.tasks'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('tasks', 1)
+                ->where('tasks.0.id', $item->id)
+                ->where('tasks.0.planned_date', $plannedDate)
+            );
+
+        $completedOdo = 75850;
+        $completedDate = today()->toDateString();
+
+        $this->actingAs($mechanic)
+            ->post(route('work-orders.items.complete', [$workOrder, $item]), [
+                'completed_odo' => 0,
+                'completed_date' => $completedDate,
+            ])
+            ->assertSessionHasErrors('completed_odo');
+
+        $this->assertSame('in_progress', $item->refresh()->status);
+        $this->assertTrue($planning->refresh()->isBaselineMissing());
+
+        $this->actingAs($mechanic)
+            ->post(route('work-orders.items.complete', [$workOrder, $item]), [
+                'completed_odo' => $completedOdo,
+                'completed_date' => $completedDate,
+            ])
+            ->assertRedirect(route('mechanic.tasks'));
+
+        $planningItem = $planning->planningItem()->firstOrFail();
+
+        $this->assertDatabaseHas('work_order_items', [
+            'id' => $item->id,
+            'status' => 'complete',
+            'completed_odo' => $completedOdo,
+        ]);
+        $this->assertSame($plannedDate, $item->refresh()->planned_date?->toDateString());
+        $this->assertSame($completedDate, $item->completed_date?->toDateString());
+        $this->assertDatabaseHas('unit_plannings', [
+            'id' => $planning->id,
+            'last_done_km' => $completedOdo,
+            'next_due_km' => $completedOdo + $planningItem->interval_km,
+        ]);
+        $this->assertSame($completedDate, $planning->refresh()->last_done_date?->toDateString());
+        $this->assertSame(today()->addDays($planningItem->interval_days)->toDateString(), $planning->next_due_date?->toDateString());
+        $this->assertFalse($planning->isBaselineMissing());
+        $this->assertSame('complete', $workOrder->refresh()->status);
+    }
+
     public function test_replace_submission_without_mechanic_keeps_assignment_fallback_after_approval(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
@@ -621,6 +714,15 @@ class WorkOrderActionWorkflowTest extends TestCase
                 ->component('Mechanic/Tasks')
                 ->has('tasks', 0)
             );
+    }
+
+    public function test_mechanic_task_card_only_displays_planned_date_when_available(): void
+    {
+        $pageSource = file_get_contents(resource_path('js/Pages/Mechanic/Tasks.tsx'));
+
+        $this->assertStringContainsString('{task.planned_date && (', $pageSource);
+        $this->assertStringContainsString('Rencana: {task.planned_date}', $pageSource);
+        $this->assertStringNotContainsString("task.planned_date ?? '-'", $pageSource);
     }
 
     public function test_mechanic_my_tasks_excludes_items_with_missing_baseline(): void

@@ -17,6 +17,7 @@ const keyLabels: Record<string, string> = {
     high_usage_threshold: 'Ambang Pemakaian Tinggi',
     min_inspection_data: 'Minimal Data Inspeksi',
     rolling_window_days: 'Jendela Rata-rata KM (Hari)',
+    km_input_summary_interval_days: 'Interval Ringkasan Input KM (Hari)',
 };
 
 const keyDescriptions: Record<string, string> = {
@@ -29,6 +30,7 @@ const keyDescriptions: Record<string, string> = {
     high_usage_threshold: 'Persentase pemakaian KM yang dianggap tinggi (memicu flag High Usage).',
     min_inspection_data: 'Minimum jumlah log inspeksi yang diperlukan untuk menghitung proyeksi.',
     rolling_window_days: 'Berapa hari ke belakang dipakai untuk menghitung rata-rata pemakaian KM.',
+    km_input_summary_interval_days: 'Jarak hari antar-pengiriman notifikasi ringkasan input KM untuk Planner Area dan Spv HO.',
 };
 
 export default function Index({ auth, systemThresholds }: PageProps<{ systemThresholds: PaginatedCollection<SystemThreshold> }>) {

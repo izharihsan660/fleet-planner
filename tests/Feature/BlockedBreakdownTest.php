@@ -150,7 +150,7 @@ class BlockedBreakdownTest extends TestCase
             ->assertSessionHasErrors('action');
 
         $this->assertSame('breakdown', $item->refresh()->status);
-        $this->assertSame(5000, $planning->refresh()->next_due_km);
+        $this->assertSame(6000, $planning->refresh()->next_due_km);
     }
 
     public function test_unit_breakdown_blocks_normal_actions_even_when_item_is_still_on_hold(): void
@@ -230,7 +230,7 @@ class BlockedBreakdownTest extends TestCase
         $planning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => '2026-06-10',
             'next_due_km' => 5000,
             'next_due_date' => '2026-07-10',

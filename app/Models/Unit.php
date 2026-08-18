@@ -87,8 +87,8 @@ class Unit extends Model
     public function hasIncompletePlanningBaseline(): bool
     {
         $hasPlanningBaseline = $this->relationLoaded('unitPlannings')
-            ? $this->unitPlannings->contains(fn (UnitPlanning $planning): bool => (int) $planning->last_done_km !== 0)
-            : $this->unitPlannings()->where('last_done_km', '!=', 0)->exists();
+            ? $this->unitPlannings->contains(fn (UnitPlanning $planning): bool => ! $planning->isBaselineMissing())
+            : $this->unitPlannings()->withBaseline()->exists();
 
         return ! $this->has_odometer_reading || ! $hasPlanningBaseline;
     }

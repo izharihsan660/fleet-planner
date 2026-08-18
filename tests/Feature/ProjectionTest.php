@@ -45,13 +45,13 @@ class ProjectionTest extends TestCase
         $this->assertCount(1, $result['warnings']);
     }
 
-    public function test_projection_excludes_items_with_missing_baseline_dates(): void
+    public function test_projection_excludes_items_with_zero_baseline_km_even_when_date_exists(): void
     {
         [$unit, $planningItem] = $this->createProjectionScenario();
         UnitPlanning::query()
             ->where('unit_id', $unit->id)
             ->where('planning_item_id', $planningItem->id)
-            ->update(['last_done_km' => 0, 'last_done_date' => null]);
+            ->update(['last_done_km' => 0, 'last_done_date' => now()->subDays(20)->toDateString()]);
 
         $result = app(ProjectionService::class)->calculate(3);
 
@@ -103,7 +103,13 @@ class ProjectionTest extends TestCase
         }
         $this->assertStringContainsString('Filter Lokasi', $projectionSource);
         $this->assertStringContainsString('Semua Lokasi', $projectionSource);
-        $this->assertStringContainsString('Kalender hanya untuk monitoring', $projectionSource);
+        $this->assertStringContainsString('Proyeksi Perawatan', $projectionSource);
+        $this->assertStringContainsString('Est. Jatuh Tempo', $projectionSource);
+        $this->assertStringContainsString('Tampilan Bulan:', $projectionSource);
+        $this->assertStringContainsString('Pemakaian Tinggi', $projectionSource);
+        $this->assertStringContainsString('Kalender hanya untuk pemantauan', $projectionSource);
+        $this->assertStringNotContainsString('Proyeksi Maintenance', $projectionSource);
+        $this->assertStringNotContainsString('Month View:', $projectionSource);
         $this->assertStringContainsString('Buka di Daftar Kerja', $projectionSource);
         $this->assertStringNotContainsString('WorkListActionPanel', $projectionSource);
         $this->assertStringNotContainsString('Panel Pengajuan', $projectionSource);
@@ -158,7 +164,7 @@ class ProjectionTest extends TestCase
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $planningItem = PlanningItem::query()->create(['name' => 'Test Item Rolling Unique', 'interval_km' => 5000, 'interval_days' => 90]);
         $unit = Unit::query()->create(['site_id' => $site->id, 'customer' => 'Customer A', 'current_plate' => 'DD 7777 AA', 'type' => 'Pickup', 'brand' => 'Toyota', 'year' => 2024, 'current_odo' => 3000, 'status' => 'active']);
-        UnitPlanning::query()->updateOrCreate(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id], ['last_done_km' => 0, 'last_done_date' => now()->subDays(90)->toDateString(), 'next_due_km' => 4000, 'next_due_date' => now()->addDays(30)->toDateString()]);
+        UnitPlanning::query()->updateOrCreate(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id], ['last_done_km' => 1000, 'last_done_date' => now()->subDays(90)->toDateString(), 'next_due_km' => 4000, 'next_due_date' => now()->addDays(30)->toDateString()]);
 
         foreach ([
             [65, 0],
@@ -198,7 +204,7 @@ class ProjectionTest extends TestCase
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $planningItem = PlanningItem::query()->create(['name' => 'Test Item Short Unique', 'interval_km' => 500, 'interval_days' => 60]);
         $unit = Unit::query()->create(['site_id' => $site->id, 'customer' => 'Customer A', 'current_plate' => 'DD 8888 AA', 'type' => 'Pickup', 'brand' => 'Toyota', 'year' => 2024, 'current_odo' => 300, 'status' => 'active']);
-        UnitPlanning::query()->updateOrCreate(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id], ['last_done_km' => 0, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 400, 'next_due_date' => now()->addDays(20)->toDateString()]);
+        UnitPlanning::query()->updateOrCreate(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id], ['last_done_km' => 100, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 400, 'next_due_date' => now()->addDays(20)->toDateString()]);
 
         InspectionLog::query()->create(['unit_id' => $unit->id, 'mechanic_id' => $mechanic->id, 'inspection_date' => now()->subDays(10)->toDateString(), 'odometer' => 0]);
         InspectionLog::query()->create(['unit_id' => $unit->id, 'mechanic_id' => $mechanic->id, 'inspection_date' => now()->toDateString(), 'odometer' => 300]);
@@ -424,7 +430,7 @@ class ProjectionTest extends TestCase
             'odometer' => 200,
         ]);
 
-        $unitPlanning = UnitPlanning::query()->updateOrCreate(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id], ['last_done_km' => 0, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 300, 'next_due_date' => now()->addDays(20)->toDateString()]);
+        $unitPlanning = UnitPlanning::query()->updateOrCreate(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id], ['last_done_km' => 100, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 300, 'next_due_date' => now()->addDays(20)->toDateString()]);
 
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
@@ -474,7 +480,7 @@ class ProjectionTest extends TestCase
 
         foreach ([['Overlap A', 10, 5], ['Overlap B', 8, 3], ['Overlap C', 7, 6]] as [$name, $startDaysAgo, $endDaysAgo]) {
             $planningItem = PlanningItem::query()->create(['name' => $name, 'interval_km' => 500, 'interval_days' => 60]);
-            $unitPlanning = UnitPlanning::query()->create(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id, 'last_done_km' => 0, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 300, 'next_due_date' => now()->addDays(20)->toDateString()]);
+            $unitPlanning = UnitPlanning::query()->create(['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id, 'last_done_km' => 100, 'last_done_date' => now()->subDays(60)->toDateString(), 'next_due_km' => 300, 'next_due_date' => now()->addDays(20)->toDateString()]);
             $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'normal', 'status' => 'open']);
 
             WorkOrderItem::query()->create([
@@ -616,7 +622,7 @@ class ProjectionTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $missingPlanningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => '2026-06-01',
             'next_due_km' => 1000,
             'next_due_date' => '2026-07-18',
         ]);
@@ -637,7 +643,7 @@ class ProjectionTest extends TestCase
                 ->where('calendar.summary_by_date.2026-07-25.high_usage', 1)
                 ->where('calendar.items.0.due_date', '2026-07-25')
                 ->where('calendar.items.0.is_high_usage', true)
-                ->where('calendar.items.0.status_label', 'Postponed')
+                ->where('calendar.items.0.status_label', 'Ditunda')
                 ->where('calendar.items', fn ($items) => collect($items)->doesntContain('item_name', 'Service Tanpa Baseline'))
             );
     }

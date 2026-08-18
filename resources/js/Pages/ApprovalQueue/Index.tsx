@@ -6,14 +6,19 @@ import SecondaryButton from '@/Components/SecondaryButton';
 import TextInput from '@/Components/TextInput';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, Region } from '@/types';
+import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Checkbox } from '@/Components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/Components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Separator } from '@/Components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Textarea } from '@/Components/ui/textarea';
 import { Head, router, useForm } from '@inertiajs/react';
 import { FormEvent, useMemo, useState } from 'react';
+
+type ApprovalQueueAction = 'replace' | 'postpone' | 'blocked' | 'create_task';
 
 type ApprovalQueueItem = {
     id: number;
@@ -27,9 +32,13 @@ type ApprovalQueueItem = {
     region_name: string;
     submitted_by_name: string;
     submitted_at: string | null;
+    submitted_date: string | null;
+    due_date: string | null;
+    new_due_date: string | null;
     waiting_hours: number;
     waiting_label: string;
     is_warning: boolean;
+    action: ApprovalQueueAction | null;
     status: 'replace' | 'postpone' | 'pending_create';
 };
 
@@ -41,6 +50,62 @@ type ApprovalQueueProps = PageProps<{
         search: string;
     };
 }>;
+
+const dateFormatter = new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+});
+
+const actionLabels: Record<ApprovalQueueAction, string> = {
+    replace: 'Replace',
+    postpone: 'Postpone',
+    blocked: 'Blocked',
+    create_task: 'Create Task',
+};
+
+const actionBadgeClasses: Record<ApprovalQueueAction, string> = {
+    replace: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200',
+    postpone: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200',
+    blocked: 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200',
+    create_task: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200',
+};
+
+const formatDate = (date: string | null): string => {
+    if (!date) {
+        return '-';
+    }
+
+    const [year, month, day] = date.slice(0, 10).split('-').map(Number);
+
+    if (!year || !month || !day) {
+        return date;
+    }
+
+    return dateFormatter.format(new Date(year, month - 1, day));
+};
+
+function QueueActionBadge({ item }: { item: ApprovalQueueItem }) {
+    if (!item.action) {
+        return <Badge variant="outline">{item.status.replace('_', ' ')}</Badge>;
+    }
+
+    return <Badge variant="outline" className={actionBadgeClasses[item.action]}>{actionLabels[item.action]}</Badge>;
+}
+
+function DueDateValue({ item }: { item: ApprovalQueueItem }) {
+    if (item.action !== 'postpone') {
+        return <span>{formatDate(item.due_date)}</span>;
+    }
+
+    return (
+        <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-muted-foreground line-through decoration-destructive/70">{formatDate(item.due_date)}</span>
+            <span aria-hidden="true" className="text-muted-foreground">→</span>
+            <span className="font-semibold text-foreground">{formatDate(item.new_due_date)}</span>
+        </span>
+    );
+}
 
 export default function Index({ items, regions, filters }: ApprovalQueueProps) {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -139,10 +204,10 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                 <h3 className="font-semibold text-foreground">Item menunggu keputusan</h3>
                                 <p className="text-sm text-muted-foreground">{items.length} item menunggu approval. Urutan paling lama menunggu ada di atas.</p>
                             </div>
-                            {selectedItems.length > 0 && <span className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200">{selectedItems.length} dipilih</span>}
+                            {selectedItems.length > 0 && <Badge variant="secondary" className="h-auto px-4 py-2 text-sm text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200">{selectedItems.length} dipilih</Badge>}
                         </div>
 
-                        <div>
+                        <div className="overflow-x-auto">
                             <Table className="min-w-full text-left">
                                 <TableHeader className="bg-muted/50 text-muted-foreground">
                                     <TableRow>
@@ -153,6 +218,8 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                         <TableHead className="px-4 py-4 text-base font-semibold">Item & Alasan</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Site</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Diajukan Oleh</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Tanggal Submit</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Due Date</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Lama Menunggu</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -170,19 +237,24 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                                 </p>
                                             </TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <p className="text-base font-medium text-foreground">{item.item_name}</p>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="text-base font-medium text-foreground">{item.item_name}</p>
+                                                    <QueueActionBadge item={item} />
+                                                </div>
                                                 <p className="mt-1 text-sm text-muted-foreground">{item.reason || 'Tidak ada alasan tambahan.'}</p>
                                             </TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}<span className="block text-sm">{item.region_name}</span></TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.submitted_by_name}</TableCell>
+                                            <TableCell className="whitespace-nowrap px-4 py-4 text-sm text-foreground">{formatDate(item.submitted_date)}</TableCell>
+                                            <TableCell className="min-w-52 px-4 py-4 text-sm text-foreground"><DueDateValue item={item} /></TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <span className={item.is_warning ? 'rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-200' : 'rounded-full border border-yellow-200 bg-yellow-50 px-3 py-1 text-sm font-semibold text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/15 dark:text-yellow-200'}>{item.waiting_label}</span>
+                                                <Badge variant="outline" className={item.is_warning ? 'h-auto border-orange-200 bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-200' : 'h-auto border-yellow-200 bg-yellow-50 px-3 py-1 text-sm font-semibold text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/15 dark:text-yellow-200'}>{item.waiting_label}</Badge>
                                             </TableCell>
                                         </TableRow>
                                     ))}
                                     {items.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={6} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item yang menunggu approval.</TableCell>
+                                            <TableCell colSpan={8} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item yang menunggu approval.</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -225,8 +297,31 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                     <div className="max-h-[70vh] overflow-y-auto p-5">
                                         <div className="rounded-lg bg-muted/40 p-4">
                                             <p className="mb-2 text-sm font-medium text-foreground">Item yang dipilih:</p>
-                                            <ul className="space-y-1 text-sm text-muted-foreground">
-                                                {visibleVerificationItems.map((item) => <li key={item.id}>{item.plate_number} — {item.item_name}</li>)}
+                                            <ul className="space-y-3">
+                                                {visibleVerificationItems.map((item) => (
+                                                    <li key={item.id}>
+                                                        <Card size="sm" className="bg-background">
+                                                            <CardHeader>
+                                                                <CardTitle>{item.plate_number} — {item.item_name}</CardTitle>
+                                                                <CardDescription>{item.site_name} · {item.submitted_by_name}</CardDescription>
+                                                                <CardAction><QueueActionBadge item={item} /></CardAction>
+                                                            </CardHeader>
+                                                            <CardContent className="space-y-3">
+                                                                <Separator />
+                                                                <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                                                                    <div>
+                                                                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Tanggal Submit</dt>
+                                                                        <dd className="mt-1 font-medium text-foreground">{formatDate(item.submitted_date)}</dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Due Date</dt>
+                                                                        <dd className="mt-1 text-foreground"><DueDateValue item={item} /></dd>
+                                                                    </div>
+                                                                </dl>
+                                                            </CardContent>
+                                                        </Card>
+                                                    </li>
+                                                ))}
                                             </ul>
                                             {hiddenVerificationCount > 0 && (
                                                 <Button type="button" variant="link" className="mt-2 h-auto p-0 text-sm font-medium text-indigo-700 dark:text-indigo-300" onClick={() => setIsVerificationExpanded(true)}>

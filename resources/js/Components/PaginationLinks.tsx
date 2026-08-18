@@ -25,7 +25,7 @@ export default function PaginationLinks({ meta }: { meta?: PaginationMeta }) {
             </p>
             <div className="flex flex-wrap gap-2">
                 {meta.links.map((link) => {
-                    const label = link.label.replace('&laquo; Previous', 'Sebelumnya').replace('Next &raquo;', 'Berikutnya');
+                    const label = link.label.replace('&laquo; Previous', '« Sebelumnya').replace('Next &raquo;', 'Berikutnya »');
 
                     if (!link.url) {
                         return (

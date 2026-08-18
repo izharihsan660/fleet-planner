@@ -22,6 +22,7 @@ class SystemThresholdSeeder extends Seeder
             ['key' => 'high_usage_threshold', 'value' => '20', 'description' => 'High usage threshold percentage.'],
             ['key' => 'min_inspection_data', 'value' => '3', 'description' => 'Minimum inspection data count.'],
             ['key' => 'rolling_window_days', 'value' => '30', 'description' => 'Rolling window days for maintenance projections average KM calculation.'],
+            ['key' => 'km_input_summary_interval_days', 'value' => '7', 'description' => 'Interval hari pengiriman notifikasi ringkasan input KM.'],
             ['key' => 'backdate_self_service_days', 'value' => '30', 'description' => 'Batas hari mundur tanggal selesai yang boleh diisi sendiri dengan catatan singkat.'],
             ['key' => 'backdate_max_days', 'value' => '90', 'description' => 'Batas maksimum hari mundur tanggal selesai lewat form biasa. Di atas ini hanya Superadmin lewat Koreksi Tanggal.'],
         ])->each(fn (array $threshold): SystemThreshold => SystemThreshold::updateOrCreate(['key' => $threshold['key']], $threshold));

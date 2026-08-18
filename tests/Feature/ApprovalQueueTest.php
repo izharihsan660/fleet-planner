@@ -22,7 +22,11 @@ class ApprovalQueueTest extends TestCase
     public function test_approval_queue_shows_pending_items_across_regions_ordered_by_oldest_waiting(): void
     {
         [$spv, $oldItem, $newerItem] = $this->createApprovalScenario();
-        $oldItem->forceFill(['updated_at' => now()->subDays(5)])->save();
+        $oldSubmittedDate = now()->subDays(10)->startOfDay();
+        $oldItem->forceFill([
+            'created_at' => $oldSubmittedDate,
+            'updated_at' => now()->subDays(5),
+        ])->save();
         $newerItem->forceFill(['updated_at' => now()->subHours(6)])->save();
 
         $this->actingAs($spv)
@@ -35,15 +39,54 @@ class ApprovalQueueTest extends TestCase
                 ->where('items.0.waiting_label', '5 hari')
                 ->where('items.0.is_warning', true)
                 ->where('items.0.current_odo', 1000)
-                ->where('items.0.baseline_incomplete', true)
+                ->where('items.0.baseline_incomplete', false)
+                ->where('items.0.submitted_date', $oldSubmittedDate->toDateString())
+                ->where('items.0.due_date', $oldItem->unitPlanning->next_due_date->toDateString())
+                ->where('items.0.action', 'replace')
                 ->where('items.1.id', $newerItem->id)
+                ->where('items.1.due_date', $newerItem->unitPlanning->next_due_date->toDateString())
+                ->where('items.1.new_due_date', $newerItem->new_due_date->toDateString())
+                ->where('items.1.action', 'postpone')
+            );
+    }
+
+    public function test_approval_queue_exposes_submission_and_due_dates_for_blocked_action_items(): void
+    {
+        [$spv, $replaceItem, $postponeItem] = $this->createApprovalScenario();
+        $planner = $replaceItem->submittedBy()->firstOrFail();
+        $blockedDueDate = today()->addDays(45)->toDateString();
+        $blockedSubmittedDate = now()->subDays(4)->startOfDay();
+        $blockedItem = $this->createPendingItem($replaceItem->workOrder->site, $planner, 'KT 3003 CC', 'Air Dryer', 'pending_create');
+
+        $blockedItem->unitPlanning()->update(['next_due_date' => $blockedDueDate]);
+        $blockedItem->forceFill([
+            'action' => 'blocked',
+            'created_at' => $blockedSubmittedDate,
+            'updated_at' => now()->subHour(),
+        ])->save();
+
+        $this->actingAs($spv)
+            ->get(route('approval-queue.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('ApprovalQueue/Index')
+                ->has('items', 3)
+                ->where('items', function (mixed $items) use ($blockedDueDate, $blockedItem, $blockedSubmittedDate, $postponeItem, $replaceItem): bool {
+                    $itemsByAction = collect($items)->keyBy('action');
+
+                    return data_get($itemsByAction, 'replace.id') === $replaceItem->id
+                        && data_get($itemsByAction, 'postpone.id') === $postponeItem->id
+                        && data_get($itemsByAction, 'blocked.id') === $blockedItem->id
+                        && data_get($itemsByAction, 'blocked.submitted_date') === $blockedSubmittedDate->toDateString()
+                        && data_get($itemsByAction, 'blocked.due_date') === $blockedDueDate;
+                })
             );
     }
 
     public function test_approval_queue_shows_but_rejects_items_with_missing_baseline(): void
     {
         [$spv, $missingBaselineItem, $validItem] = $this->createApprovalScenario();
-        $missingBaselineItem->unitPlanning()->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $missingBaselineItem->unitPlanning()->update(['last_done_km' => 0, 'last_done_date' => today()->subMonth()->toDateString()]);
 
         $this->actingAs($spv)
             ->get(route('approval-queue.index'))
@@ -131,6 +174,11 @@ class ApprovalQueueTest extends TestCase
         $this->assertStringContainsString('Item yang dipilih:', $pageSource);
         $this->assertStringContainsString('{item.plate_number} — {item.item_name}', $pageSource);
         $this->assertStringContainsString('dan {hiddenVerificationCount} lainnya', $pageSource);
+        $this->assertStringContainsString('Tanggal Submit', $pageSource);
+        $this->assertStringContainsString('Due Date', $pageSource);
+        $this->assertStringContainsString('line-through', $pageSource);
+        $this->assertStringContainsString('<Card size="sm"', $pageSource);
+        $this->assertStringContainsString("blocked: 'Blocked'", $pageSource);
         $odometerSources->each(function (string $source): void {
             $this->assertStringContainsString('KM saat ini:', $source);
             $this->assertStringContainsString('baseline belum lengkap', $source);
@@ -215,7 +263,7 @@ class ApprovalQueueTest extends TestCase
                 ->component('WorkList/Index')
                 ->has('items', 1)
                 ->where('items.0.current_odo', 1000)
-                ->where('items.0.baseline_incomplete', true)
+                ->where('items.0.baseline_incomplete', false)
             );
     }
 
@@ -253,7 +301,7 @@ class ApprovalQueueTest extends TestCase
         $planning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => today()->subDays(90)->toDateString(),
             'next_due_km' => 10000,
             'next_due_date' => today()->addDays(30)->toDateString(),

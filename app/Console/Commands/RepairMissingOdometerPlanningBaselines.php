@@ -64,7 +64,7 @@ class RepairMissingOdometerPlanningBaselines extends Command
             UnitPlanning::query()
                 ->applicable()
                 ->whereNotNull('next_due_km')
-                ->where('last_done_km', '<=', 0)
+                ->missingBaseline()
                 ->whereHas('unit', fn ($query) => $query->where('has_odometer_reading', false))
                 ->update([
                     'next_due_km' => null,
@@ -86,10 +86,10 @@ class RepairMissingOdometerPlanningBaselines extends Command
             ->with('site:id,name')
             ->withCount('inspectionLogs')
             ->withCount([
-                'unitPlannings as affected_planning_count' => fn ($query) => $query->applicable()->whereNotNull('next_due_km')->where('last_done_km', '<=', 0),
+                'unitPlannings as affected_planning_count' => fn ($query) => $query->applicable()->whereNotNull('next_due_km')->missingBaseline(),
             ])
             ->where('has_odometer_reading', false)
-            ->whereHas('unitPlannings', fn ($query) => $query->applicable()->whereNotNull('next_due_km')->where('last_done_km', '<=', 0))
+            ->whereHas('unitPlannings', fn ($query) => $query->applicable()->whereNotNull('next_due_km')->missingBaseline())
             ->orderBy('current_plate')
             ->get();
     }

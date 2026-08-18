@@ -94,7 +94,16 @@ class WorkOrderController extends Controller
             ->applicable()
             ->with(['planningItem:id,name', 'workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name'])
             ->whereIn('work_order_items.status', self::MECHANIC_TASK_ITEM_STATUSES)
-            ->withBaseline()
+            ->where(function (Builder $query): void {
+                $query
+                    ->withBaseline()
+                    ->orWhere(function (Builder $baselineReplaceQuery): void {
+                        $baselineReplaceQuery
+                            ->missingBaseline()
+                            ->where('work_order_items.action', 'replace')
+                            ->whereNotNull('work_order_items.approved_at');
+                    });
+            })
             ->whereHas('workOrder', fn ($query) => $query->where('assigned_mechanic_id', $user->id))
             ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
             ->select('work_order_items.*')
@@ -108,6 +117,7 @@ class WorkOrderController extends Controller
                 'unit_name' => $item->workOrder?->unit?->current_plate ?? '-',
                 'item_name' => $item->planningItem?->name ?? 'Pekerjaan maintenance',
                 'scheduled_date' => $item->workOrder?->scheduled_date?->toDateString(),
+                'planned_date' => $item->planned_date?->toDateString(),
                 'current_odo' => $item->workOrder?->unit?->current_odo ?? 0,
                 'site_name' => $item->workOrder?->site?->name,
             ]);
@@ -348,7 +358,8 @@ class WorkOrderController extends Controller
             }
 
             $submittedItems = $submittedCandidates
-                ->reject(fn (WorkOrderItem $item): bool => $item->unitPlanning?->isBaselineMissing() ?? true)
+                ->reject(fn (WorkOrderItem $item): bool => ($item->unitPlanning?->isBaselineMissing() ?? true)
+                    && ! $item->isBaselineReplaceSubmission())
                 ->values();
 
             if ($submittedItems->isEmpty() && $submittedCandidates->isNotEmpty()) {
@@ -444,7 +455,6 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
         $this->abortIfPlanningIsExcluded($item);
-        $this->abortIfBaselineIsMissing($item);
 
         if ($this->unitIsStillBreakdown($wo)) {
             return back()->withErrors(['action' => 'Unit sedang Breakdown. Input KM baru dan isi part yang diganti sebelum melanjutkan aksi normal.']);
@@ -469,6 +479,7 @@ class WorkOrderController extends Controller
                 'reason' => $request->string('reason')->toString() ?: null,
                 'previous_due_km' => $item->unitPlanning?->next_due_km,
                 'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
+                'planned_date' => $request->date('planned_date')?->toDateString(),
                 'submitted_by' => $request->user()->id,
             ]);
         });
@@ -520,7 +531,10 @@ class WorkOrderController extends Controller
         $this->abortIfCannotAccessSite($request, $wo);
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
         $this->abortIfPlanningIsExcluded($item);
-        $this->abortIfBaselineIsMissing($item);
+
+        if (! $item->isApprovedBaselineReplace()) {
+            $this->abortIfBaselineIsMissing($item);
+        }
 
         if (! in_array($item->status, self::MECHANIC_TASK_ITEM_STATUSES, true)) {
             return back()->withErrors(['action' => 'Item harus In Progress atau Overdue sebelum bisa diselesaikan.']);
@@ -758,6 +772,7 @@ class WorkOrderController extends Controller
                 ->selectRaw('1')
                 ->from('unit_plannings as baseline_plannings')
                 ->whereColumn('baseline_plannings.unit_id', 'units.id')
+                ->whereNotNull('baseline_plannings.last_done_km')
                 ->where('baseline_plannings.last_done_km', '!=', 0));
     }
 
@@ -911,7 +926,7 @@ class WorkOrderController extends Controller
             'site_id' => $unit?->site_id,
             'unit_plate' => $unit?->current_plate ?? '-',
             'site_name' => $unit?->site?->name,
-            'item_name' => $item->planningItem?->name ?? 'Pekerjaan maintenance',
+            'item_name' => $item->planningItem?->name ?? 'Pekerjaan perawatan',
             'due_km' => $item->unitPlanning?->next_due_km,
             'due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
             'due' => $due,
@@ -1117,7 +1132,7 @@ class WorkOrderController extends Controller
         return $query
             ->where($query->qualifyColumn('has_odometer_reading'), true)
             ->whereHas('unitPlannings', fn (Builder $planningQuery): Builder => $planningQuery
-                ->where($planningQuery->qualifyColumn('last_done_km'), '!=', 0));
+                ->withBaseline());
     }
 
     private function applyPreviewZoneScope($query, string $zone, array $thresholds): void
@@ -1200,7 +1215,7 @@ class WorkOrderController extends Controller
             'next_due_km' => $planning->next_due_km,
             'next_due_date' => $planning->next_due_date?->toDateString(),
             'level' => $isOverdue ? 'red' : ($isWarning ? 'yellow' : 'green'),
-            'label' => $isOverdue ? 'Overdue '.abs((int) ($daysUntilDue ?? 0)).' hari' : ($isWarning ? 'Warning' : 'Aman'),
+            'label' => $isOverdue ? 'Terlambat '.abs((int) ($daysUntilDue ?? 0)).' hari' : ($isWarning ? 'Peringatan' : 'Aman'),
             'overdue_days' => $daysUntilDue !== null && $daysUntilDue < 0 ? abs((int) $daysUntilDue) : null,
             'overdue_km' => $kmUntilDue !== null && $kmUntilDue < 0 ? abs((int) $kmUntilDue) : null,
             'sort_value' => min($daysUntilDue ?? 999999, $kmUntilDue ?? 999999),

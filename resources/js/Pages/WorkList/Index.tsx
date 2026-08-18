@@ -6,6 +6,7 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import StatusBadge from '@/Components/StatusBadge';
 import TextInput from '@/Components/TextInput';
+import { ReplaceForm } from '@/Components/WorkOrderItemActionForms';
 import { Button } from '@/Components/ui/button';
 import { Checkbox } from '@/Components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
@@ -42,6 +43,7 @@ type SiteAction = {
 
 type WorkListProps = PageProps<{
     items: WorkListItem[];
+    baselineItems: WorkListItem[];
     sites: { data: Site[] };
     planningItems: PlanningItem[];
     mechanicsBySite: Record<string, Pick<User, 'id' | 'name' | 'site_id'>[]>;
@@ -75,7 +77,7 @@ const todayInputValue = () => {
     return `${year}-${month}-${day}`;
 };
 
-export default function Index({ auth, items, sites, planningItems, mechanicsBySite, filters }: WorkListProps) {
+export default function Index({ auth, items, baselineItems, sites, planningItems, mechanicsBySite, filters }: WorkListProps) {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [filterSiteId, setFilterSiteId] = useState(filters.site_id ?? '');
     const [search, setSearch] = useState(filters.search ?? '');
@@ -87,15 +89,13 @@ export default function Index({ auth, items, sites, planningItems, mechanicsBySi
     const [expandedItemSites, setExpandedItemSites] = useState<number[]>([]);
     const [bulkAction, setBulkAction] = useState<SiteAction['action']>('replace');
     const [bulkScheduledDate, setBulkScheduledDate] = useState(todayInputValue());
+    const [activeBaselineItemId, setActiveBaselineItemId] = useState<number | null>(null);
 
     const selectedItems = useMemo(
         () => items.filter((item) => selectedIds.includes(item.id)),
         [items, selectedIds],
     );
-    const selectableItems = useMemo(
-        () => items.filter((item) => !item.baseline_missing),
-        [items],
-    );
+    const selectableItems = items;
 
     const selectedSiteIds = useMemo(
         () => Array.from(new Set(selectedItems.map((item) => item.site_id))),
@@ -288,8 +288,8 @@ export default function Index({ auth, items, sites, planningItems, mechanicsBySi
                     <section className="overflow-hidden rounded-xl border bg-card shadow-xs">
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
                             <div>
-                                <h3 className="font-semibold text-foreground">Item aktif</h3>
-                                <p className="text-sm text-muted-foreground">{items.length} item perlu dipantau. {sortDescriptions[sortBy]}</p>
+                                <h3 className="font-semibold text-foreground">Task Hasil Trigger</h3>
+                                <p className="text-sm text-muted-foreground">{items.length} task Due/Overdue perlu dipantau. {sortDescriptions[sortBy]}</p>
                             </div>
                             {selectedItems.length > 0 && <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{selectedItems.length} dipilih</span>}
                         </div>
@@ -311,7 +311,7 @@ export default function Index({ auth, items, sites, planningItems, mechanicsBySi
                                     {items.map((item) => (
                                         <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : item.is_priority ? 'bg-fuchsia-50/40 dark:bg-fuchsia-500/5' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
-                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} disabled={item.baseline_missing} onCheckedChange={() => toggleItem(item.id)} />
+                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
                                             <TableCell className="px-4 py-4">
                                                 <p className="text-base font-semibold text-foreground">{item.plate_number}</p>
@@ -328,7 +328,7 @@ export default function Index({ auth, items, sites, planningItems, mechanicsBySi
                                             </TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <span className={!item.baseline_missing && item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
+                                                <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
                                                     {item.status_label}
                                                 </span>
                                             </TableCell>
@@ -341,6 +341,55 @@ export default function Index({ auth, items, sites, planningItems, mechanicsBySi
                                     )}
                                 </TableBody>
                             </Table>
+                        </div>
+                    </section>
+
+                    <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-5 shadow-xs dark:border-amber-500/40 dark:bg-amber-500/10">
+                        <div>
+                            <h3 className="font-semibold text-foreground">Baseline Belum Diisi</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">{baselineItems.length} item manual. Bagian ini terpisah dari task hasil trigger dan tidak dianggap Due/Overdue.</p>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                            {baselineItems.map((item) => {
+                                const mechanics = mechanicsBySite[String(item.site_id)] ?? [];
+                                const defaultMechanic = mechanics.length === 1 ? mechanics[0] : null;
+
+                                return (
+                                    <article key={item.id} className="rounded-xl border border-amber-200 bg-card p-4 dark:border-amber-500/30">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="font-semibold text-foreground">{item.plate_number} — {item.item_name}</p>
+                                                    <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>
+                                                </div>
+                                                <p className="mt-2 text-sm text-muted-foreground">{item.site_name} · KM saat ini {item.current_odo.toLocaleString('id-ID')}</p>
+                                                <p className="mt-1 text-sm text-amber-800 dark:text-amber-200">Tetap dikecualikan dari Normal, High Usage, Proyeksi, dan scheduler sampai Replace selesai.</p>
+                                            </div>
+                                            {canSubmit && activeBaselineItemId !== item.id && <PrimaryButton type="button" onClick={() => setActiveBaselineItemId(item.id)}>Submit Replace</PrimaryButton>}
+                                        </div>
+
+                                        {activeBaselineItemId === item.id && (
+                                            <ReplaceForm
+                                                workOrderId={item.work_order_id}
+                                                itemId={item.id}
+                                                itemName={item.item_name}
+                                                defaultReason={null}
+                                                plannedDate={null}
+                                                mechanics={mechanics}
+                                                assignedMechanicId={defaultMechanic?.id ?? null}
+                                                scheduledDate={defaultMechanic ? todayInputValue() : null}
+                                                onCancel={() => setActiveBaselineItemId(null)}
+                                                onSuccess={() => setActiveBaselineItemId(null)}
+                                            />
+                                        )}
+
+                                        {!canSubmit && <p className="mt-3 text-sm text-muted-foreground">Submit Replace dilakukan oleh Planner Area atau Superadmin.</p>}
+                                    </article>
+                                );
+                            })}
+
+                            {baselineItems.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item baseline kosong untuk filter ini.</p>}
                         </div>
                     </section>
 

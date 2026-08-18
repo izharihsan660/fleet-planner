@@ -148,6 +148,7 @@ export interface WorkOrderItem {
     effective_due_km: number | null;
     effective_due_date: string | null;
     available_date: string | null;
+    planned_date: string | null;
     freeze_start: string | null;
     freeze_end: string | null;
     completed_odo: number | null;
@@ -415,7 +416,6 @@ export interface ReportSummary {
 export interface BackdateThresholds {
     self_service_days: number;
     max_days: number;
-    self_service_note_min_length: number;
     extended_note_min_length: number;
 }
 

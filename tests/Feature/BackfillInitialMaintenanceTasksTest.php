@@ -24,7 +24,7 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
         UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 100,
             'last_done_date' => today()->toDateString(),
             'next_due_km' => 1200,
             'next_due_date' => null,
@@ -50,7 +50,7 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
         UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $onHoldPlanningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 100,
             'last_done_date' => today()->toDateString(),
             'next_due_km' => 1200,
             'next_due_date' => null,
@@ -60,7 +60,7 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
         UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $overduePlanningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 100,
             'last_done_date' => now()->subDays(100)->toDateString(),
             'next_due_km' => 900,
             'next_due_date' => now()->subDay()->toDateString(),
@@ -84,7 +84,7 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
         $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 100,
             'last_done_date' => today()->toDateString(),
             'next_due_km' => 1200,
             'next_due_date' => null,
@@ -106,7 +106,7 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
         $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->where('status', 'on_hold')->count());
     }
 
-    public function test_execute_skips_planning_with_missing_baseline_date(): void
+    public function test_execute_skips_planning_with_zero_baseline_km_even_when_date_exists(): void
     {
         $site = Site::query()->create(['name' => 'Site Null Baseline', 'region' => 'Region Test']);
         $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
@@ -115,7 +115,7 @@ class BackfillInitialMaintenanceTasksTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 1200,
             'next_due_date' => now()->subDay()->toDateString(),
         ]);

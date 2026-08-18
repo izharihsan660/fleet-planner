@@ -23,6 +23,7 @@ class WorkOrderItem extends Model
         'new_due_km',
         'new_due_date',
         'available_date',
+        'planned_date',
         'freeze_start',
         'freeze_end',
         'completed_odo',
@@ -42,6 +43,7 @@ class WorkOrderItem extends Model
             'new_due_date' => 'date',
             'baseline_last_done_date' => 'date',
             'available_date' => 'date',
+            'planned_date' => 'date',
             'previous_due_date' => 'date',
             'freeze_start' => 'datetime',
             'freeze_end' => 'datetime',
@@ -77,6 +79,20 @@ class WorkOrderItem extends Model
     public function scopeWithBaseline(Builder $query): Builder
     {
         return $query->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->withBaseline());
+    }
+
+    public function isBaselineReplaceSubmission(): bool
+    {
+        return ($this->unitPlanning?->isBaselineMissing() ?? true)
+            && $this->action === 'replace'
+            && in_array($this->status, ['replace', 'in_progress'], true);
+    }
+
+    public function isApprovedBaselineReplace(): bool
+    {
+        return $this->isBaselineReplaceSubmission()
+            && $this->status === 'in_progress'
+            && $this->approved_at !== null;
     }
 
     /**

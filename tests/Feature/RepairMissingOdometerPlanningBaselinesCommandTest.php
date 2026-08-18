@@ -22,7 +22,10 @@ class RepairMissingOdometerPlanningBaselinesCommandTest extends TestCase
         ]);
         $unit = Unit::query()->create($this->unitPayload($site->id, 'KT 1000 AA'));
         $unitPlanning = $unit->unitPlannings()->where('planning_item_id', $planningItem->id)->firstOrFail();
-        $unitPlanning->update(['next_due_km' => 5000]);
+        $unitPlanning->update([
+            'last_done_date' => today()->subMonth()->toDateString(),
+            'next_due_km' => 5000,
+        ]);
 
         $this->artisan('maintenance:repair-missing-odometer-baselines', ['--dry-run' => true])
             ->expectsOutputToContain('MODE: DRY-RUN')
@@ -44,6 +47,7 @@ class RepairMissingOdometerPlanningBaselinesCommandTest extends TestCase
         $unitWithoutReading = Unit::query()->create($this->unitPayload($site->id, 'KT 2000 BB'));
         $affectedPlanning = $unitWithoutReading->unitPlannings()->where('planning_item_id', $planningItem->id)->firstOrFail();
         $affectedPlanning->update([
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => now()->addDays(90)->toDateString(),
         ]);

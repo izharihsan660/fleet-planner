@@ -146,6 +146,32 @@ class WorkListTest extends TestCase
             ->viewData('page')['props']['items'])->pluck('id'));
     }
 
+    public function test_daftar_kerja_groups_missing_baseline_items_separately_from_trigger_tasks(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $triggerItem = $this->createWorkListItem($site, 'KT 1101 AA', 'Filter Oli', 'overdue', today()->subDay()->toDateString());
+        $baselineItem = $this->createWorkListItem($site, 'KT 1102 AA', 'Brake Pad', 'overdue', today()->subDays(10)->toDateString());
+        $baselineItem->unitPlanning->update([
+            'last_done_km' => 0,
+            'last_done_date' => today()->subMonth()->toDateString(),
+            'next_due_km' => null,
+            'next_due_date' => null,
+        ]);
+
+        $this->actingAs($planner)
+            ->get(route('work-list.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('items', 1)
+                ->where('items.0.id', $triggerItem->id)
+                ->has('baselineItems', 1)
+                ->where('baselineItems.0.id', $baselineItem->id)
+                ->where('baselineItems.0.status_label', 'Baseline Belum Diisi')
+                ->where('baselineItems.0.due_km', null)
+                ->where('baselineItems.0.due_date', null)
+            );
+    }
+
     public function test_daftar_kerja_defaults_to_priority_and_supports_due_date_and_due_km_sorting(): void
     {
         [$planner, $site] = $this->createRegionUserAndSites();
@@ -363,7 +389,7 @@ class WorkListTest extends TestCase
         $planning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => today()->subDays(90)->toDateString(),
             'next_due_km' => 10000,
             'next_due_date' => $nextDueDate,

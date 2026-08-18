@@ -57,7 +57,7 @@ class DashboardAndReportExportTest extends TestCase
             'unit_id' => $validOverdueItem->workOrder->unit_id,
             'planning_item_id' => $missingPlanningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => now()->subDay()->toDateString(),
         ]);
@@ -83,6 +83,11 @@ class DashboardAndReportExportTest extends TestCase
                 ->where('plannerDashboard.site_rows.0.overdue_count', 1)
                 ->where('overdueBanner.count', 1)
                 ->has('plannerDashboard.status_chart', 5)
+                ->where('plannerDashboard.status_chart.0.label', 'Menunggu')
+                ->where('plannerDashboard.status_chart.1.label', 'Menunggu Approval')
+                ->where('plannerDashboard.status_chart.2.label', 'Sedang Dikerjakan')
+                ->where('plannerDashboard.status_chart.3.label', 'Selesai Bulan Ini')
+                ->where('plannerDashboard.status_chart.4.label', 'Terlambat')
                 ->has('plannerDashboard.overdue_by_site_chart', 1)
             );
     }
@@ -131,6 +136,102 @@ class DashboardAndReportExportTest extends TestCase
                 ->where('plannerDashboard.site_rows.0.km_input_count', 1)
                 ->where('plannerDashboard.site_rows.0.unit_count', 2)
             );
+    }
+
+    public function test_dashboard_reports_km_input_trend_deltas_and_region_scope(): void
+    {
+        $this->travelTo('2026-08-17 08:00:00');
+
+        try {
+            [$insideSite, $outsideSite] = $this->createRegionScenario();
+            $planner = User::factory()->create([
+                'role' => UserRole::PlannerArea,
+                'region_id' => $insideSite->region_id,
+                'site_id' => null,
+            ]);
+            $spvHo = User::factory()->create(['role' => UserRole::SpvHo]);
+            $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $insideSite->id]);
+            $insideUnits = collect(range(1, 3))->map(fn (int $index): Unit => Unit::withoutEvents(
+                fn () => Unit::query()->create($this->unitPayload($insideSite, "KT 32{$index}0 AA"))
+            ));
+            $outsideUnit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($outsideSite, 'KT 3299 ZZ')));
+
+            foreach ($insideUnits as $index => $unit) {
+                InspectionLog::query()->create([
+                    'unit_id' => $unit->id,
+                    'mechanic_id' => $mechanic->id,
+                    'inspection_date' => '2026-08-17',
+                    'odometer' => 1000 + $index,
+                ]);
+            }
+
+            foreach ($insideUnits->take(2) as $index => $unit) {
+                InspectionLog::query()->create([
+                    'unit_id' => $unit->id,
+                    'mechanic_id' => $mechanic->id,
+                    'inspection_date' => '2026-08-16',
+                    'odometer' => 900 + $index,
+                ]);
+                InspectionLog::query()->create([
+                    'unit_id' => $unit->id,
+                    'mechanic_id' => $mechanic->id,
+                    'inspection_date' => '2026-08-10',
+                    'odometer' => 700 + $index,
+                ]);
+            }
+
+            InspectionLog::query()->create([
+                'unit_id' => $insideUnits->first()->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => '2026-08-15',
+                'odometer' => 800,
+            ]);
+            InspectionLog::query()->create([
+                'unit_id' => $insideUnits->first()->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => '2026-08-09',
+                'odometer' => 600,
+            ]);
+            InspectionLog::query()->create([
+                'unit_id' => $outsideUnit->id,
+                'mechanic_id' => $mechanic->id,
+                'inspection_date' => '2026-08-17',
+                'odometer' => 500,
+            ]);
+
+            $plannerResponse = $this->actingAs($planner)->get(route('dashboard'));
+            $spvResponse = $this->actingAs($spvHo)->get(route('dashboard', [
+                'region_id' => $insideSite->region_id,
+                'km_trend_days' => 7,
+            ]));
+
+            $plannerResponse->assertOk()->assertInertia(fn (Assert $page) => $page
+                ->where('plannerDashboard.km_input_trend.selected_days', 14)
+                ->where('plannerDashboard.km_input_trend.period_start', '2026-08-04')
+                ->where('plannerDashboard.km_input_trend.period_end', '2026-08-17')
+                ->has('plannerDashboard.km_input_trend.series', 14)
+                ->where('plannerDashboard.km_input_trend.series.12.count', 2)
+                ->where('plannerDashboard.km_input_trend.series.13.count', 3)
+                ->where('plannerDashboard.km_input_trend.today_vs_yesterday.current', 3)
+                ->where('plannerDashboard.km_input_trend.today_vs_yesterday.previous', 2)
+                ->where('plannerDashboard.km_input_trend.today_vs_yesterday.delta', 1)
+                ->where('plannerDashboard.km_input_trend.today_vs_yesterday.percentage_change', fn (mixed $value): bool => (float) $value === 50.0)
+                ->where('plannerDashboard.km_input_trend.this_week_vs_last_week.current', 6)
+                ->where('plannerDashboard.km_input_trend.this_week_vs_last_week.previous', 3)
+                ->where('plannerDashboard.km_input_trend.this_week_vs_last_week.delta', 3)
+                ->where('plannerDashboard.km_input_trend.this_week_vs_last_week.percentage_change', fn (mixed $value): bool => (float) $value === 100.0)
+            );
+
+            $spvResponse->assertOk()->assertInertia(fn (Assert $page) => $page
+                ->where('plannerDashboard.selected_region_id', $insideSite->region_id)
+                ->where('plannerDashboard.km_input_trend.selected_days', 7)
+                ->where('plannerDashboard.km_input_trend.period_start', '2026-08-11')
+                ->has('plannerDashboard.km_input_trend.series', 7)
+                ->where('plannerDashboard.km_input_trend.today_vs_yesterday.current', 3)
+            );
+        } finally {
+            $this->travelBack();
+        }
     }
 
     public function test_superadmin_dashboard_shows_all_regions_by_default(): void
@@ -222,7 +323,7 @@ class DashboardAndReportExportTest extends TestCase
             'site_id' => $firstSite->id,
         ]));
 
-        $response->assertOk()->assertDownload('laporan-rekap-wo-2026-07.xlsx');
+        $response->assertOk()->assertDownload('laporan-rekap-pk-2026-07.xlsx');
 
         $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
         $rows = $spreadsheet->getActiveSheet()->toArray();
@@ -245,7 +346,7 @@ class DashboardAndReportExportTest extends TestCase
         $secondPlanning = UnitPlanning::query()->create([
             'unit_id' => $firstItem->workOrder->unit_id,
             'planning_item_id' => $secondPlanningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(180)->toDateString(),
             'next_due_km' => 20000,
             'next_due_date' => now()->addDays(20)->toDateString(),
@@ -298,7 +399,7 @@ class DashboardAndReportExportTest extends TestCase
         $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
         $rows = $spreadsheet->getActiveSheet()->toArray();
 
-        $this->assertSame(['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $rows[0]);
+        $this->assertSame(['Item', 'Total Item', 'Selesai', 'Terlambat', 'Rata-rata Hari Penyelesaian'], $rows[0]);
         $this->assertSame('Filter Oli', $rows[1][0]);
         $this->assertSame(2, (int) $rows[1][1]);
         $this->assertSame(4.0, (float) $rows[1][4]);
@@ -363,7 +464,7 @@ class DashboardAndReportExportTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
         ], [
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(90)->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => now()->addDays(10)->toDateString(),

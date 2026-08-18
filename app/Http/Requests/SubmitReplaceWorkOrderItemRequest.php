@@ -27,6 +27,7 @@ class SubmitReplaceWorkOrderItemRequest extends FormRequest
     {
         return [
             'reason' => ['nullable', 'string', 'max:1000'],
+            'planned_date' => ['nullable', 'date'],
         ];
     }
 }

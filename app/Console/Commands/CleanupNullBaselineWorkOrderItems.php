@@ -34,14 +34,14 @@ class CleanupNullBaselineWorkOrderItems extends Command
         $this->line('MODE: '.($execute ? 'EXECUTE' : 'DRY-RUN'));
 
         if ($itemsToDelete->isNotEmpty()) {
-            $this->info($itemsToDelete->count().' item AKAN DIHAPUS (baseline NULL dan status on_hold):');
+            $this->info($itemsToDelete->count().' item AKAN DIHAPUS (KM baseline NULL/0 dan status on_hold):');
             $this->displayItemsTable($itemsToDelete);
         } else {
-            $this->info('Tidak ada item baseline NULL berstatus on_hold yang akan dihapus.');
+            $this->info('Tidak ada item KM baseline NULL/0 berstatus on_hold yang akan dihapus.');
         }
 
         if ($skippedItems->isNotEmpty()) {
-            $this->warn('⚠️  '.$skippedItems->count().' item DILEWATI (baseline NULL tapi status bukan on_hold — perlu review manual):');
+            $this->warn('⚠️  '.$skippedItems->count().' item DILEWATI (KM baseline NULL/0 tapi status bukan on_hold — perlu review manual):');
             $this->displayItemsTable($skippedItems);
         }
 
@@ -120,7 +120,7 @@ class CleanupNullBaselineWorkOrderItems extends Command
     private function displaySummary(Collection $allItems, Collection $itemsToDelete, Collection $skippedItems): void
     {
         $this->newLine();
-        $this->info('Total item ditemukan (baseline NULL): '.$allItems->count());
+        $this->info('Total item ditemukan (KM baseline NULL/0): '.$allItems->count());
         $this->info('Akan dihapus (status on_hold): '.$itemsToDelete->count());
         $this->info('Dilewati untuk review manual (status lain): '.$skippedItems->count());
     }

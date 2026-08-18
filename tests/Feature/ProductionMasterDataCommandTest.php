@@ -76,7 +76,7 @@ class ProductionMasterDataCommandTest extends TestCase
             'V-Belt',
             'Wiper Blade',
         ], PlanningItem::query()->orderBy('name')->pluck('name')->all());
-        $this->assertSame(11, SystemThreshold::query()->count());
+        $this->assertSame(12, SystemThreshold::query()->count());
         $this->assertSame(0, PlanningItemOverride::query()->count());
 
         $kalimantan = Region::query()->where('name', 'Kalimantan')->firstOrFail();
@@ -104,6 +104,7 @@ class ProductionMasterDataCommandTest extends TestCase
             'backdate_max_days' => '90',
             'backdate_self_service_days' => '30',
             'high_usage_threshold' => '20',
+            'km_input_summary_interval_days' => '7',
             'min_inspection_data' => '3',
             'rolling_window_days' => '30',
             'upcoming_days' => '28',
@@ -135,7 +136,7 @@ class ProductionMasterDataCommandTest extends TestCase
         $this->assertSame(2, Region::query()->count());
         $this->assertSame(22, Site::query()->count());
         $this->assertSame(20, PlanningItem::query()->count());
-        $this->assertSame(11, SystemThreshold::query()->count());
+        $this->assertSame(12, SystemThreshold::query()->count());
         $this->assertSame($regionIds, Region::query()->orderBy('name')->pluck('id', 'name')->all());
         $this->assertSame($siteIds, Site::query()->orderBy('name')->pluck('id', 'name')->all());
         $this->assertSame($planningItemIds, PlanningItem::query()->orderBy('name')->pluck('id', 'name')->all());

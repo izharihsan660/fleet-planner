@@ -110,7 +110,8 @@ class WorkListController extends Controller
         $siteIds = $items->pluck('site_id')->merge($filters['site_id'] ?? [])->filter()->unique()->values();
 
         return Inertia::render('WorkList/Index', [
-            'items' => $items,
+            'items' => $items->where('baseline_missing', false)->values(),
+            'baselineItems' => $items->where('baseline_missing', true)->values(),
             'sites' => SiteResource::collection(AccessScope::applySiteListScope(Site::query(), $user)->orderBy('name')->get()),
             'planningItems' => PlanningItem::query()->orderBy('name')->get(['id', 'name']),
             'mechanicsBySite' => User::query()
@@ -171,7 +172,7 @@ class WorkListController extends Controller
         return $query
             ->where($query->qualifyColumn('has_odometer_reading'), true)
             ->whereHas('unitPlannings', fn (Builder $planningQuery): Builder => $planningQuery
-                ->where($planningQuery->qualifyColumn('last_done_km'), '!=', 0));
+                ->withBaseline());
     }
 
     public function store(SubmitWorkListRequest $request, FleetNotificationService $notifications): RedirectResponse

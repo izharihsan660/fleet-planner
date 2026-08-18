@@ -31,7 +31,7 @@ class FixMisclassifiedOverdueItemsCommandTest extends TestCase
         $this->assertSame('overdue', $item->refresh()->status);
     }
 
-    public function test_execute_updates_only_exact_missing_baselines_and_is_idempotent(): void
+    public function test_execute_updates_zero_km_baselines_regardless_of_date_and_is_idempotent(): void
     {
         $site = Site::query()->create(['name' => 'Site Execute', 'region' => 'Sulawesi']);
         $missingBaselineItem = $this->createWorkOrderItem($site, 'DD 2001 BB', 'Brake Pad', 0, null);
@@ -39,11 +39,11 @@ class FixMisclassifiedOverdueItemsCommandTest extends TestCase
         $kmBaselineItem = $this->createWorkOrderItem($site, 'DD 2003 BB', 'Oli Gardan', 5000, null);
 
         $this->artisan('fleet:fix-misclassified-overdue --execute')
-            ->expectsOutput('1 item berhasil diubah dari overdue menjadi on_hold.')
+            ->expectsOutput('2 item berhasil diubah dari overdue menjadi on_hold.')
             ->assertSuccessful();
 
         $this->assertSame('on_hold', $missingBaselineItem->refresh()->status);
-        $this->assertSame('overdue', $dateBaselineItem->refresh()->status);
+        $this->assertSame('on_hold', $dateBaselineItem->refresh()->status);
         $this->assertSame('overdue', $kmBaselineItem->refresh()->status);
 
         $this->artisan('fleet:fix-misclassified-overdue --execute')

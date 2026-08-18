@@ -622,13 +622,17 @@ class WorkOrderBoardTest extends TestCase
         $pageSource = file_get_contents(resource_path('js/Pages/WorkOrders/Index.tsx'));
 
         $this->assertStringContainsString('const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig>', $pageSource);
-        $this->assertStringContainsString('Belum ada task Upcoming', $pageSource);
-        $this->assertStringContainsString('Belum ada task Ancang-ancang', $pageSource);
+        $this->assertStringContainsString("label: 'Akan Datang'", $pageSource);
+        $this->assertStringContainsString("label: 'Menunggu'", $pageSource);
+        $this->assertStringContainsString("label: 'Sedang Dikerjakan'", $pageSource);
+        $this->assertStringContainsString("label: 'Selesai'", $pageSource);
+        $this->assertStringContainsString('Belum ada tugas Akan Datang', $pageSource);
+        $this->assertStringContainsString('Belum ada tugas Ancang-ancang', $pageSource);
         $this->assertStringContainsString('Belum ada pekerjaan yang perlu ditindak', $pageSource);
         $this->assertStringContainsString('Belum ada pekerjaan yang sedang dikerjakan', $pageSource);
         $this->assertStringContainsString('Pekerjaan pindah ke sini saat mekanik sudah mulai mengerjakannya sesuai tanggal rencana.', $pageSource);
         $this->assertStringContainsString('Belum ada pekerjaan yang selesai', $pageSource);
-        $this->assertStringContainsString("label: 'Lihat kolom On Hold'", $pageSource);
+        $this->assertStringContainsString("label: 'Lihat kolom Menunggu'", $pageSource);
         $this->assertStringContainsString("targetColumn: 'open'", $pageSource);
         $this->assertStringContainsString("element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });", $pageSource);
         $this->assertStringContainsString("highlightedColumn === columnKey && 'ring-2 ring-primary ring-offset-2 ring-offset-background'", $pageSource);
@@ -669,6 +673,10 @@ class WorkOrderBoardTest extends TestCase
         $planner = $this->adminSite();
         $unit = $this->unit($planner->site_id, 104321, 100);
         $planning = $this->planning($unit, 'Filter Oli', 110000, today()->addDays(10)->toDateString());
+        $planning->update([
+            'last_done_km' => 0,
+            'last_done_date' => today()->subMonth()->toDateString(),
+        ]);
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
             'site_id' => $unit->site_id,
@@ -1119,7 +1127,7 @@ class WorkOrderBoardTest extends TestCase
             $planning = UnitPlanning::query()->updateOrCreate(
                 ['unit_id' => $unit->id, 'planning_item_id' => $serviceB->id],
                 [
-                    'last_done_km' => 0,
+                    'last_done_km' => 1,
                     'last_done_date' => today()->subDays(180)->toDateString(),
                     'next_due_km' => $odo + 1000,
                     'next_due_date' => today()->addDays(5)->toDateString(),
@@ -1285,7 +1293,7 @@ class WorkOrderBoardTest extends TestCase
         return UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $item->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1,
             'last_done_date' => today()->subDays(180)->toDateString(),
             'next_due_km' => $nextDueKm,
             'next_due_date' => $nextDueDate,

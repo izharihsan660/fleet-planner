@@ -144,10 +144,10 @@ function DueTable({ items, showItem = true }: { items: ProjectionLine[]; showIte
                 <TableHeader>
                     <TableRow>
                         <TableHead>Plat Nomor</TableHead>
-                        <TableHead>Site</TableHead>
+                        <TableHead>Lokasi</TableHead>
                         {showItem && <TableHead>Item</TableHead>}
-                        <TableHead>Est. Due Date</TableHead>
-                        <TableHead>Est. Due KM</TableHead>
+                        <TableHead>Est. Jatuh Tempo</TableHead>
+                        <TableHead>Est. KM Jatuh Tempo</TableHead>
                     </TableRow>
                 </TableHeader>
                 <DueRows items={items} showItem={showItem} />
@@ -203,8 +203,8 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
                                 <span className="text-sm font-semibold">{date.getDate()}</span>
                                 {hasTasks && <span className="rounded-full bg-foreground px-2 py-0.5 text-xs font-semibold text-background">{summary.total}</span>}
                             </div>
-                            {summary?.overdue ? <span className="mt-3 inline-flex rounded-full bg-red-600 px-2 py-0.5 text-xs font-medium text-white dark:bg-red-500 dark:text-red-950">Overdue</span> : null}
-                            {!summary?.overdue && summary?.high_usage ? <span className="mt-3 inline-flex rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white dark:bg-amber-300 dark:text-amber-950">High Usage</span> : null}
+                            {summary?.overdue ? <span className="mt-3 inline-flex rounded-full bg-red-600 px-2 py-0.5 text-xs font-medium text-white dark:bg-red-500 dark:text-red-950">Terlambat</span> : null}
+                            {!summary?.overdue && summary?.high_usage ? <span className="mt-3 inline-flex rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white dark:bg-amber-300 dark:text-amber-950">Pemakaian Tinggi</span> : null}
                         </button>
                     );
                 })}
@@ -231,8 +231,8 @@ export default function Index({ projection, sites, regions, calendar, filters, p
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Proyeksi Maintenance</h2>}>
-            <Head title="Proyeksi Maintenance" />
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Proyeksi Perawatan</h2>}>
+            <Head title="Proyeksi Perawatan" />
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                     <Card>
@@ -308,13 +308,13 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
                                 </TabsList>
                                 <TabsContent value="unit" className="space-y-5">
-                                    {projection.by_unit.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item due pada periode ini.</p>}
+                                    {projection.by_unit.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item jatuh tempo pada periode ini.</p>}
                                     {projection.by_unit.data.map((unit) => (
                                         <Card key={unit.unit_id} className="shadow-xs">
                                             <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 bg-muted/30">
                                                 <div>
                                                     <CardTitle className="text-base">{unit.plate_number}{unit.insufficient_data && <span className="ml-2 text-amber-500" title={unit.data_status_message ?? 'Data inspeksi belum cukup'}>⚠</span>}</CardTitle>
-                                                    <CardDescription>{unit.site_name} · Avg {unit.avg_km_per_day} KM/hari · Est. odo {formatKm(unit.estimated_period_odo)}</CardDescription>
+                                                    <CardDescription>{unit.site_name} · Rata-rata {unit.avg_km_per_day} KM/hari · Est. odo {formatKm(unit.estimated_period_odo)}</CardDescription>
                                                     {unit.data_status_message && <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-300">{unit.data_status_message}</p>}
                                                 </div>
                                                 <StatusBadge>{unit.items.length} item</StatusBadge>
@@ -331,23 +331,23 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                             <CardContent><DueTable items={item.items} showItem={false} /></CardContent>
                                         </Card>
                                     ))}
-                                    {projection.by_item.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item due pada periode ini.</p>}
+                                    {projection.by_item.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item jatuh tempo pada periode ini.</p>}
                                     <PaginationLinks meta={projection.by_item.meta} />
                                 </TabsContent>
                                 <TabsContent value="calendar" className="space-y-5">
                                     <div className="flex flex-col gap-4 rounded-xl border bg-muted/20 p-4 lg:flex-row lg:items-end lg:justify-between">
                                         <div>
-                                            <h3 className="text-lg font-semibold text-foreground">Month View: {calendar.label}</h3>
-                                            <p className="text-sm text-muted-foreground">Peta beban kerja harian dari task Work Order yang belum complete/cancelled.</p>
+                                            <h3 className="text-lg font-semibold text-foreground">Tampilan Bulan: {calendar.label}</h3>
+                                            <p className="text-sm text-muted-foreground">Peta beban kerja harian dari tugas Perintah Kerja (PK) yang belum selesai/dibatalkan.</p>
                                         </div>
                                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[180px_180px_140px_140px_120px]">
                                             {permissions.can_filter_region && (
                                                 <div className="space-y-2">
-                                                    <Label>Region</Label>
+                                                    <Label>Wilayah</Label>
                                                     <Select value={filters.region_id ? String(filters.region_id) : 'all'} onValueChange={(value) => navigateProjection({ region_id: value === 'all' ? null : Number(value), site_id: null })}>
                                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                                         <SelectContent>
-                                                            <SelectItem value="all">All Region</SelectItem>
+                                                            <SelectItem value="all">Semua Wilayah</SelectItem>
                                                             {regions.data.map((region) => <SelectItem key={region.id} value={String(region.id)}>{region.name}</SelectItem>)}
                                                         </SelectContent>
                                                     </Select>
@@ -355,23 +355,23 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                             )}
                                             {permissions.can_filter_site && (
                                                 <div className="space-y-2">
-                                                    <Label>Site</Label>
+                                                    <Label>Lokasi</Label>
                                                     <Select value={filters.site_id ? String(filters.site_id) : 'all'} onValueChange={(value) => navigateProjection({ site_id: value === 'all' ? null : Number(value) })}>
                                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                                         <SelectContent>
-                                                            <SelectItem value="all">Semua Site</SelectItem>
+                                                            <SelectItem value="all">Semua Lokasi</SelectItem>
                                                             {sites.data.map((site) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}
                                                         </SelectContent>
                                                     </Select>
                                                 </div>
                                             )}
-                                            <Button type="button" variant="outline" className="self-end" onClick={() => navigateProjection({ month: addMonths(filters.month, -1) })}>← Prev</Button>
-                                            <Button type="button" variant="outline" className="self-end" onClick={() => navigateProjection({ month: addMonths(filters.month, 1) })}>Next →</Button>
+                                            <Button type="button" variant="outline" className="self-end" onClick={() => navigateProjection({ month: addMonths(filters.month, -1) })}>← Sebelumnya</Button>
+                                            <Button type="button" variant="outline" className="self-end" onClick={() => navigateProjection({ month: addMonths(filters.month, 1) })}>Berikutnya →</Button>
                                             <Button type="button" className="self-end" onClick={() => navigateProjection({ month: todayMonth() })}>Hari Ini</Button>
                                         </div>
                                     </div>
                                     <MonthCalendar calendar={calendar} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
-                                    {calendar.items.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada task nyata pada bulan ini.</p>}
+                                    {calendar.items.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada tugas nyata pada bulan ini.</p>}
                                     {selectedDate && selectedItems.length > 0 && (
                                         <>
                                             <Button type="button" aria-label="Tutup detail tanggal" variant="ghost" className="fixed inset-0 z-30 h-auto rounded-none bg-black/20 p-0 hover:bg-black/20" onClick={() => setSelectedDate(null)} />
@@ -379,8 +379,8 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                 <div className="mx-auto max-h-[78vh] max-w-7xl overflow-y-auto p-5">
                                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                                         <div>
-                                                            <h4 className="font-semibold text-foreground">Detail Task — {formatDate(selectedDate)}</h4>
-                                                            <p className="text-sm text-muted-foreground">{selectedItems.length} task pada tanggal ini. Kalender hanya untuk monitoring.</p>
+                                                            <h4 className="font-semibold text-foreground">Detail Tugas — {formatDate(selectedDate)}</h4>
+                                                            <p className="text-sm text-muted-foreground">{selectedItems.length} tugas pada tanggal ini. Kalender hanya untuk pemantauan.</p>
                                                         </div>
                                                         <Button type="button" variant="outline" onClick={() => setSelectedDate(null)}>Tutup</Button>
                                                     </div>
@@ -389,8 +389,8 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                             <TableHeader>
                                                                 <TableRow>
                                                                     <TableHead>Unit</TableHead>
-                                                                    <TableHead>Item Maintenance</TableHead>
-                                                                    <TableHead>Site</TableHead>
+                                                                    <TableHead>Item Perawatan</TableHead>
+                                                                    <TableHead>Lokasi</TableHead>
                                                                     <TableHead>Status</TableHead>
                                                                     <TableHead>Arahkan</TableHead>
                                                                 </TableRow>
@@ -425,7 +425,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     )}
                                 </TabsContent>
                                 <TabsContent value="part" className="space-y-5">
-                                    <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">Quantity adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>
+                                    <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">Kuantitas adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>
                                     {projection.by_part.data.map((part: ProjectionPart) => (
                                         <Card key={part.planning_item_id} className="shadow-xs">
                                             <CardHeader>
@@ -437,14 +437,14 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                     <div key={item.unit_planning_id} className="grid gap-1 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground sm:grid-cols-4 sm:items-center">
                                                         <span className="font-medium text-foreground">{item.plate_number}</span>
                                                         <span>{item.site_name}</span>
-                                                        <span>Due: {formatDate(item.estimated_due_date)}</span>
+                                                        <span>Jatuh Tempo: {formatDate(item.estimated_due_date)}</span>
                                                         <span>Est. qty: {item.estimated_quantity}</span>
                                                     </div>
                                                 ))}
                                             </CardContent>
                                         </Card>
                                     ))}
-                                    {projection.by_part.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada part due pada periode ini.</p>}
+                                    {projection.by_part.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada part jatuh tempo pada periode ini.</p>}
                                     <PaginationLinks meta={projection.by_part.meta} />
                                 </TabsContent>
                             </Tabs>

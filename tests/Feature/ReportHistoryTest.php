@@ -62,7 +62,7 @@ class ReportHistoryTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $missingItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => today()->subDays(83)->toDateString(),
         ]);
@@ -151,14 +151,14 @@ class ReportHistoryTest extends TestCase
                 'unit_id' => $ownUnit->id,
                 'planning_item_id' => $planningItem->id,
                 'last_done_km' => 0,
-                'last_done_date' => null,
+                'last_done_date' => today()->subMonth()->toDateString(),
             ]);
         }
 
         UnitPlanning::query()->create([
             'unit_id' => $ownUnit->id,
             'planning_item_id' => $excludedItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => null,
             'is_excluded' => true,
         ]);
@@ -166,7 +166,7 @@ class ReportHistoryTest extends TestCase
             'unit_id' => $otherUnit->id,
             'planning_item_id' => $firstItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
         ]);
 
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => $ownRegion->id]);
@@ -371,7 +371,7 @@ class ReportHistoryTest extends TestCase
         $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(120)->toDateString(),
             'next_due_km' => 5000,
             'next_due_date' => now()->subDay()->toDateString(),
@@ -436,7 +436,7 @@ class ReportHistoryTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => $nextDueKm,
             'next_due_date' => null,
         ]);

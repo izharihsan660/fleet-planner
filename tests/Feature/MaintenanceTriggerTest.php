@@ -26,11 +26,11 @@ class MaintenanceTriggerTest extends TestCase
 
         $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
         $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
-        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 2000, 'interval_days' => 90]);
+        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 1000, 'interval_days' => 90]);
         UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(60)->toDateString(),
             'next_due_km' => 2000,
             'next_due_date' => now()->addDays(30)->toDateString(),
@@ -63,19 +63,19 @@ class MaintenanceTriggerTest extends TestCase
             );
     }
 
-    public function test_daily_km_input_skips_due_items_with_missing_baseline_dates(): void
+    public function test_daily_km_input_skips_due_items_with_zero_baseline_km_even_when_date_exists(): void
     {
         $this->seedThresholds();
 
         $site = Site::query()->create(['name' => 'Site Mixed Baseline', 'region' => 'Region Test']);
         $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
         $unit->update(['has_odometer_reading' => true]);
-        $validPlanningItem = PlanningItem::query()->create(['name' => 'Baseline Lengkap', 'interval_km' => 2000, 'interval_days' => 90]);
-        $missingPlanningItem = PlanningItem::query()->create(['name' => 'Baseline Kosong', 'interval_km' => 2000, 'interval_days' => 90]);
+        $validPlanningItem = PlanningItem::query()->create(['name' => 'Baseline Lengkap', 'interval_km' => 1000, 'interval_days' => 90]);
+        $missingPlanningItem = PlanningItem::query()->create(['name' => 'Baseline Kosong', 'interval_km' => 1000, 'interval_days' => 90]);
         $validPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $validPlanningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(60)->toDateString(),
             'next_due_km' => 2000,
             'next_due_date' => now()->addDays(30)->toDateString(),
@@ -84,7 +84,7 @@ class MaintenanceTriggerTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $missingPlanningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => now()->subDays(60)->toDateString(),
             'next_due_km' => 2000,
             'next_due_date' => now()->subDays(83)->toDateString(),
         ]);
@@ -118,13 +118,16 @@ class MaintenanceTriggerTest extends TestCase
             'unit_id' => $unit->id,
             'planning_item_id' => $missingPlanningItem->id,
             'last_done_km' => 0,
-            'last_done_date' => null,
+            'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 1000,
             'next_due_date' => today()->subDays(83)->toDateString(),
         ]);
         $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);
         $validItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $validPlanning->id, 'planning_item_id' => $validPlanningItem->id, 'status' => 'on_hold']);
         $missingItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $missingPlanning->id, 'planning_item_id' => $missingPlanningItem->id, 'status' => 'on_hold']);
+
+        $this->assertTrue($missingPlanning->isBaselineMissing());
+        $this->assertFalse(WorkOrderItem::query()->whereKey($missingItem)->withBaseline()->exists());
 
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
@@ -249,7 +252,7 @@ class MaintenanceTriggerTest extends TestCase
         $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(120)->toDateString(),
             'next_due_km' => 3000,
             'next_due_date' => now()->toDateString(),
@@ -287,11 +290,11 @@ class MaintenanceTriggerTest extends TestCase
 
         $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
         $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
-        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 2000, 'interval_days' => 90]);
+        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 1000, 'interval_days' => 90]);
         $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(60)->toDateString(),
             'next_due_km' => 2000,
             'next_due_date' => now()->toDateString(),
@@ -332,11 +335,11 @@ class MaintenanceTriggerTest extends TestCase
 
         $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
         $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
-        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 2000, 'interval_days' => 90]);
+        $planningItem = PlanningItem::query()->create(['name' => 'Ganti Oli', 'interval_km' => 1000, 'interval_days' => 90]);
         $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1000,
             'last_done_date' => now()->subDays(60)->toDateString(),
             'next_due_km' => 2000,
             'next_due_date' => now()->addDays(30)->toDateString(),
@@ -369,12 +372,12 @@ class MaintenanceTriggerTest extends TestCase
 
     private function createPlanning(Unit $unit, string $name, int $nextDueKm): UnitPlanning
     {
-        $planningItem = PlanningItem::query()->create(['name' => $name, 'interval_km' => $nextDueKm, 'interval_days' => 90]);
+        $planningItem = PlanningItem::query()->create(['name' => $name, 'interval_km' => $nextDueKm - 1, 'interval_days' => 90]);
 
         return UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
-            'last_done_km' => 0,
+            'last_done_km' => 1,
             'last_done_date' => now()->subDays(60)->toDateString(),
             'next_due_km' => $nextDueKm,
             'next_due_date' => now()->addDays(30)->toDateString(),

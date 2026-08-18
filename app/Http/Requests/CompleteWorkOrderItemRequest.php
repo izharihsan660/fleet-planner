@@ -26,8 +26,11 @@ class CompleteWorkOrderItemRequest extends FormRequest
      */
     public function rules(): array
     {
+        $item = $this->route('item');
+        $minimumCompletedOdometer = $item instanceof WorkOrderItem && $item->isApprovedBaselineReplace() ? 1 : 0;
+
         return [
-            'completed_odo' => ['required', 'integer', 'min:0'],
+            'completed_odo' => ['required', 'integer', 'min:'.$minimumCompletedOdometer],
             'completed_date' => ['required', 'date', 'before_or_equal:today'],
             'notes' => ['nullable', 'string'],
         ];
@@ -63,20 +66,6 @@ class CompleteWorkOrderItemRequest extends FormRequest
         }
 
         $this->validateNotBeforeLastDone($validator, $completedDate);
-
-        $requiredNoteLength = $policy->requiredNoteLength($daysBackdated);
-
-        if ($requiredNoteLength === 0) {
-            return;
-        }
-
-        if (mb_strlen(trim($this->string('notes')->toString())) >= $requiredNoteLength) {
-            return;
-        }
-
-        $validator->errors()->add('notes', $daysBackdated <= $policy->selfServiceDays()
-            ? sprintf('Tanggal selesai mundur %d hari. Isi catatan singkat (minimal %d karakter) sebagai alasannya.', $daysBackdated, $requiredNoteLength)
-            : sprintf('Tanggal selesai mundur %d hari, di atas batas isi sendiri %d hari. Isi catatan rinci (minimal %d karakter).', $daysBackdated, $policy->selfServiceDays(), $requiredNoteLength));
     }
 
     private function validateNotBeforeLastDone(Validator $validator, CarbonImmutable $completedDate): void

@@ -21,12 +21,7 @@ class CompletionBackdatePolicy
     public const DEFAULT_MAX_DAYS = 90;
 
     /**
-     * Panjang minimum catatan untuk mundur di dalam batas self-service.
-     */
-    public const SELF_SERVICE_NOTE_MIN_LENGTH = 10;
-
-    /**
-     * Mundur di atas self-service perlu penjelasan yang lebih rinci.
+     * Koreksi tanggal selesai oleh Superadmin memerlukan alasan rinci.
      */
     public const EXTENDED_NOTE_MIN_LENGTH = 30;
 
@@ -45,21 +40,6 @@ class CompletionBackdatePolicy
         return max(0, (int) $completedDate->startOfDay()->diffInDays(CarbonImmutable::today(), false));
     }
 
-    /**
-     * Panjang catatan minimum untuk jarak mundur tertentu. 0 berarti catatan
-     * tidak wajib (penyelesaian hari ini).
-     */
-    public function requiredNoteLength(int $daysBackdated): int
-    {
-        if ($daysBackdated <= 0) {
-            return 0;
-        }
-
-        return $daysBackdated <= $this->selfServiceDays()
-            ? self::SELF_SERVICE_NOTE_MIN_LENGTH
-            : self::EXTENDED_NOTE_MIN_LENGTH;
-    }
-
     public function exceedsMaxDays(int $daysBackdated): bool
     {
         return $daysBackdated > $this->maxDays();
@@ -68,14 +48,13 @@ class CompletionBackdatePolicy
     /**
      * Dipakai frontend untuk menandai form sebelum request dikirim.
      *
-     * @return array{self_service_days: int, max_days: int, self_service_note_min_length: int, extended_note_min_length: int}
+     * @return array{self_service_days: int, max_days: int, extended_note_min_length: int}
      */
     public function toArray(): array
     {
         return [
             'self_service_days' => $this->selfServiceDays(),
             'max_days' => $this->maxDays(),
-            'self_service_note_min_length' => self::SELF_SERVICE_NOTE_MIN_LENGTH,
             'extended_note_min_length' => self::EXTENDED_NOTE_MIN_LENGTH,
         ];
     }

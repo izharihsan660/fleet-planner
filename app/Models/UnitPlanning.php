@@ -48,9 +48,11 @@ class UnitPlanning extends Model
      */
     public function scopeMissingBaseline(Builder $query): Builder
     {
-        return $query
-            ->where($query->qualifyColumn('last_done_km'), 0)
-            ->whereNull($query->qualifyColumn('last_done_date'));
+        return $query->where(function (Builder $baselineQuery): void {
+            $baselineQuery
+                ->whereNull($baselineQuery->qualifyColumn('last_done_km'))
+                ->orWhere($baselineQuery->qualifyColumn('last_done_km'), 0);
+        });
     }
 
     /**
@@ -59,16 +61,14 @@ class UnitPlanning extends Model
      */
     public function scopeWithBaseline(Builder $query): Builder
     {
-        return $query->where(function (Builder $baselineQuery): void {
-            $baselineQuery
-                ->where($baselineQuery->qualifyColumn('last_done_km'), '!=', 0)
-                ->orWhereNotNull($baselineQuery->qualifyColumn('last_done_date'));
-        });
+        return $query
+            ->whereNotNull($query->qualifyColumn('last_done_km'))
+            ->where($query->qualifyColumn('last_done_km'), '!=', 0);
     }
 
     public function isBaselineMissing(): bool
     {
-        return (int) $this->last_done_km === 0 && $this->last_done_date === null;
+        return $this->last_done_km === null || (int) $this->last_done_km === 0;
     }
 
     /**

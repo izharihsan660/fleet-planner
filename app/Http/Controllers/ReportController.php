@@ -106,11 +106,11 @@ class ReportController extends Controller
         });
 
         [$label, $headings, $rows] = match ($tab) {
-            'wo' => ['rekap-wo', ['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $this->woSummaryRows($request, $filters)],
-            'item' => ['per-item', ['Item', 'Total Item', 'Selesai', 'Terlambat', 'Avg Hari Penyelesaian'], $this->byItemRows($request, $filters)],
+            'wo' => ['rekap-pk', ['Lokasi', 'Total Item', 'Selesai', 'Terlambat', 'Sedang Dikerjakan'], $this->woSummaryRows($request, $filters)],
+            'item' => ['per-item', ['Item', 'Total Item', 'Selesai', 'Terlambat', 'Rata-rata Hari Penyelesaian'], $this->byItemRows($request, $filters)],
             'unit' => ['per-unit', ['Plat Nomor', 'Lokasi', 'Total Item', 'Selesai', 'Terlambat'], $this->byUnitRows($request, $filters)],
             'overdue' => ['terlambat', ['Lokasi', 'Total Terlambat', 'Item Terlambat'], $this->overdueByAreaRows($request, $filters)],
-            'baseline' => ['baseline-belum-diisi', ['Plat Nomor', 'Site', 'Jumlah Item Kosong', 'Nama Item'], $this->baselineIncompleteRows($request, $filters)],
+            'baseline' => ['baseline-belum-diisi', ['Plat Nomor', 'Lokasi', 'Jumlah Item Kosong', 'Nama Item'], $this->baselineIncompleteRows($request, $filters)],
         };
 
         $filename = sprintf('laporan-%s-%04d-%02d.xlsx', $label, $filters['year'], $filters['month']);
@@ -180,7 +180,7 @@ class ReportController extends Controller
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND unit_plannings.last_done_km IS NOT NULL AND unit_plannings.last_done_km <> 0 THEN 1 ELSE 0 END) as overdue")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -212,7 +212,7 @@ class ReportController extends Controller
             ->selectRaw('planning_items.name as item')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND unit_plannings.last_done_km IS NOT NULL AND unit_plannings.last_done_km <> 0 THEN 1 ELSE 0 END) as total_overdue")
             ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN {$this->completionDaysExpression()} END), 1) as avg_hari_penyelesaian")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -256,7 +256,7 @@ class ReportController extends Controller
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.last_done_km <> 0 OR unit_plannings.last_done_date IS NOT NULL) THEN 1 ELSE 0 END) as total_overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND unit_plannings.last_done_km IS NOT NULL AND unit_plannings.last_done_km <> 0 THEN 1 ELSE 0 END) as total_overdue")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
             ->where('unit_plannings.is_excluded', false)
@@ -291,8 +291,8 @@ class ReportController extends Controller
             ->where('work_order_items.status', 'overdue')
             ->where(function (Builder $query): void {
                 $query
-                    ->where('unit_plannings.last_done_km', '!=', 0)
-                    ->orWhereNotNull('unit_plannings.last_done_date');
+                    ->whereNotNull('unit_plannings.last_done_km')
+                    ->where('unit_plannings.last_done_km', '!=', 0);
             })
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -326,8 +326,11 @@ class ReportController extends Controller
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(unit_plannings.id) as missing_baseline_count')
             ->selectRaw('GROUP_CONCAT(DISTINCT planning_items.name) as items')
-            ->where('unit_plannings.last_done_km', 0)
-            ->whereNull('unit_plannings.last_done_date')
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereNull('unit_plannings.last_done_km')
+                    ->orWhere('unit_plannings.last_done_km', 0);
+            })
             ->where('unit_plannings.is_excluded', false)
             ->when($filters['site_id'], fn (Builder $query, int $siteId) => $query->where('units.site_id', $siteId))
             ->groupBy('units.id', 'units.current_plate', 'sites.name')

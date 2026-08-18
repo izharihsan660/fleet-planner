@@ -76,7 +76,7 @@ class CompletionBackdateTest extends TestCase
         $this->assertNull($item->backdated_days);
     }
 
-    public function test_backdate_within_self_service_needs_a_short_note(): void
+    public function test_backdate_within_self_service_allows_an_empty_note(): void
     {
         [$mechanic, $workOrder, $item] = $this->makeInProgressItem();
 
@@ -84,16 +84,6 @@ class CompletionBackdateTest extends TestCase
             ->post(route('work-orders.items.complete', [$workOrder, $item]), [
                 'completed_odo' => 80500,
                 'completed_date' => today()->subDays(10)->toDateString(),
-            ])
-            ->assertSessionHasErrors('notes');
-
-        $this->assertSame('in_progress', $item->refresh()->status);
-
-        $this->actingAs($mechanic)
-            ->post(route('work-orders.items.complete', [$workOrder, $item]), [
-                'completed_odo' => 80500,
-                'completed_date' => today()->subDays(10)->toDateString(),
-                'notes' => 'Baru sempat dicatat hari ini.',
             ])
             ->assertRedirect(route('mechanic.tasks'));
 
@@ -105,26 +95,15 @@ class CompletionBackdateTest extends TestCase
         $this->assertNull($item->backdate_override_by);
     }
 
-    public function test_backdate_above_self_service_needs_a_detailed_note(): void
+    public function test_backdate_above_self_service_allows_a_note_without_minimum_length(): void
     {
         [$mechanic, $workOrder, $item] = $this->makeInProgressItem();
 
-        // Catatan sepanjang tier self-service tidak cukup untuk tier ini.
         $this->actingAs($mechanic)
             ->post(route('work-orders.items.complete', [$workOrder, $item]), [
                 'completed_odo' => 80500,
                 'completed_date' => today()->subDays(60)->toDateString(),
-                'notes' => 'Telat catat',
-            ])
-            ->assertSessionHasErrors('notes');
-
-        $this->assertSame('in_progress', $item->refresh()->status);
-
-        $this->actingAs($mechanic)
-            ->post(route('work-orders.items.complete', [$workOrder, $item]), [
-                'completed_odo' => 80500,
-                'completed_date' => today()->subDays(60)->toDateString(),
-                'notes' => 'Dikerjakan saat unit di site remote, berkas baru diterima admin minggu ini.',
+                'notes' => 'T',
             ])
             ->assertRedirect(route('mechanic.tasks'));
 
@@ -181,28 +160,16 @@ class CompletionBackdateTest extends TestCase
         $this->assertSame('in_progress', $item->refresh()->status);
     }
 
-    public function test_changing_thresholds_changes_validation_without_redeploy(): void
+    public function test_changing_self_service_threshold_does_not_make_notes_required(): void
     {
         [$mechanic, $workOrder, $item] = $this->makeInProgressItem();
 
-        // Default: mundur 40 hari ada di tier catatan rinci, jadi catatan singkat ditolak.
-        $this->actingAs($mechanic)
-            ->post(route('work-orders.items.complete', [$workOrder, $item]), [
-                'completed_odo' => 80500,
-                'completed_date' => today()->subDays(40)->toDateString(),
-                'notes' => 'Telat catat.',
-            ])
-            ->assertSessionHasErrors('notes');
-
-        // Naikkan batas self-service lewat Pengaturan Sistem: jarak yang sama
-        // sekarang cukup dengan catatan singkat.
         SystemThreshold::query()->where('key', 'backdate_self_service_days')->update(['value' => '45']);
 
         $this->actingAs($mechanic)
             ->post(route('work-orders.items.complete', [$workOrder, $item]), [
                 'completed_odo' => 80500,
                 'completed_date' => today()->subDays(40)->toDateString(),
-                'notes' => 'Telat catat.',
             ])
             ->assertRedirect(route('mechanic.tasks'));
 

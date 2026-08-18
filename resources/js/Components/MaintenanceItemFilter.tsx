@@ -22,7 +22,7 @@ type MaintenanceItemFilterProps = {
 export default function MaintenanceItemFilter({ items, selectedIds, onChange, className }: MaintenanceItemFilterProps) {
     const selectedItems = items.filter((item) => selectedIds.includes(item.id));
     const triggerLabel = selectedItems.length === 0
-        ? 'Semua Item Maintenance'
+        ? 'Semua Item Perawatan'
         : selectedItems.length === 1
             ? selectedItems[0].name
             : `${selectedItems.length} item dipilih`;
@@ -36,13 +36,13 @@ export default function MaintenanceItemFilter({ items, selectedIds, onChange, cl
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" className={cn('w-full justify-between font-normal', className)} aria-label="Filter Item Maintenance">
+                <Button type="button" variant="outline" className={cn('w-full justify-between font-normal', className)} aria-label="Filter Item Perawatan">
                     <span className="truncate">{triggerLabel}</span>
                     <ChevronDown className="size-4 shrink-0 opacity-60" />
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-h-80 min-w-72">
-                <DropdownMenuLabel>Item Maintenance</DropdownMenuLabel>
+                <DropdownMenuLabel>Item Perawatan</DropdownMenuLabel>
                 {selectedIds.length > 0 && (
                     <>
                         <DropdownMenuItem onSelect={() => onChange([])}>Tampilkan semua item</DropdownMenuItem>

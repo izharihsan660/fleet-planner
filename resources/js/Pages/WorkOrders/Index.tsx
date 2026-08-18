@@ -22,11 +22,11 @@ interface ResourceCollection<T> {
 }
 
 const columns = [
-    { key: 'upcoming', label: 'Upcoming' },
+    { key: 'upcoming', label: 'Akan Datang' },
     { key: 'preparation', label: 'Ancang-ancang' },
-    { key: 'open', label: 'On Hold' },
-    { key: 'in_progress', label: 'In Progress' },
-    { key: 'complete', label: 'Complete' },
+    { key: 'open', label: 'Menunggu' },
+    { key: 'in_progress', label: 'Sedang Dikerjakan' },
+    { key: 'complete', label: 'Selesai' },
 ] as const;
 
 type ColumnKey = (typeof columns)[number]['key'];
@@ -58,12 +58,12 @@ const columnPageParam: Record<ColumnKey, string> = {
 
 const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig> = {
     upcoming: {
-        title: 'Belum ada task Upcoming',
-        description: 'Belum ada task maintenance yang masuk periode Upcoming untuk filter ini.',
+        title: 'Belum ada tugas Akan Datang',
+        description: 'Belum ada tugas perawatan yang masuk periode Akan Datang untuk filter ini.',
     },
     preparation: {
-        title: 'Belum ada task Ancang-ancang',
-        description: 'Task akan muncul saat jadwal atau KM memasuki batas ancang-ancang.',
+        title: 'Belum ada tugas Ancang-ancang',
+        description: 'Tugas akan muncul saat jadwal atau KM memasuki batas ancang-ancang.',
     },
     open: {
         title: 'Belum ada pekerjaan yang perlu ditindak',
@@ -73,7 +73,7 @@ const emptyColumnConfig: Record<ColumnKey, EmptyColumnConfig> = {
         title: 'Belum ada pekerjaan yang sedang dikerjakan',
         description: 'Pekerjaan pindah ke sini saat mekanik sudah mulai mengerjakannya sesuai tanggal rencana.',
         action: {
-            label: 'Lihat kolom On Hold',
+            label: 'Lihat kolom Menunggu',
             targetColumn: 'open',
         },
     },
@@ -171,11 +171,11 @@ function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewIte
                 </div>
                 <div>
                     <p className="text-sm font-medium text-foreground">{item.planning_item_name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Due: {item.next_due_date ?? '-'} · KM {item.next_due_km?.toLocaleString('id-ID') ?? '-'}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Jatuh Tempo: {item.next_due_date ?? '-'} · KM {item.next_due_km?.toLocaleString('id-ID') ?? '-'}</p>
                 </div>
                 {item.approval_status === 'pending_create' && <StatusBadge tone="info">Menunggu Approval</StatusBadge>}
-                {item.approval_status === 'rejected' && <StatusBadge tone="rejected">Rejected</StatusBadge>}
-                {canCreate && item.approval_status !== 'pending_create' && <PrimaryButton type="button" className="w-full text-xs normal-case" onClick={() => setShowForm(!showForm)}>Buat Task Sekarang</PrimaryButton>}
+                {item.approval_status === 'rejected' && <StatusBadge tone="rejected">Ditolak</StatusBadge>}
+                {canCreate && item.approval_status !== 'pending_create' && <PrimaryButton type="button" className="w-full text-xs normal-case" onClick={() => setShowForm(!showForm)}>Buat Tugas Sekarang</PrimaryButton>}
                 {showForm && (
                     <form onSubmit={(event) => { event.preventDefault(); setShowConfirm(true); }} className="space-y-3 rounded-lg border bg-muted/40 p-3">
                         <select value={form.data.assigned_mechanic_id} onChange={(event) => form.setData('assigned_mechanic_id', event.target.value)} className="w-full rounded-lg border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
@@ -192,7 +192,7 @@ function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewIte
                     </form>
                 )}
             </CardContent>
-            <ConfirmDialog show={showConfirm} message={`Buat Task Sekarang untuk ${item.unit_plate} - ${item.planning_item_name}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={createTask} />
+            <ConfirmDialog show={showConfirm} message={`Buat Tugas Sekarang untuk ${item.unit_plate} - ${item.planning_item_name}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={createTask} />
         </Card>
     );
 }
@@ -218,7 +218,7 @@ function BoardItemCard({ item, mechanics, canAssign, canSubmitActions, canCondit
                     <p className="truncate whitespace-nowrap text-lg font-semibold text-foreground">{item.unit_plate}</p>
                     {item.site_name && <p className="text-xs text-muted-foreground">{item.site_name}</p>}
                     <p className="mt-2 text-sm font-medium text-foreground">{item.item_name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Due: {item.due_date ?? '-'} · KM {item.due_km?.toLocaleString('id-ID') ?? '-'}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Jatuh Tempo: {item.due_date ?? '-'} · KM {item.due_km?.toLocaleString('id-ID') ?? '-'}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                         {item.is_priority && <StatusBadge tone="priority">Prioritas</StatusBadge>}
                         {item.badges.map((badge) => <StatusBadge key={badge.key} tone={badge.tone}>{badge.label}</StatusBadge>)}
@@ -238,11 +238,11 @@ function BoardItemCard({ item, mechanics, canAssign, canSubmitActions, canCondit
                 {!actionsLocked && (
                     <>
                         <div className="flex flex-wrap gap-2">
-                            {canSubmitNewAction && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Submit Replace</SecondaryButton>}
-                            {canSubmitNewAction && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Submit Postpone</SecondaryButton>}
-                            {canResubmitRejected && item.action === 'replace' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Submit Ulang Replace</SecondaryButton>}
-                            {canResubmitRejected && item.action === 'postpone' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Submit Ulang Postpone</SecondaryButton>}
-                            {canMarkWaitingPart && item.status !== 'blocked' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('blocked')}>Blocked</SecondaryButton>}
+                            {canSubmitNewAction && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Ajukan Penggantian</SecondaryButton>}
+                            {canSubmitNewAction && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Ajukan Penundaan</SecondaryButton>}
+                            {canResubmitRejected && item.action === 'replace' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Ajukan Ulang Penggantian</SecondaryButton>}
+                            {canResubmitRejected && item.action === 'postpone' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Ajukan Ulang Penundaan</SecondaryButton>}
+                            {canMarkWaitingPart && item.status !== 'blocked' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('blocked')}>Terhambat</SecondaryButton>}
                             {canSchedule && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('assign')}>Jadwalkan Mekanik</SecondaryButton>}
                             {canComplete && <PrimaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('complete')}>Selesaikan</PrimaryButton>}
                         </div>
@@ -398,8 +398,8 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Work Orders</h2>}>
-            <Head title="Work Orders" />
+        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Perintah Kerja (PK)</h2>}>
+            <Head title="Perintah Kerja (PK)" />
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
                     <Card>
@@ -418,9 +418,9 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                     />
                                 </div>
                                 <Select value={selectValue(siteId)} onValueChange={(value) => setSiteId(filterValue(value))}>
-                                    <SelectTrigger><SelectValue placeholder="Semua Site" /></SelectTrigger>
+                                    <SelectTrigger><SelectValue placeholder="Semua Lokasi" /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="all">Semua Site</SelectItem>
+                                        <SelectItem value="all">Semua Lokasi</SelectItem>
                                         {sites.data.map((site) => <SelectItem key={site.id} value={site.id.toString()}>{site.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
@@ -434,9 +434,9 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                 <UnitFilterCombobox units={units.data} value={unitId} onChange={setUnitId} />
                                 <MaintenanceItemFilter items={planningItems} selectedIds={planningItemIds} onChange={setPlanningItemIds} />
                                 <Select value={selectValue(assigneeId)} onValueChange={(value) => setAssigneeId(filterValue(value))}>
-                                    <SelectTrigger><SelectValue placeholder="Semua Assignee" /></SelectTrigger>
+                                    <SelectTrigger><SelectValue placeholder="Semua Petugas" /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="all">Semua Assignee</SelectItem>
+                                        <SelectItem value="all">Semua Petugas</SelectItem>
                                         {mechanics.map((mechanic) => <SelectItem key={mechanic.id} value={mechanic.id.toString()}>{mechanic.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
@@ -444,13 +444,13 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                     <SelectTrigger><SelectValue placeholder="Urutkan berdasarkan" /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="priority">Prioritas (PM Check/Service A/Service B dulu)</SelectItem>
-                                        <SelectItem value="due_date">Due date terdekat</SelectItem>
-                                        <SelectItem value="due_km">Due KM terdekat</SelectItem>
+                                        <SelectItem value="due_date">Tanggal Jatuh Tempo terdekat</SelectItem>
+                                        <SelectItem value="due_km">KM Jatuh Tempo terdekat</SelectItem>
                                     </SelectContent>
                                 </Select>
                                 <label className="flex min-h-9 items-center gap-2 rounded-md border border-border bg-background px-3 text-sm text-foreground shadow-xs">
                                     <Checkbox checked={includeIncompleteBaseline} onCheckedChange={(checked) => setIncludeIncompleteBaseline(checked === true)} />
-                                    <span>Tampilkan item dengan baseline belum lengkap</span>
+                                    <span>Tampilkan item dengan data awal belum lengkap</span>
                                 </label>
                                 <Button type="submit" className="w-full"><ClipboardList className="size-4" /> Filter</Button>
                             </form>
@@ -486,7 +486,7 @@ export default function Index({ boardColumns, sites, units, mechanics, planningI
                                             {column.key === 'upcoming' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
                                             {column.key === 'preparation' && (columnData.data as WorkOrderPreviewItem[]).map((item) => <PreviewCard key={item.id} item={item} mechanics={mechanics} canCreate={canCreateUpcomingTask} />)}
                                             {!['upcoming', 'preparation'].includes(column.key) && (columnData.data as WorkOrderBoardItem[]).map((item) => <BoardItemCard key={item.id} item={item} mechanics={mechanics} canAssign={canAssignMechanic} canSubmitActions={canSubmitItemActions} canCondition={canConditionItems} activeForm={activeForm} setActiveForm={setActiveForm} />)}
-                                            {count === 0 && appliedSearch !== '' && <EmptyColumn config={{ title: `Tidak ada hasil untuk '${appliedSearch}'`, description: 'Coba kata kunci lain, misal sebagian plat unit atau nama item maintenance.' }} onNavigate={focusColumn} />}
+                                            {count === 0 && appliedSearch !== '' && <EmptyColumn config={{ title: `Tidak ada hasil untuk '${appliedSearch}'`, description: 'Coba kata kunci lain, misal sebagian plat unit atau nama item perawatan.' }} onNavigate={focusColumn} />}
                                             {count === 0 && appliedSearch === '' && <EmptyColumn config={emptyColumnConfig[columnKey]} onNavigate={focusColumn} />}
                                             {hasMore && (
                                                 <Button type="button" variant="outline" className="w-full" onClick={() => loadMore(columnKey)}>

@@ -7,6 +7,7 @@ use App\Models\Region;
 use App\Models\Site;
 use App\Models\Unit;
 use App\Models\WorkOrderItem;
+use App\Services\KmInputTrendService;
 use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -17,6 +18,10 @@ use Inertia\Response;
 
 class DashboardController extends Controller
 {
+    private const KM_TREND_DAY_OPTIONS = [7, 14, 30];
+
+    public function __construct(private KmInputTrendService $kmInputTrendService) {}
+
     public function __invoke(Request $request): Response|RedirectResponse
     {
         $user = $request->user();
@@ -110,6 +115,7 @@ class DashboardController extends Controller
             ->whereIn('site_id', $sites->pluck('id'))
             ->count();
         $unitsInputToday = (int) $inputTodayBySite->sum();
+        $kmTrendDays = $this->kmTrendDays($request);
 
         return [
             'total_units' => $totalUnits,
@@ -132,11 +138,11 @@ class DashboardController extends Controller
                 ->all() : [],
             'status_counts' => $statusCounts,
             'status_chart' => [
-                ['key' => 'on_hold', 'label' => 'On Hold', 'value' => $statusCounts['on_hold'], 'color' => 'var(--chart-2)'],
+                ['key' => 'on_hold', 'label' => 'Menunggu', 'value' => $statusCounts['on_hold'], 'color' => 'var(--chart-2)'],
                 ['key' => 'waiting_approval', 'label' => 'Menunggu Approval', 'value' => $statusCounts['waiting_approval'], 'color' => 'var(--chart-4)'],
-                ['key' => 'in_progress', 'label' => 'In Progress', 'value' => $statusCounts['in_progress'], 'color' => 'var(--primary)'],
-                ['key' => 'complete_this_month', 'label' => 'Complete Bulan Ini', 'value' => $statusCounts['complete_this_month'], 'color' => 'var(--chart-3)'],
-                ['key' => 'overdue', 'label' => 'Overdue', 'value' => $statusCounts['overdue'], 'color' => 'var(--destructive)'],
+                ['key' => 'in_progress', 'label' => 'Sedang Dikerjakan', 'value' => $statusCounts['in_progress'], 'color' => 'var(--primary)'],
+                ['key' => 'complete_this_month', 'label' => 'Selesai Bulan Ini', 'value' => $statusCounts['complete_this_month'], 'color' => 'var(--chart-3)'],
+                ['key' => 'overdue', 'label' => 'Terlambat', 'value' => $statusCounts['overdue'], 'color' => 'var(--destructive)'],
             ],
             'site_rows' => $siteRows,
             'overdue_by_site_chart' => $siteRows
@@ -147,7 +153,22 @@ class DashboardController extends Controller
                 ])
                 ->values()
                 ->all(),
+            'km_input_trend' => $this->kmInputTrendService->summarize(
+                $sites->pluck('id')->map(fn (mixed $siteId): int => (int) $siteId)->all(),
+                $kmTrendDays,
+                $now
+            ),
+            'km_trend_day_options' => self::KM_TREND_DAY_OPTIONS,
         ];
+    }
+
+    private function kmTrendDays(Request $request): int
+    {
+        $requestedDays = $request->integer('km_trend_days');
+
+        return in_array($requestedDays, self::KM_TREND_DAY_OPTIONS, true)
+            ? $requestedDays
+            : KmInputTrendService::DEFAULT_DASHBOARD_DAYS;
     }
 
     private function visibleItems(Request $request, ?int $regionId = null): Builder
