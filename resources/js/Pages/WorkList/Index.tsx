@@ -375,10 +375,10 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
                                                 itemId={item.id}
                                                 itemName={item.item_name}
                                                 defaultReason={null}
-                                                plannedDate={null}
                                                 mechanics={mechanics}
                                                 assignedMechanicId={defaultMechanic?.id ?? null}
                                                 scheduledDate={defaultMechanic ? todayInputValue() : null}
+                                                showPlannedDate={false}
                                                 onCancel={() => setActiveBaselineItemId(null)}
                                                 onSuccess={() => setActiveBaselineItemId(null)}
                                             />

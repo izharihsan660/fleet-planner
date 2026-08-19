@@ -68,7 +68,7 @@ export function AssignmentFields({ mechanics, assignedMechanicId, scheduledDate,
     return (
         <div className="grid gap-3 sm:grid-cols-2">
             <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Mekanik Opsional</label>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Mekanik (Opsional)</label>
                 <Select value={assignedMechanicId || 'none'} onValueChange={(value) => setAssignedMechanicId(value === 'none' ? '' : value)}>
                     <SelectTrigger className="w-full">
                         <SelectValue placeholder="Belum ditentukan" />
@@ -81,7 +81,7 @@ export function AssignmentFields({ mechanics, assignedMechanicId, scheduledDate,
                 <InputError message={mechanicError} />
             </div>
             <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Tanggal Rencana Opsional</label>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Jadwal Pengerjaan (Opsional)</label>
                 <TextInput type="date" value={scheduledDate} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setScheduledDate(event.target.value)} className="w-full" />
                 <InputError message={scheduledDateError} />
             </div>
@@ -93,13 +93,18 @@ export function ReasonForm({ title, onCancel, onSubmit, processing, reason, setR
     return <form onSubmit={onSubmit} className="mt-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/40 dark:bg-amber-500/15"><h4 className="font-semibold text-amber-900 dark:text-amber-100">{title}</h4><Textarea className="text-sm" rows={3} value={reason} placeholder="Alasan" onChange={(event) => setReason(event.target.value)} /><InputError message={error} /><div className="flex gap-2"><PrimaryButton disabled={processing}>Simpan</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form>;
 }
 
-export function ReplaceForm({ workOrderId, itemId, itemName, onCancel, onSuccess, defaultReason, plannedDate, mechanics, assignedMechanicId, scheduledDate }: ItemFormBase & { defaultReason: string | null; plannedDate?: string | null; mechanics: MechanicOption[]; assignedMechanicId: number | null; scheduledDate: string | null }) {
-    const form = useForm<AssignmentFormData & { reason: string; planned_date: string }>({ reason: defaultReason ?? '', planned_date: plannedDate ?? '', assigned_mechanic_id: assignedMechanicId?.toString() ?? '', scheduled_date: scheduledDate ?? '' });
+export function ReplaceForm({ workOrderId, itemId, itemName, onCancel, onSuccess, defaultReason, plannedDate, mechanics, assignedMechanicId, scheduledDate, showPlannedDate = true }: ItemFormBase & { defaultReason: string | null; plannedDate?: string | null; mechanics: MechanicOption[]; assignedMechanicId: number | null; scheduledDate: string | null; showPlannedDate?: boolean }) {
+    const form = useForm<AssignmentFormData & { reason: string; planned_date?: string }>({
+        reason: defaultReason ?? '',
+        assigned_mechanic_id: assignedMechanicId?.toString() ?? '',
+        scheduled_date: scheduledDate ?? '',
+        ...(showPlannedDate ? { planned_date: plannedDate ?? '' } : {}),
+    });
     const [showConfirm, setShowConfirm] = useState(false);
     const submit = (event: FormEvent) => { event.preventDefault(); setShowConfirm(true); };
     const confirm = () => form.post(route('work-orders.items.replace', [workOrderId, itemId]), { preserveScroll: true, onSuccess: () => { onSuccess?.(); onCancel?.(); }, onFinish: () => setShowConfirm(false) });
 
-    return <><form onSubmit={submit} className="mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/40 dark:bg-sky-500/15"><h4 className="font-semibold text-sky-900 dark:text-sky-100">Ajukan Penggantian</h4><Textarea className="text-sm" rows={3} value={form.data.reason} placeholder="Catatan / alasan opsional" onChange={(event) => form.setData('reason', event.target.value)} /><InputError message={form.errors.reason} /><div><label className="mb-1 block text-xs font-medium text-muted-foreground">Tanggal Rencana Penggantian (Opsional)</label><TextInput className="w-full" type="date" value={form.data.planned_date} onChange={(event) => form.setData('planned_date', event.target.value)} /><InputError className="mt-1" message={form.errors.planned_date} /></div><AssignmentFields mechanics={mechanics} assignedMechanicId={form.data.assigned_mechanic_id} scheduledDate={form.data.scheduled_date} setAssignedMechanicId={(value) => form.setData('assigned_mechanic_id', value)} setScheduledDate={(value) => form.setData('scheduled_date', value)} mechanicError={form.errors.assigned_mechanic_id} scheduledDateError={form.errors.scheduled_date} /><div className="flex gap-2"><PrimaryButton disabled={form.processing}>Ajukan Penggantian</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Ajukan Penggantian untuk ${itemName}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
+    return <><form onSubmit={submit} className="mt-4 space-y-3 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/40 dark:bg-sky-500/15"><h4 className="font-semibold text-sky-900 dark:text-sky-100">Ajukan Penggantian</h4><Textarea className="text-sm" rows={3} value={form.data.reason} placeholder="Catatan / alasan opsional" onChange={(event) => form.setData('reason', event.target.value)} /><InputError message={form.errors.reason} />{showPlannedDate && <div><label className="mb-1 block text-xs font-medium text-muted-foreground">Tanggal Rencana Penggantian (Opsional)</label><TextInput className="w-full" type="date" value={form.data.planned_date ?? ''} onChange={(event) => form.setData('planned_date', event.target.value)} /><InputError className="mt-1" message={form.errors.planned_date} /></div>}<AssignmentFields mechanics={mechanics} assignedMechanicId={form.data.assigned_mechanic_id} scheduledDate={form.data.scheduled_date} setAssignedMechanicId={(value) => form.setData('assigned_mechanic_id', value)} setScheduledDate={(value) => form.setData('scheduled_date', value)} mechanicError={form.errors.assigned_mechanic_id} scheduledDateError={form.errors.scheduled_date} /><div className="flex gap-2"><PrimaryButton disabled={form.processing}>Ajukan Penggantian</PrimaryButton><SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton></div></form><ConfirmDialog show={showConfirm} message={`Ajukan Penggantian untuk ${itemName}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} /></>;
 }
 
 export function PostponeForm({ workOrderId, itemId, itemName, onCancel, onSuccess, defaultReason, defaultDueKm, defaultDueDate }: ItemFormBase & { defaultReason: string | null; defaultDueKm: number | null; defaultDueDate: string | null }) {

@@ -310,6 +310,19 @@ class WorkListTest extends TestCase
         $this->assertStringContainsString('Tampilkan lebih sedikit', $pageSource);
     }
 
+    public function test_baseline_replace_form_hides_redundant_planned_date_and_keeps_assignment_fields(): void
+    {
+        $pageSource = file_get_contents(resource_path('js/Pages/WorkList/Index.tsx'));
+        $formSource = file_get_contents(resource_path('js/Components/WorkOrderItemActionForms.tsx'));
+
+        $this->assertStringContainsString('showPlannedDate={false}', $pageSource);
+        $this->assertStringContainsString('showPlannedDate = true', $formSource);
+        $this->assertStringContainsString('{showPlannedDate && <div>', $formSource);
+        $this->assertStringContainsString("...(showPlannedDate ? { planned_date: plannedDate ?? '' } : {}),", $formSource);
+        $this->assertStringContainsString('Mekanik (Opsional)', $formSource);
+        $this->assertStringContainsString('Jadwal Pengerjaan (Opsional)', $formSource);
+    }
+
     public function test_submit_from_daftar_kerja_updates_items_like_detail_actions(): void
     {
         [$planner, $firstSite, $secondSite] = $this->createRegionUserAndSites();
