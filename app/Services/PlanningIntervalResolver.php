@@ -16,10 +16,12 @@ class PlanningIntervalResolver
         $override = null;
 
         if ($unit->vehicle_category) {
-            $override = PlanningItemOverride::query()
-                ->where('planning_item_id', $planningItem->id)
-                ->where('vehicle_category', $unit->vehicle_category)
-                ->first(['interval_km', 'interval_days']);
+            $override = $planningItem->relationLoaded('overrides')
+                ? $planningItem->overrides->firstWhere('vehicle_category', $unit->vehicle_category)
+                : PlanningItemOverride::query()
+                    ->where('planning_item_id', $planningItem->id)
+                    ->where('vehicle_category', $unit->vehicle_category)
+                    ->first(['interval_km', 'interval_days']);
         }
 
         return [

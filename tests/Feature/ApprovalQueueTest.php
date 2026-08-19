@@ -22,11 +22,21 @@ class ApprovalQueueTest extends TestCase
     public function test_approval_queue_shows_pending_items_across_regions_ordered_by_oldest_waiting(): void
     {
         [$spv, $oldItem, $newerItem] = $this->createApprovalScenario();
+        $mechanic = User::factory()->create([
+            'name' => 'Mekanik BPN',
+            'role' => UserRole::Mekanik,
+            'site_id' => $oldItem->workOrder->site_id,
+        ]);
+        $scheduledDate = today()->addDays(2)->toDateString();
         $oldSubmittedDate = now()->subDays(10)->startOfDay();
         $oldItem->forceFill([
             'created_at' => $oldSubmittedDate,
             'updated_at' => now()->subDays(5),
         ])->save();
+        $oldItem->workOrder->update([
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => $scheduledDate,
+        ]);
         $newerItem->forceFill(['updated_at' => now()->subHours(6)])->save();
 
         $this->actingAs($spv)
@@ -42,10 +52,14 @@ class ApprovalQueueTest extends TestCase
                 ->where('items.0.baseline_incomplete', false)
                 ->where('items.0.submitted_date', $oldSubmittedDate->toDateString())
                 ->where('items.0.due_date', $oldItem->unitPlanning->next_due_date->toDateString())
+                ->where('items.0.assigned_mechanic_name', 'Mekanik BPN')
+                ->where('items.0.scheduled_date', $scheduledDate)
                 ->where('items.0.action', 'replace')
                 ->where('items.1.id', $newerItem->id)
                 ->where('items.1.due_date', $newerItem->unitPlanning->next_due_date->toDateString())
                 ->where('items.1.new_due_date', $newerItem->new_due_date->toDateString())
+                ->where('items.1.assigned_mechanic_name', null)
+                ->where('items.1.scheduled_date', null)
                 ->where('items.1.action', 'postpone')
             );
     }
@@ -57,8 +71,18 @@ class ApprovalQueueTest extends TestCase
         $blockedDueDate = today()->addDays(45)->toDateString();
         $blockedSubmittedDate = now()->subDays(4)->startOfDay();
         $blockedItem = $this->createPendingItem($replaceItem->workOrder->site, $planner, 'KT 3003 CC', 'Air Dryer', 'pending_create');
+        $blockedMechanic = User::factory()->create([
+            'name' => 'Mekanik Blocked',
+            'role' => UserRole::Mekanik,
+            'site_id' => $blockedItem->workOrder->site_id,
+        ]);
+        $blockedScheduledDate = today()->addDays(3)->toDateString();
 
         $blockedItem->unitPlanning()->update(['next_due_date' => $blockedDueDate]);
+        $blockedItem->workOrder->update([
+            'assigned_mechanic_id' => $blockedMechanic->id,
+            'scheduled_date' => $blockedScheduledDate,
+        ]);
         $blockedItem->forceFill([
             'action' => 'blocked',
             'created_at' => $blockedSubmittedDate,
@@ -71,22 +95,40 @@ class ApprovalQueueTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('ApprovalQueue/Index')
                 ->has('items', 3)
-                ->where('items', function (mixed $items) use ($blockedDueDate, $blockedItem, $blockedSubmittedDate, $postponeItem, $replaceItem): bool {
+                ->where('items', function (mixed $items) use ($blockedDueDate, $blockedItem, $blockedScheduledDate, $blockedSubmittedDate, $postponeItem, $replaceItem): bool {
                     $itemsByAction = collect($items)->keyBy('action');
 
                     return data_get($itemsByAction, 'replace.id') === $replaceItem->id
                         && data_get($itemsByAction, 'postpone.id') === $postponeItem->id
                         && data_get($itemsByAction, 'blocked.id') === $blockedItem->id
                         && data_get($itemsByAction, 'blocked.submitted_date') === $blockedSubmittedDate->toDateString()
-                        && data_get($itemsByAction, 'blocked.due_date') === $blockedDueDate;
+                        && data_get($itemsByAction, 'blocked.due_date') === $blockedDueDate
+                        && data_get($itemsByAction, 'blocked.assigned_mechanic_name') === 'Mekanik Blocked'
+                        && data_get($itemsByAction, 'blocked.scheduled_date') === $blockedScheduledDate;
                 })
             );
     }
 
     public function test_approval_queue_shows_but_rejects_items_with_missing_baseline(): void
     {
-        [$spv, $missingBaselineItem, $validItem] = $this->createApprovalScenario();
-        $missingBaselineItem->unitPlanning()->update(['last_done_km' => 0, 'last_done_date' => today()->subMonth()->toDateString()]);
+        [$spv, $zeroBaselineItem, $postponeBaselineItem] = $this->createApprovalScenario();
+        $staleDueDate = '2024-12-31';
+        $zeroBaselineItem->unitPlanning()->update([
+            'last_done_km' => 0,
+            'last_done_date' => today()->subMonth()->toDateString(),
+            'next_due_date' => $staleDueDate,
+        ]);
+        $postponeBaselineItem->unitPlanning()->update([
+            'last_done_km' => 0,
+            'last_done_date' => null,
+            'next_due_date' => $staleDueDate,
+        ]);
+        $postponeBaselineItem->update(['previous_due_date' => $staleDueDate]);
+
+        $nullBaseline = new UnitPlanning;
+        $nullBaseline->forceFill(['last_done_km' => null]);
+
+        $this->assertTrue($nullBaseline->isBaselineMissing());
 
         $this->actingAs($spv)
             ->get(route('approval-queue.index'))
@@ -94,21 +136,24 @@ class ApprovalQueueTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('ApprovalQueue/Index')
                 ->has('items', 2)
-                ->where('items', fn (mixed $items): bool => collect($items)
-                    ->pluck('id')
-                    ->sort()
-                    ->values()
-                    ->all() === collect([$missingBaselineItem->id, $validItem->id])->sort()->values()->all())
+                ->where('items', function (mixed $items) use ($postponeBaselineItem, $zeroBaselineItem): bool {
+                    $itemsById = collect($items)->keyBy('id');
+
+                    return data_get($itemsById, $zeroBaselineItem->id.'.baseline_missing') === true
+                        && data_get($itemsById, $zeroBaselineItem->id.'.due_date') === null
+                        && data_get($itemsById, $postponeBaselineItem->id.'.baseline_missing') === true
+                        && data_get($itemsById, $postponeBaselineItem->id.'.due_date') === null;
+                })
             );
 
         $this->actingAs($spv)
             ->post(route('approval-queue.store'), [
                 'decision' => 'approve',
-                'item_ids' => [$missingBaselineItem->id],
+                'item_ids' => [$zeroBaselineItem->id],
             ])
             ->assertStatus(422);
 
-        $this->assertSame('replace', $missingBaselineItem->refresh()->status);
+        $this->assertSame('replace', $zeroBaselineItem->refresh()->status);
     }
 
     public function test_approval_queue_shows_all_pending_items_from_the_same_work_order(): void
@@ -177,6 +222,10 @@ class ApprovalQueueTest extends TestCase
         $this->assertStringContainsString('Tanggal Submit', $pageSource);
         $this->assertStringContainsString('Due Date', $pageSource);
         $this->assertStringContainsString('line-through', $pageSource);
+        $this->assertStringContainsString('<StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>', $pageSource);
+        $this->assertStringContainsString('Mekanik & Jadwal', $pageSource);
+        $this->assertStringContainsString('Jadwal Pengerjaan', $pageSource);
+        $this->assertStringContainsString('Belum ditentukan', $pageSource);
         $this->assertStringContainsString('<Card size="sm"', $pageSource);
         $this->assertStringContainsString("blocked: 'Blocked'", $pageSource);
         $odometerSources->each(function (string $source): void {

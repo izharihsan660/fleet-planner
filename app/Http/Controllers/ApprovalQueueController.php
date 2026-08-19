@@ -43,6 +43,7 @@ class ApprovalQueueController extends Controller
                     ->with('unitPlannings:id,unit_id,last_done_km'),
                 'workOrder.site:id,name,region_id',
                 'workOrder.site.area:id,name',
+                'workOrder.assignedMechanic:id,name',
                 'submittedBy:id,name',
             ])
             ->whereIn('status', ['replace', 'postpone', 'pending_create'])
@@ -60,7 +61,8 @@ class ApprovalQueueController extends Controller
                 $waitingHours = max(0, (int) $submittedAt->diffInHours($now));
                 $waitingDays = intdiv($waitingHours, 24);
                 $unit = $item->workOrder?->unit;
-                $currentDueDate = $item->unitPlanning?->next_due_date?->toDateString();
+                $baselineMissing = $item->unitPlanning?->isBaselineMissing() ?? true;
+                $currentDueDate = $baselineMissing ? null : $item->unitPlanning?->next_due_date?->toDateString();
 
                 return [
                     'id' => $item->id,
@@ -68,6 +70,7 @@ class ApprovalQueueController extends Controller
                     'plate_number' => $item->workOrder?->unit?->current_plate ?? '-',
                     'current_odo' => $unit?->current_odo ?? 0,
                     'baseline_incomplete' => $unit?->hasIncompletePlanningBaseline() ?? true,
+                    'baseline_missing' => $baselineMissing,
                     'item_name' => $item->planningItem?->name ?? 'Item maintenance',
                     'reason' => $item->reason ?: $item->notes,
                     'site_name' => $item->workOrder?->site?->name ?? '-',
@@ -75,10 +78,14 @@ class ApprovalQueueController extends Controller
                     'submitted_by_name' => $item->submittedBy?->name ?? '-',
                     'submitted_at' => $item->updated_at?->toDateTimeString(),
                     'submitted_date' => $item->created_at?->toDateString(),
-                    'due_date' => $item->action === 'postpone'
-                        ? $item->previous_due_date?->toDateString() ?? $currentDueDate
-                        : $currentDueDate,
+                    'due_date' => $baselineMissing
+                        ? null
+                        : ($item->action === 'postpone'
+                            ? $item->previous_due_date?->toDateString() ?? $currentDueDate
+                            : $currentDueDate),
                     'new_due_date' => $item->new_due_date?->toDateString(),
+                    'assigned_mechanic_name' => $item->workOrder?->assignedMechanic?->name,
+                    'scheduled_date' => $item->workOrder?->scheduled_date?->toDateString(),
                     'waiting_hours' => $waitingHours,
                     'waiting_label' => $waitingDays > 0 ? $waitingDays.' hari' : max(1, $waitingHours).' jam',
                     'is_warning' => $waitingHours > 48,

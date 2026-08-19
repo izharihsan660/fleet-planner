@@ -3,6 +3,7 @@ import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
+import StatusBadge from '@/Components/StatusBadge';
 import TextInput from '@/Components/TextInput';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, Region } from '@/types';
@@ -26,6 +27,7 @@ type ApprovalQueueItem = {
     plate_number: string;
     current_odo: number;
     baseline_incomplete: boolean;
+    baseline_missing: boolean;
     item_name: string;
     reason: string | null;
     site_name: string;
@@ -35,6 +37,8 @@ type ApprovalQueueItem = {
     submitted_date: string | null;
     due_date: string | null;
     new_due_date: string | null;
+    assigned_mechanic_name: string | null;
+    scheduled_date: string | null;
     waiting_hours: number;
     waiting_label: string;
     is_warning: boolean;
@@ -94,6 +98,10 @@ function QueueActionBadge({ item }: { item: ApprovalQueueItem }) {
 }
 
 function DueDateValue({ item }: { item: ApprovalQueueItem }) {
+    if (item.baseline_missing) {
+        return <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>;
+    }
+
     if (item.action !== 'postpone') {
         return <span>{formatDate(item.due_date)}</span>;
     }
@@ -104,6 +112,15 @@ function DueDateValue({ item }: { item: ApprovalQueueItem }) {
             <span aria-hidden="true" className="text-muted-foreground">→</span>
             <span className="font-semibold text-foreground">{formatDate(item.new_due_date)}</span>
         </span>
+    );
+}
+
+function AssignmentValue({ item }: { item: ApprovalQueueItem }) {
+    return (
+        <div className="min-w-48 space-y-1 text-sm">
+            <p className="text-foreground"><span className="font-medium">Mekanik:</span> {item.assigned_mechanic_name || 'Belum ditentukan'}</p>
+            <p className="text-muted-foreground"><span className="font-medium text-foreground">Jadwal:</span> {item.scheduled_date ? formatDate(item.scheduled_date) : 'Belum ditentukan'}</p>
+        </div>
     );
 }
 
@@ -220,6 +237,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                         <TableHead className="px-4 py-4 text-base font-semibold">Diajukan Oleh</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Tanggal Submit</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Due Date</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Mekanik & Jadwal</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Lama Menunggu</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -247,6 +265,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.submitted_by_name}</TableCell>
                                             <TableCell className="whitespace-nowrap px-4 py-4 text-sm text-foreground">{formatDate(item.submitted_date)}</TableCell>
                                             <TableCell className="min-w-52 px-4 py-4 text-sm text-foreground"><DueDateValue item={item} /></TableCell>
+                                            <TableCell className="px-4 py-4"><AssignmentValue item={item} /></TableCell>
                                             <TableCell className="px-4 py-4">
                                                 <Badge variant="outline" className={item.is_warning ? 'h-auto border-orange-200 bg-orange-50 px-3 py-1 text-sm font-semibold text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/15 dark:text-orange-200' : 'h-auto border-yellow-200 bg-yellow-50 px-3 py-1 text-sm font-semibold text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/15 dark:text-yellow-200'}>{item.waiting_label}</Badge>
                                             </TableCell>
@@ -254,7 +273,7 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                     ))}
                                     {items.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={8} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item yang menunggu approval.</TableCell>
+                                            <TableCell colSpan={9} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item yang menunggu approval.</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>
@@ -316,6 +335,14 @@ export default function Index({ items, regions, filters }: ApprovalQueueProps) {
                                                                     <div>
                                                                         <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Due Date</dt>
                                                                         <dd className="mt-1 text-foreground"><DueDateValue item={item} /></dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mekanik</dt>
+                                                                        <dd className="mt-1 font-medium text-foreground">{item.assigned_mechanic_name || 'Belum ditentukan'}</dd>
+                                                                    </div>
+                                                                    <div>
+                                                                        <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jadwal Pengerjaan</dt>
+                                                                        <dd className="mt-1 font-medium text-foreground">{item.scheduled_date ? formatDate(item.scheduled_date) : 'Belum ditentukan'}</dd>
                                                                     </div>
                                                                 </dl>
                                                             </CardContent>

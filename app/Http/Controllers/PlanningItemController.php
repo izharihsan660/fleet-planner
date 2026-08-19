@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StorePlanningItemRequest;
 use App\Http\Requests\UpdatePlanningItemRequest;
 use App\Models\PlanningItem;
+use App\Services\RecalculateDueDatesService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -40,9 +41,12 @@ class PlanningItemController extends Controller
         return Inertia::render('PlanningItems/Edit', ['planningItem' => $planningItem]);
     }
 
-    public function update(UpdatePlanningItemRequest $request, PlanningItem $planningItem): RedirectResponse
-    {
-        $planningItem->update($request->validated());
+    public function update(
+        UpdatePlanningItemRequest $request,
+        PlanningItem $planningItem,
+        RecalculateDueDatesService $recalculateDueDates,
+    ): RedirectResponse {
+        $recalculateDueDates->update($planningItem, $request->validated());
 
         return redirect()->route('planning-items.index');
     }
