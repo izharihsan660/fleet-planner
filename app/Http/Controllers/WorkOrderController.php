@@ -61,6 +61,31 @@ class WorkOrderController extends Controller
     ];
 
     /**
+     * Status yang boleh memegang mekanik penanggung jawab dan tanggal
+     * pengerjaannya sendiri. 'overdue' ikut di sini karena terlambat itu sifat
+     * tanggal, bukan tahap kerja: item yang sudah dijadwalkan tetap sedang
+     * dikerjakan meski due date-nya lewat, dan keterlambatannya sudah
+     * ditampilkan lewat dueMeta().
+     *
+     * @var array<int, string>
+     */
+    private const SCHEDULABLE_ITEM_STATUSES = ['in_progress', 'overdue'];
+
+    /**
+     * Bagian ON_HOLD_ITEM_STATUSES yang tidak pernah punya jadwal sendiri,
+     * jadi selalu berada di kolom Menunggu.
+     *
+     * @var array<int, string>
+     */
+    private const WAITING_ITEM_STATUSES = [
+        'on_hold',
+        'blocked',
+        'breakdown',
+        'replace',
+        'postpone',
+    ];
+
+    /**
      * Item rejected hanya perlu ditindak ulang bila pengajuannya Replace/Postpone.
      *
      * @var array<int, string>
@@ -811,19 +836,19 @@ class WorkOrderController extends Controller
 
         if ($column === 'in_progress') {
             return $query
-                ->where('work_order_items.status', 'in_progress')
+                ->whereIn('work_order_items.status', self::SCHEDULABLE_ITEM_STATUSES)
                 ->whereNotNull('work_orders.assigned_mechanic_id')
                 ->whereNotNull('work_order_items.scheduled_date')
                 ->whereDate('work_order_items.scheduled_date', '<=', $today);
         }
 
         return $query->where(fn (Builder $onHoldQuery): Builder => $onHoldQuery
-            ->whereIn('work_order_items.status', self::ON_HOLD_ITEM_STATUSES)
+            ->whereIn('work_order_items.status', self::WAITING_ITEM_STATUSES)
             ->orWhere(fn (Builder $rejectedQuery): Builder => $rejectedQuery
                 ->where('work_order_items.status', 'rejected')
                 ->whereIn('work_order_items.action', self::RESUBMITTABLE_REJECTED_ACTIONS))
             ->orWhere(fn (Builder $notStartedQuery): Builder => $notStartedQuery
-                ->where('work_order_items.status', 'in_progress')
+                ->whereIn('work_order_items.status', self::SCHEDULABLE_ITEM_STATUSES)
                 ->where(fn (Builder $scheduleQuery): Builder => $scheduleQuery
                     ->whereNull('work_orders.assigned_mechanic_id')
                     ->orWhereNull('work_order_items.scheduled_date')
@@ -911,7 +936,7 @@ class WorkOrderController extends Controller
             return 'complete';
         }
 
-        if ($item->status === 'in_progress' && $item->workHasStarted()) {
+        if (in_array($item->status, self::SCHEDULABLE_ITEM_STATUSES, true) && $item->workHasStarted()) {
             return 'in_progress';
         }
 
@@ -1038,7 +1063,7 @@ class WorkOrderController extends Controller
             return ['key' => 'waiting_schedule', 'tone' => 'neutral', 'label' => 'Sudah disetujui, menunggu jadwal'];
         }
 
-        if ($item->status === 'in_progress') {
+        if (in_array($item->status, self::SCHEDULABLE_ITEM_STATUSES, true)) {
             $workOrder = $item->workOrder;
 
             if ($item->workHasStarted()) {
