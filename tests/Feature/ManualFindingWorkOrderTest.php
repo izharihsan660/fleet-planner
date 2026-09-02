@@ -29,6 +29,8 @@ class ManualFindingWorkOrderTest extends TestCase
             ->post(route('units.manual-findings.store', $unit), [
                 'planning_item_ids' => [$planningItem->id],
                 'reason' => 'Brake Pad ditemukan sudah tipis meski belum due.',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->toDateString(),
             ])
             ->assertRedirect(route('work-orders.index'));
 
@@ -91,6 +93,8 @@ class ManualFindingWorkOrderTest extends TestCase
         $this->actingAs($planner)->post(route('units.manual-findings.store', $unit), [
             'planning_item_ids' => [$firstItem->id, $secondItem->id],
             'reason' => 'Dua item ditemukan perlu diganti.',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->latest('id')->firstOrFail();
@@ -153,7 +157,7 @@ class ManualFindingWorkOrderTest extends TestCase
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->latest('id')->firstOrFail();
 
         $this->assertSame($mechanic->id, $workOrder->assigned_mechanic_id);
-        $this->assertSame($scheduledDate, $workOrder->scheduled_date->toDateString());
+        $this->assertSame($scheduledDate, $workOrder->items()->firstOrFail()->scheduled_date->toDateString());
 
         $this->actingAs($spv)->post(route('work-orders.approve', $workOrder));
 

@@ -30,13 +30,11 @@ class ApprovalQueueTest extends TestCase
         $scheduledDate = today()->addDays(2)->toDateString();
         $oldSubmittedDate = now()->subDays(10)->startOfDay();
         $oldItem->forceFill([
+            'scheduled_date' => $scheduledDate,
             'created_at' => $oldSubmittedDate,
             'updated_at' => now()->subDays(5),
         ])->save();
-        $oldItem->workOrder->update([
-            'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => $scheduledDate,
-        ]);
+        $oldItem->workOrder->update(['assigned_mechanic_id' => $mechanic->id]);
         $newerItem->forceFill(['updated_at' => now()->subHours(6)])->save();
 
         $this->actingAs($spv)
@@ -79,10 +77,8 @@ class ApprovalQueueTest extends TestCase
         $blockedScheduledDate = today()->addDays(3)->toDateString();
 
         $blockedItem->unitPlanning()->update(['next_due_date' => $blockedDueDate]);
-        $blockedItem->workOrder->update([
-            'assigned_mechanic_id' => $blockedMechanic->id,
-            'scheduled_date' => $blockedScheduledDate,
-        ]);
+        $blockedItem->workOrder->update(['assigned_mechanic_id' => $blockedMechanic->id]);
+        $blockedItem->update(['scheduled_date' => $blockedScheduledDate]);
         $blockedItem->forceFill([
             'action' => 'blocked',
             'created_at' => $blockedSubmittedDate,
@@ -268,6 +264,28 @@ class ApprovalQueueTest extends TestCase
         $this->assertSame(0, WorkOrderItem::query()->whereIn('id', [$replaceItem->id, $postponeItem->id])->whereIn('status', ['replace', 'postpone', 'pending_create'])->count());
     }
 
+    /**
+     * Approve tidak melempar item ke mekanik selama item itu belum punya
+     * jadwalnya sendiri — approve dan penjadwalan adalah dua langkah terpisah.
+     */
+    public function test_approved_item_without_schedule_stays_on_hold(): void
+    {
+        [$spv, $replaceItem] = $this->createApprovalScenario();
+        $replaceItem->update(['scheduled_date' => null]);
+
+        $this->actingAs($spv)
+            ->post(route('approval-queue.store'), [
+                'decision' => 'approve',
+                'item_ids' => [$replaceItem->id],
+            ])
+            ->assertRedirect(route('approval-queue.index'));
+
+        $replaceItem->refresh();
+
+        $this->assertSame('on_hold', $replaceItem->status);
+        $this->assertNotNull($replaceItem->approved_at);
+    }
+
     public function test_batch_reject_requires_reason_and_rejects_multiple_items(): void
     {
         [$spv, $replaceItem, $postponeItem] = $this->createApprovalScenario();
@@ -331,7 +349,11 @@ class ApprovalQueueTest extends TestCase
         $replaceItem = $this->createPendingItem($firstSite, $planner, 'KT 1001 AA', 'Filter Oli', 'replace');
         $postponeItem = $this->createPendingItem($secondSite, $planner, 'DD 2002 BB', 'Brake Pad', 'postpone');
 
-        return [$spv, $replaceItem, $postponeItem];
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $firstSite->id]);
+        $replaceItem->workOrder->update(['assigned_mechanic_id' => $mechanic->id]);
+        $replaceItem->update(['scheduled_date' => today()->addDay()->toDateString()]);
+
+        return [$spv, $replaceItem->refresh(), $postponeItem];
     }
 
     private function createPendingItem(Site $site, User $planner, string $plate, string $itemName, string $status): WorkOrderItem

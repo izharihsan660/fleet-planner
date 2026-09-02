@@ -24,7 +24,6 @@ class WorkOrderResource extends JsonResource
             'approved_by_id' => $this->approved_by,
             'approved_at' => $this->approved_at?->toDateTimeString(),
             'assigned_mechanic_id' => $this->assigned_mechanic_id,
-            'scheduled_date' => $this->scheduled_date?->toDateString(),
             'notes' => $this->notes,
             'created_at' => $this->created_at?->toDateTimeString(),
             'unit' => UnitResource::make($this->whenLoaded('unit')),

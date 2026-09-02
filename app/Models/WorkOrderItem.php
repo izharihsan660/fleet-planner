@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 
 class WorkOrderItem extends Model
 {
@@ -24,6 +26,7 @@ class WorkOrderItem extends Model
         'new_due_date',
         'available_date',
         'planned_date',
+        'scheduled_date',
         'freeze_start',
         'freeze_end',
         'completed_odo',
@@ -44,6 +47,7 @@ class WorkOrderItem extends Model
             'baseline_last_done_date' => 'date',
             'available_date' => 'date',
             'planned_date' => 'date',
+            'scheduled_date' => 'date',
             'previous_due_date' => 'date',
             'freeze_start' => 'datetime',
             'freeze_end' => 'datetime',
@@ -79,6 +83,57 @@ class WorkOrderItem extends Model
     public function scopeWithBaseline(Builder $query): Builder
     {
         return $query->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->withBaseline());
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    public function scopeActiveForBaselineUpdate(Builder $query): Builder
+    {
+        return $query->whereNotIn($query->qualifyColumn('status'), ['cancelled', 'complete']);
+    }
+
+    /**
+     * Hide a cancelled historical row only when the same work order already
+     * contains an active replacement for the same planning item.
+     *
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    public function scopeForWorkOrderDetail(Builder $query): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query->where(function (Builder $detailQuery) use ($table): void {
+            $detailQuery
+                ->where($table.'.status', '!=', 'cancelled')
+                ->orWhereNotExists(function (QueryBuilder $replacementQuery) use ($table): void {
+                    $replacementQuery
+                        ->selectRaw('1')
+                        ->from($table.' as replacement_items')
+                        ->whereColumn('replacement_items.work_order_id', $table.'.work_order_id')
+                        ->whereColumn('replacement_items.planning_item_id', $table.'.planning_item_id')
+                        ->whereNotIn('replacement_items.status', ['cancelled', 'complete']);
+                });
+        });
+    }
+
+    /**
+     * Item siap dikerjakan bila unitnya sudah punya penanggung jawab dan item
+     * ini sudah punya tanggalnya sendiri. Mekanik menempel pada WO, tanggal
+     * menempel pada item — jadi satu unit bisa dijadwalkan bertahap.
+     */
+    public function isScheduled(): bool
+    {
+        return $this->scheduled_date !== null
+            && $this->workOrder?->assigned_mechanic_id !== null;
+    }
+
+    public function workHasStarted(): bool
+    {
+        return $this->isScheduled()
+            && CarbonImmutable::parse($this->scheduled_date)->lessThanOrEqualTo(CarbonImmutable::today());
     }
 
     public function isBaselineReplaceSubmission(): bool

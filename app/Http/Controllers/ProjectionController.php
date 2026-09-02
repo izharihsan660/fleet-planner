@@ -89,7 +89,7 @@ class ProjectionController extends Controller
             ->map(function (WorkOrderItem $item) use ($today): array {
                 $dueDate = $item->action === 'postpone' && $item->approved_at !== null && $item->new_due_date !== null
                     ? $item->new_due_date
-                    : ($item->workOrder?->scheduled_date ?? $item->unitPlanning?->next_due_date);
+                    : ($item->scheduled_date ?? $item->unitPlanning?->next_due_date);
                 $lateDays = $dueDate === null ? 0 : max(0, $today->diffInDays(CarbonImmutable::parse($dueDate), false) * -1);
 
                 return [

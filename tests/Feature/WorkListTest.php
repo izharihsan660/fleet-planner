@@ -319,8 +319,8 @@ class WorkListTest extends TestCase
         $this->assertStringContainsString('showPlannedDate = true', $formSource);
         $this->assertStringContainsString('{showPlannedDate && <div>', $formSource);
         $this->assertStringContainsString("...(showPlannedDate ? { planned_date: plannedDate ?? '' } : {}),", $formSource);
-        $this->assertStringContainsString('Mekanik (Opsional)', $formSource);
-        $this->assertStringContainsString('Jadwal Pengerjaan (Opsional)', $formSource);
+        $this->assertStringContainsString('Mekanik Penanggung Jawab', $formSource);
+        $this->assertStringContainsString('Jadwal Mekanik — setelah approval', $formSource);
     }
 
     public function test_submit_from_daftar_kerja_updates_items_like_detail_actions(): void

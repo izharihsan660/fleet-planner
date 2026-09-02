@@ -18,7 +18,10 @@ class AssignWorkOrderMechanicRequest extends FormRequest
     }
 
     /**
-     * Get the validation rules that apply to the request.
+     * Mekanik menempel pada WO sebagai penanggung jawab unit, sedangkan tanggal
+     * menempel pada item yang dijadwalkan. Tanggal mundur diizinkan supaya
+     * planner bisa mengoreksi jadwal yang salah ketik; item yang sudah complete
+     * ditolak di controller, bukan di sini.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
@@ -32,7 +35,7 @@ class AssignWorkOrderMechanicRequest extends FormRequest
                 'integer',
                 Rule::exists('users', 'id')->where('role', UserRole::Mekanik->value)->where('site_id', $workOrder->site_id),
             ],
-            'scheduled_date' => ['required', 'date', 'after_or_equal:today'],
+            'scheduled_date' => ['required', 'date'],
         ];
     }
 }

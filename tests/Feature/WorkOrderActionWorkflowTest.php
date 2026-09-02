@@ -27,8 +27,14 @@ class WorkOrderActionWorkflowTest extends TestCase
         $spv_ho = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $admin);
 
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
         $this->actingAs($admin)
-            ->post(route('work-orders.items.replace', [$workOrder, $item]), ['reason' => 'Ganti part sesuai jadwal'])
+            ->post(route('work-orders.items.replace', [$workOrder, $item]), [
+                'reason' => 'Ganti part sesuai jadwal',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->assertSame('replace', $item->refresh()->status);
@@ -81,7 +87,7 @@ class WorkOrderActionWorkflowTest extends TestCase
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
-        $this->assertSame($scheduledDate, $workOrder->scheduled_date->toDateString());
+        $this->assertSame($scheduledDate, $item->refresh()->scheduled_date->toDateString());
 
         $this->actingAs($spv)
             ->post(route('work-orders.approve', $workOrder))
@@ -185,10 +191,15 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('complete', $workOrder->refresh()->status);
     }
 
-    public function test_replace_submission_without_mechanic_keeps_assignment_fallback_after_approval(): void
+    /**
+     * Approve tanpa jadwal berhenti di on_hold. Item baru jadi tugas mekanik
+     * setelah planner memberinya tanggal sendiri.
+     */
+    public function test_replace_submission_without_schedule_waits_until_item_is_scheduled(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
 
@@ -200,9 +211,20 @@ class WorkOrderActionWorkflowTest extends TestCase
             ->post(route('work-orders.approve', $workOrder))
             ->assertRedirect(route('work-orders.show', $workOrder));
 
-        $this->assertSame('in_progress', $workOrder->refresh()->status);
-        $this->assertNull($workOrder->assigned_mechanic_id);
+        $this->assertNull($workOrder->refresh()->assigned_mechanic_id);
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertNotNull($item->approved_at);
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.assign', [$workOrder, $item]), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
+            ->assertRedirect();
+
+        $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
         $this->assertSame('in_progress', $item->refresh()->status);
+        $this->assertSame('in_progress', $workOrder->status);
     }
 
     public function test_planner_area_submits_postpone_and_spv_approval_moves_due_schedule(): void
@@ -376,7 +398,6 @@ class WorkOrderActionWorkflowTest extends TestCase
             'trigger_type' => 'normal',
             'status' => 'in_progress',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
         ]);
         $firstItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
@@ -384,6 +405,7 @@ class WorkOrderActionWorkflowTest extends TestCase
             'planning_item_id' => $firstPlanning->planning_item_id,
             'status' => 'in_progress',
             'action' => 'replace',
+            'scheduled_date' => today()->toDateString(),
         ]);
         $secondItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
@@ -415,6 +437,8 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->actingAs($planner)
             ->post(route('work-orders.items.replace', [$workOrder, $secondItem]), [
                 'reason' => 'Overdue perlu ditinjau dan diajukan ulang.',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->toDateString(),
             ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
@@ -473,7 +497,6 @@ class WorkOrderActionWorkflowTest extends TestCase
             'trigger_type' => 'normal',
             'status' => 'in_progress',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
             'approved_at' => now(),
         ]);
 
@@ -482,6 +505,7 @@ class WorkOrderActionWorkflowTest extends TestCase
             'unit_planning_id' => $planningA->id,
             'planning_item_id' => $planningA->planning_item_id,
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
         $itemB = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
@@ -555,6 +579,7 @@ class WorkOrderActionWorkflowTest extends TestCase
     {
         [$site, $unit, $plannings] = $this->makeMultiplePlanningContext(75000, 3);
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
@@ -573,11 +598,19 @@ class WorkOrderActionWorkflowTest extends TestCase
         ]))->values();
 
         $this->actingAs($planner)
-            ->post(route('work-orders.items.replace', [$workOrder, $items[0]]), ['reason' => 'Replace ban kiri'])
+            ->post(route('work-orders.items.replace', [$workOrder, $items[0]]), [
+                'reason' => 'Replace ban kiri',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->actingAs($planner)
-            ->post(route('work-orders.items.replace', [$workOrder, $items[1]]), ['reason' => 'Replace ban kanan'])
+            ->post(route('work-orders.items.replace', [$workOrder, $items[1]]), [
+                'reason' => 'Replace ban kanan',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDays(2)->toDateString(),
+            ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->actingAs($planner)
@@ -599,6 +632,8 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('in_progress', $items[0]->refresh()->status);
         $this->assertSame('in_progress', $items[1]->refresh()->status);
         $this->assertSame('postponed', $items[2]->refresh()->status);
+        $this->assertSame(today()->addDay()->toDateString(), $items[0]->scheduled_date->toDateString());
+        $this->assertSame(today()->addDays(2)->toDateString(), $items[1]->scheduled_date->toDateString());
         $this->assertSame(90000, $plannings[2]->refresh()->next_due_km);
         $this->assertSame(today()->addDays(10)->toDateString(), $plannings[2]->next_due_date->toDateString());
     }
@@ -627,7 +662,11 @@ class WorkOrderActionWorkflowTest extends TestCase
 
         // Planner triages only the first item.
         $this->actingAs($planner)
-            ->post(route('work-orders.items.replace', [$workOrder, $items[0]]), ['reason' => 'Ganti part item pertama'])
+            ->post(route('work-orders.items.replace', [$workOrder, $items[0]]), [
+                'reason' => 'Ganti part item pertama',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->actingAs($spv)
@@ -678,7 +717,6 @@ class WorkOrderActionWorkflowTest extends TestCase
             'trigger_type' => 'normal',
             'status' => 'in_progress',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
         ]);
         $item = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
@@ -686,6 +724,7 @@ class WorkOrderActionWorkflowTest extends TestCase
             'planning_item_id' => $planning->planning_item_id,
             'status' => 'in_progress',
             'action' => 'replace',
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         $this->actingAs($mechanic)

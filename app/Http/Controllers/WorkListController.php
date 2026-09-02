@@ -231,7 +231,6 @@ class WorkListController extends Controller
     {
         $item->workOrder->update([
             'assigned_mechanic_id' => $group['assigned_mechanic_id'],
-            'scheduled_date' => $group['scheduled_date'],
         ]);
 
         $item->update([
@@ -240,6 +239,7 @@ class WorkListController extends Controller
             'reason' => 'Diajukan dari Daftar Kerja.',
             'previous_due_km' => $item->unitPlanning?->next_due_km,
             'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
+            'scheduled_date' => $group['scheduled_date'],
             'submitted_by' => $user->id,
         ]);
 
