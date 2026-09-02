@@ -65,6 +65,7 @@ class WorkListController extends Controller
                     ->select(['id', 'current_plate', 'current_odo', 'has_odometer_reading', 'site_id'])
                     ->with('unitPlannings:id,unit_id,last_done_km'),
                 'workOrder.site:id,name,region,region_id',
+                'workOrder.assignedMechanic:id,name',
             ])
             ->whereIn('work_order_items.status', self::ACTIONABLE_ITEM_STATUSES)
             ->whereHas('workOrder.site', fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
@@ -100,6 +101,14 @@ class WorkListController extends Controller
                     'due_km' => $item->unitPlanning?->next_due_km,
                     'late_days' => $item->status === 'overdue' ? $lateDays : 0,
                     'baseline_missing' => $baselineMissing,
+                    // Penugasan ikut dikirim supaya item yang sudah punya mekanik
+                    // dan tanggal tidak terlihat sama dengan item yang belum
+                    // ditangani siapa pun — dan supaya pengajuan dari sini tidak
+                    // menimpa jadwal yang sudah berjalan tanpa disadari planner.
+                    'assigned_mechanic_id' => $item->workOrder?->assigned_mechanic_id,
+                    'assigned_mechanic_name' => $item->workOrder?->assignedMechanic?->name,
+                    'scheduled_date' => $item->scheduled_date?->toDateString(),
+                    'is_scheduled' => $item->isScheduled(),
                     'status_label' => $baselineMissing
                         ? 'Baseline Belum Diisi'
                         : ($item->status === 'overdue' ? 'Telat '.$lateDays.' hari' : 'Aman'),
@@ -200,6 +209,13 @@ class WorkListController extends Controller
 
                     if (! in_array($item->status, self::ACTIONABLE_ITEM_STATUSES, true)) {
                         abort(422, 'Ada item yang sudah berubah status. Muat ulang halaman lalu pilih ulang.');
+                    }
+
+                    // Pengajuan dari sini menimpa mekanik penanggung jawab dan
+                    // tanggal pengerjaan. Item yang sudah dijadwalkan karena itu
+                    // ditolak di server, bukan hanya disembunyikan di tampilan.
+                    if ($item->isScheduled()) {
+                        abort(422, 'Item ini sudah dijadwalkan ke mekanik. Ubah penugasannya lewat halaman Perintah Kerja.');
                     }
 
                     if ($item->unitPlanning?->isBaselineMissing() ?? true) {
