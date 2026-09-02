@@ -39,7 +39,19 @@ class RecalculateDueDatesService
         return $planningItem->refresh();
     }
 
-    private function recalculate(PlanningItem $planningItem): int
+    /**
+     * Perubahan interval khusus kategori kendaraan tidak lagi menunggu input KM
+     * untuk berlaku. Sebelumnya satu-satunya yang menyusulkannya adalah recompute
+     * di InspectionService, dan itu hanya menaikkan next_due_km — memendekkan
+     * interval lewat override tidak pernah benar-benar diterapkan, dan sisi
+     * tanggalnya tidak pernah tersentuh sama sekali.
+     */
+    public function recalculateForVehicleCategory(PlanningItem $planningItem, string $vehicleCategory): int
+    {
+        return DB::transaction(fn (): int => $this->recalculate($planningItem, $vehicleCategory));
+    }
+
+    private function recalculate(PlanningItem $planningItem, ?string $vehicleCategory = null): int
     {
         $planningItem->loadMissing('overrides');
         $affectedRows = 0;
@@ -47,6 +59,14 @@ class RecalculateDueDatesService
         $planningItem->unitPlannings()
             ->applicable()
             ->with('unit:id,vehicle_category')
+            // Jadwal yang ditetapkan SPV lewat Tunda atau High Usage tidak ikut
+            // dihitung ulang: interval adalah nilai default, bukan pembatal
+            // keputusan yang sudah disetujui.
+            ->where('due_manually_set', false)
+            ->when(
+                $vehicleCategory !== null,
+                fn ($query) => $query->whereHas('unit', fn ($unitQuery) => $unitQuery->where('vehicle_category', $vehicleCategory)),
+            )
             ->whereNotNull('last_done_km')
             ->where('last_done_km', '>', 0)
             ->whereNotNull('last_done_date')

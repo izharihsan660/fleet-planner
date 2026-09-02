@@ -106,20 +106,7 @@ class InspectionService
             $this->initializeMissingOdometerDueKm($unit->refresh());
         }
 
-        $unit->unitPlannings()
-            ->applicable()
-            ->withBaseline()
-            ->whereNotNull('next_due_km')
-            ->with('planningItem:id,interval_km,interval_days')
-            ->get()
-            ->each(function (UnitPlanning $unitPlanning) use ($unit): void {
-                $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unit);
-                $nextDueKm = $unitPlanning->last_done_km + $interval['interval_km'];
-
-                $unitPlanning->update([
-                    'next_due_km' => max($unitPlanning->next_due_km, $nextDueKm),
-                ]);
-            });
+        $this->repairImpossibleDueKm($unit);
 
         if ($pruneStaleTriggers) {
             $this->pruneStaleNormalTriggers($unit->refresh());
@@ -129,6 +116,37 @@ class InspectionService
         $this->highUsageService->detect($unit->refresh());
 
         return $insufficientData;
+    }
+
+    /**
+     * Input KM hanya membetulkan due KM yang mustahil, bukan memaksakan interval.
+     *
+     * Syarat yang benar-benar harus dijaga cuma satu: due KM berada di depan KM
+     * servis terakhir. Angka di bawah itu pasti rusak — misalnya 0 yang tertulis
+     * saat pengajuan Tunda pada unit yang belum punya odometer. Selama masih di
+     * depan last_done_km, angkanya dibiarkan apa adanya, termasuk yang sengaja
+     * dimajukan lewat High Usage Window 2 atau dimundurkan lewat Tunda. Versi
+     * sebelumnya memakai max(next_due_km, last_done_km + interval), sehingga
+     * setiap pemajuan yang sudah disetujui SPV diam-diam dikembalikan ke jadwal
+     * normal pada input KM berikutnya.
+     */
+    private function repairImpossibleDueKm(Unit $unit): void
+    {
+        $unit->unitPlannings()
+            ->applicable()
+            ->withBaseline()
+            ->whereNotNull('next_due_km')
+            ->whereColumn('next_due_km', '<=', 'last_done_km')
+            ->with('planningItem:id,interval_km,interval_days')
+            ->get()
+            ->each(function (UnitPlanning $unitPlanning) use ($unit): void {
+                $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unit);
+
+                $unitPlanning->update([
+                    'next_due_km' => (int) $unitPlanning->last_done_km + $interval['interval_km'],
+                    'due_manually_set' => false,
+                ]);
+            });
     }
 
     private function initializeMissingOdometerDueKm(Unit $unit): void

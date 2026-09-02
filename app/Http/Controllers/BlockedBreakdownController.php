@@ -96,6 +96,7 @@ class BlockedBreakdownController extends Controller
             'next_due_km' => $completedOdo + $interval['interval_km'],
             'next_due_date' => Carbon::today()->addDays($interval['interval_days'])->toDateString(),
             'freeze_start' => null,
+            'due_manually_set' => false,
         ]);
 
         $affectedWorkOrderIds = WorkOrderItem::query()

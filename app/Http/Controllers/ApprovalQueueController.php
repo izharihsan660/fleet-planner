@@ -171,6 +171,9 @@ class ApprovalQueueController extends Controller
                 'next_due_km' => $item->new_due_km,
                 'next_due_date' => $item->new_due_date?->toDateString(),
                 'last_done_date' => $item->available_date?->toDateString() ?? $item->unitPlanning?->last_done_date?->toDateString(),
+                // Ditetapkan SPV, bukan dihitung dari interval — jangan disetel
+                // balik oleh perhitungan ulang mana pun.
+                'due_manually_set' => true,
             ]);
 
             $item->update([

@@ -150,7 +150,11 @@ class BlockedBreakdownTest extends TestCase
             ->assertSessionHasErrors('action');
 
         $this->assertSame('breakdown', $item->refresh()->status);
-        $this->assertSame(6000, $planning->refresh()->next_due_km);
+        // Input KM tidak lagi menulis ulang due KM ke last_done + interval.
+        // Angkanya tetap seperti semula — sama seperti yang diharapkan
+        // test_unit_breakdown_blocks_normal_actions_even_when_item_is_still_on_hold
+        // pada skenario yang sama tanpa input KM.
+        $this->assertSame(5000, $planning->refresh()->next_due_km);
     }
 
     public function test_unit_breakdown_blocks_normal_actions_even_when_item_is_still_on_hold(): void
