@@ -44,10 +44,10 @@ class UnitSiteTransferController extends Controller
             $oldSiteId = $transfer->from_site_id;
             $newSiteId = $transfer->to_site_id;
 
+            // Pekerjaan aktif ikut berpindah lewat UnitObserver, sama seperti
+            // saat site diubah dari Master Data — jadi aturannya tidak perlu
+            // ditulis dua kali dan tidak bisa berbeda antar jalur.
             $transfer->unit->update(['site_id' => $newSiteId]);
-            $transfer->unit->workOrders()
-                ->whereIn('status', ['open', 'in_progress'])
-                ->update(['site_id' => $newSiteId]);
 
             $transfer->update([
                 'status' => 'approved',
