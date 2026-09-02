@@ -123,9 +123,13 @@ class ManualFindingWorkOrderTest extends TestCase
         [$region, , $unit, $planningItem] = $this->maintenanceContext();
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => $region->id, 'site_id' => null]);
 
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $unit->site_id]);
+
         $this->actingAs($planner)->post(route('units.manual-findings.store', $unit), [
             'planning_item_ids' => [$planningItem->id],
             'reason' => 'Temuan untuk cek badge.',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->latest('id')->firstOrFail();

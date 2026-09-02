@@ -69,14 +69,13 @@ export function AssignmentFields({ mechanics, assignedMechanicId, scheduledDate,
         <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col">
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Mekanik Penanggung Jawab</label>
-                <p className="mb-1 text-xs text-muted-foreground">Berlaku untuk seluruh item unit ini.</p>
+                <p className="mb-1 text-xs text-muted-foreground">Wajib. Berlaku untuk seluruh item unit ini.</p>
                 <div className="mt-auto">
-                    <Select value={assignedMechanicId || 'none'} onValueChange={(value) => setAssignedMechanicId(value === 'none' ? '' : value)}>
+                    <Select value={assignedMechanicId} onValueChange={setAssignedMechanicId}>
                         <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Belum ditentukan" />
+                            <SelectValue placeholder="Pilih mekanik" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="none">Belum ditentukan</SelectItem>
                             {mechanics.map((mechanic) => <SelectItem key={mechanic.id} value={String(mechanic.id)}>{mechanic.name}</SelectItem>)}
                         </SelectContent>
                     </Select>
@@ -85,9 +84,9 @@ export function AssignmentFields({ mechanics, assignedMechanicId, scheduledDate,
             </div>
             <div className="flex flex-col">
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Jadwal Mekanik — setelah approval</label>
-                <p className="mb-1 text-xs text-muted-foreground">Khusus item ini. Masuk daftar tugas mekanik pada tanggal ini.</p>
+                <p className="mb-1 text-xs text-muted-foreground">Wajib. Khusus item ini — masuk daftar tugas mekanik pada tanggal ini.</p>
                 <div className="mt-auto">
-                    <TextInput type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} className="w-full" />
+                    <TextInput type="date" required value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} className="w-full" />
                     <InputError message={scheduledDateError} />
                 </div>
             </div>

@@ -178,12 +178,12 @@ function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewIte
                 {canCreate && item.approval_status !== 'pending_create' && <PrimaryButton type="button" className="w-full text-xs normal-case" onClick={() => setShowForm(!showForm)}>Buat Tugas Sekarang</PrimaryButton>}
                 {showForm && (
                     <form onSubmit={(event) => { event.preventDefault(); setShowConfirm(true); }} className="space-y-3 rounded-lg border bg-muted/40 p-3">
-                        <select value={form.data.assigned_mechanic_id} onChange={(event) => form.setData('assigned_mechanic_id', event.target.value)} className="w-full rounded-lg border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
-                            <option value="">Mekanik belum ditentukan</option>
+                        <select required value={form.data.assigned_mechanic_id} onChange={(event) => form.setData('assigned_mechanic_id', event.target.value)} className="w-full rounded-lg border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
+                            <option value="" disabled>Pilih mekanik penanggung jawab</option>
                             {siteMechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}
                         </select>
                         {form.errors.assigned_mechanic_id && <p className="text-xs text-destructive">{form.errors.assigned_mechanic_id}</p>}
-                        <Input type="date" value={form.data.scheduled_date} onChange={(event) => form.setData('scheduled_date', event.target.value)} />
+                        <Input type="date" required value={form.data.scheduled_date} onChange={(event) => form.setData('scheduled_date', event.target.value)} />
                         {form.errors.scheduled_date && <p className="text-xs text-destructive">{form.errors.scheduled_date}</p>}
                         <div className="flex gap-2">
                             <PrimaryButton disabled={form.processing}>Ajukan</PrimaryButton>

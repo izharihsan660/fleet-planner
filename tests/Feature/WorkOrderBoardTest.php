@@ -703,11 +703,15 @@ class WorkOrderBoardTest extends TestCase
     {
         $admin = $this->adminSite();
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
         $unit = $this->unit($admin->site_id, 10000, 100);
         $planning = $this->planning($unit, 'Engine Oil', 12000, today()->addDays(10)->toDateString());
 
         $this->actingAs($admin)
-            ->post(route('unit-plannings.create-work-order', $planning))
+            ->post(route('unit-plannings.create-work-order', $planning), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDays(2)->toDateString(),
+            ])
             ->assertRedirect();
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
@@ -740,23 +744,33 @@ class WorkOrderBoardTest extends TestCase
             ->post(route('work-orders.approve', $workOrder))
             ->assertRedirect(route('work-orders.show', $workOrder));
 
-        $this->assertSame('open', $workOrder->refresh()->status);
+        // Penugasan wajib saat mengajukan, jadi item langsung siap dikerjakan
+        // begitu SPV menyetujui.
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
         $this->assertDatabaseHas('work_order_items', [
             'unit_planning_id' => $planning->id,
-            'status' => 'on_hold',
+            'status' => 'in_progress',
             'approved_by' => $spv->id,
         ]);
+        $this->assertSame(
+            today()->addDays(2)->toDateString(),
+            WorkOrderItem::query()->where('unit_planning_id', $planning->id)->firstOrFail()->scheduled_date->toDateString(),
+        );
     }
 
     public function test_spv_can_reject_preview_task_request_and_preview_returns(): void
     {
         $admin = $this->adminSite();
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
         $unit = $this->unit($admin->site_id, 10000, 100);
         $planning = $this->planning($unit, 'Air Filter', 12000, today()->addDays(10)->toDateString());
 
         $this->actingAs($admin)
-            ->post(route('unit-plannings.create-work-order', $planning))
+            ->post(route('unit-plannings.create-work-order', $planning), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDays(2)->toDateString(),
+            ])
             ->assertRedirect();
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
@@ -957,13 +971,18 @@ class WorkOrderBoardTest extends TestCase
     public function test_planner_can_submit_actions_for_overdue_items(): void
     {
         $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
         $replaceItem = $this->overdueWorkOrderItem($planner, 'Replace Item');
         $postponeItem = $this->overdueWorkOrderItem($planner, 'Postpone Item');
         $blockedItem = $this->overdueWorkOrderItem($planner, 'Blocked Item');
         $breakdownItem = $this->overdueWorkOrderItem($planner, 'Breakdown Item');
 
         $this->actingAs($planner)
-            ->post(route('work-orders.items.replace', [$replaceItem->workOrder, $replaceItem]), ['reason' => 'Butuh replace'])
+            ->post(route('work-orders.items.replace', [$replaceItem->workOrder, $replaceItem]), [
+                'reason' => 'Butuh replace',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
             ->assertRedirect(route('work-orders.show', $replaceItem->workOrder));
 
         $this->assertSame('replace', $replaceItem->refresh()->status);

@@ -231,7 +231,7 @@ class WorkOrderController extends Controller
             return back()->withErrors(['planning' => 'Planning item ini sudah memiliki WO aktif.']);
         }
 
-        $assignment = $this->optionalAssignmentPayload($request, $planning->unit->site_id);
+        $assignment = $this->assignmentPayload($request, $planning->unit->site_id);
 
         DB::transaction(function () use ($request, $planning, $notifications, $assignment): void {
             $workOrder = WorkOrder::query()->create([
@@ -282,7 +282,7 @@ class WorkOrderController extends Controller
                 'planning_item_ids' => 'Item Tidak Berlaku tidak dapat dibuatkan task: '.$excludedItemNames->implode(', ').'.',
             ]);
         }
-        $assignment = $this->optionalAssignmentPayload($request, $unit->site_id);
+        $assignment = $this->assignmentPayload($request, $unit->site_id);
 
         DB::transaction(function () use ($request, $unit, $planningItems, $notifications, $assignment): void {
             $workOrder = WorkOrder::query()->create([
@@ -486,14 +486,12 @@ class WorkOrderController extends Controller
             return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, Blocked, atau Rejected yang bisa diajukan Replace.']);
         }
 
-        $assignment = $this->optionalAssignmentPayload($request, $wo->site_id);
+        $assignment = $this->assignmentPayload($request, $wo->site_id);
 
         DB::transaction(function () use ($request, $wo, $item, $assignment): void {
             $this->reopenCancelledWorkOrder($wo);
 
-            if ($assignment['work_order'] !== []) {
-                $wo->update($assignment['work_order']);
-            }
+            $wo->update($assignment['work_order']);
 
             $item->update([
                 'status' => 'replace',
@@ -1287,29 +1285,29 @@ class WorkOrderController extends Controller
 
     /**
      * Penugasan terbelah dua tabel: mekanik penanggung jawab ke WO, tanggal
-     * pengerjaan ke item. Keduanya opsional dan berdiri sendiri — penanggung
-     * jawab boleh ditetapkan lebih dulu, jadwal tiap item menyusul.
+     * pengerjaan ke item. Keduanya wajib — tidak ada pengajuan tanpa rencana
+     * jadwal, sama seperti aturan yang sudah berlaku di Daftar Kerja. Tanggal
+     * mundur tetap diizinkan supaya salah ketik bisa dikoreksi.
      *
      * @return array{work_order: array<string, int>, item: array<string, string>}
      */
-    private function optionalAssignmentPayload(Request $request, int $siteId): array
+    private function assignmentPayload(Request $request, int $siteId): array
     {
         $assignment = $request->validate([
             'assigned_mechanic_id' => [
-                'nullable',
+                'required',
                 'integer',
                 Rule::exists('users', 'id')->where('role', UserRole::Mekanik->value)->where('site_id', $siteId),
             ],
-            'scheduled_date' => ['nullable', 'date'],
+            'scheduled_date' => ['required', 'date'],
+        ], [
+            'assigned_mechanic_id.required' => 'Pilih mekanik penanggung jawab.',
+            'scheduled_date.required' => 'Tentukan rencana jadwal pengerjaan.',
         ]);
 
         return [
-            'work_order' => ($assignment['assigned_mechanic_id'] ?? null) === null
-                ? []
-                : ['assigned_mechanic_id' => (int) $assignment['assigned_mechanic_id']],
-            'item' => ($assignment['scheduled_date'] ?? null) === null
-                ? []
-                : ['scheduled_date' => $assignment['scheduled_date']],
+            'work_order' => ['assigned_mechanic_id' => (int) $assignment['assigned_mechanic_id']],
+            'item' => ['scheduled_date' => $assignment['scheduled_date']],
         ];
     }
 

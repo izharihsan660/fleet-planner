@@ -192,28 +192,57 @@ class WorkOrderActionWorkflowTest extends TestCase
     }
 
     /**
-     * Approve tanpa jadwal berhenti di on_hold. Item baru jadi tugas mekanik
-     * setelah planner memberinya tanggal sendiri.
+     * Tidak ada pengajuan tanpa rencana jadwal — mekanik penanggung jawab dan
+     * tanggal sama-sama wajib saat Ajukan Penggantian.
      */
-    public function test_replace_submission_without_schedule_waits_until_item_is_scheduled(): void
+    public function test_replace_submission_requires_mechanic_and_schedule(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+
+        $this->actingAs($planner)
+            ->from(route('work-orders.show', $workOrder))
+            ->post(route('work-orders.items.replace', [$workOrder, $item]), ['reason' => 'Belum tahu mekanik'])
+            ->assertSessionHasErrors(['assigned_mechanic_id', 'scheduled_date']);
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertNull($item->scheduled_date);
+    }
+
+    /**
+     * Satu-satunya jalur yang masih bisa menghasilkan item disetujui tanpa
+     * jadwal: WO hasil trigger otomatis yang di-approve langsung oleh SPV tanpa
+     * melewati form pengajuan. Item seperti itu menunggu dijadwalkan.
+     */
+    public function test_auto_generated_work_order_approved_without_schedule_waits_for_scheduling(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
-        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
 
-        $this->actingAs($planner)
-            ->post(route('work-orders.items.replace', [$workOrder, $item]), ['reason' => 'Belum tahu mekanik'])
-            ->assertRedirect(route('work-orders.show', $workOrder));
+        // submitted_by null menandai WO terbit otomatis dari trigger maintenance.
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+        ]);
+        $item = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'on_hold',
+        ]);
 
         $this->actingAs($spv)
             ->post(route('work-orders.approve', $workOrder))
             ->assertRedirect(route('work-orders.show', $workOrder));
 
-        $this->assertNull($workOrder->refresh()->assigned_mechanic_id);
         $this->assertSame('on_hold', $item->refresh()->status);
         $this->assertNotNull($item->approved_at);
+        $this->assertNull($item->scheduled_date);
 
         $this->actingAs($planner)
             ->post(route('work-orders.items.assign', [$workOrder, $item]), [
@@ -300,6 +329,8 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->actingAs($planner)
             ->post(route('work-orders.items.replace', [$workOrder, $item]), [
                 'reason' => 'Ganti ban depan dengan foto pendukung lengkap.',
+                'assigned_mechanic_id' => User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id])->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
             ])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
