@@ -597,7 +597,6 @@ class ProjectionTest extends TestCase
             'site_id' => $site->id,
             'trigger_type' => 'normal',
             'status' => 'open',
-            'scheduled_date' => '2026-07-20',
         ]);
 
         WorkOrderItem::query()->create([
@@ -615,6 +614,24 @@ class ProjectionTest extends TestCase
             'unit_planning_id' => $unitPlanning->id,
             'planning_item_id' => $planningItem->id,
             'status' => 'complete',
+        ]);
+
+        // Jadwal item mengalahkan due planning-nya di kalender.
+        $scheduledPlanningItem = PlanningItem::query()->create(['name' => 'Service Terjadwal', 'interval_km' => 1000, 'interval_days' => 30]);
+        $scheduledPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $scheduledPlanningItem->id,
+            'last_done_km' => 1000,
+            'last_done_date' => '2026-06-01',
+            'next_due_km' => 4200,
+            'next_due_date' => '2026-07-15',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $scheduledPlanning->id,
+            'planning_item_id' => $scheduledPlanningItem->id,
+            'status' => 'in_progress',
+            'scheduled_date' => '2026-07-22',
         ]);
 
         $missingPlanningItem = PlanningItem::query()->create(['name' => 'Service Tanpa Baseline', 'interval_km' => 1000, 'interval_days' => 30]);
@@ -639,6 +656,7 @@ class ProjectionTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->where('filters.month', '2026-07')
                 ->where('filters.region_id', $region->id)
+                ->where('calendar.summary_by_date.2026-07-22.total', 1)
                 ->where('calendar.summary_by_date.2026-07-25.total', 1)
                 ->where('calendar.summary_by_date.2026-07-25.high_usage', 1)
                 ->where('calendar.items.0.due_date', '2026-07-25')

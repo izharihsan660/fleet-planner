@@ -322,7 +322,6 @@ class CompletionBackdateTest extends TestCase
             'trigger_type' => 'normal',
             'status' => 'in_progress',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
             'approved_at' => now(),
         ]);
 
@@ -331,6 +330,7 @@ class CompletionBackdateTest extends TestCase
             'unit_planning_id' => $planning->id,
             'planning_item_id' => $planningItem->id,
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         return [$mechanic, $workOrder->refresh(), $item->refresh()];

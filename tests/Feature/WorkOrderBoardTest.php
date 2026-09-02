@@ -188,7 +188,6 @@ class WorkOrderBoardTest extends TestCase
             'status' => 'in_progress',
             'trigger_type' => 'normal',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
         ]);
         $itemIds = [];
 
@@ -221,6 +220,7 @@ class WorkOrderBoardTest extends TestCase
                 'unit_planning_id' => $planning->id,
                 'planning_item_id' => $planning->planning_item_id,
                 'status' => $status,
+                'scheduled_date' => $status === 'in_progress' ? today()->toDateString() : null,
                 'action' => $status === 'rejected'
                     ? 'replace'
                     : (in_array($status, ['replace', 'postpone', 'blocked', 'breakdown'], true) ? $status : null),
@@ -264,7 +264,6 @@ class WorkOrderBoardTest extends TestCase
             'status' => 'in_progress',
             'trigger_type' => 'normal',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
         ]);
 
         $workedPlanning = $this->planning($unit, 'Service B', 51000, today()->addDays(5)->toDateString());
@@ -273,6 +272,7 @@ class WorkOrderBoardTest extends TestCase
             'unit_planning_id' => $workedPlanning->id,
             'planning_item_id' => $workedPlanning->planning_item_id,
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         $onHoldItemIds = [];
@@ -399,7 +399,6 @@ class WorkOrderBoardTest extends TestCase
             'status' => 'in_progress',
             'trigger_type' => 'normal',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
             'approved_by' => $planner->id,
             'approved_at' => now(),
         ]);
@@ -412,6 +411,7 @@ class WorkOrderBoardTest extends TestCase
             'unit_planning_id' => $planningA->id,
             'planning_item_id' => $planningA->planning_item_id,
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         // Item B: overdue 3 hari dan lewat 1.000 KM.
@@ -534,13 +534,12 @@ class WorkOrderBoardTest extends TestCase
             'status' => 'in_progress',
             'trigger_type' => 'normal',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->addDays(2)->toDateString(),
         ]);
 
         $lateItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $latePlanning->id, 'planning_item_id' => $latePlanning->planning_item_id, 'status' => 'on_hold']);
         $baselineItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $baselinePlanning->id, 'planning_item_id' => $baselinePlanning->planning_item_id, 'status' => 'on_hold']);
         $approvalItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $approvalPlanning->id, 'planning_item_id' => $approvalPlanning->planning_item_id, 'status' => 'replace', 'action' => 'replace']);
-        $scheduledItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $scheduledPlanning->id, 'planning_item_id' => $scheduledPlanning->planning_item_id, 'status' => 'in_progress']);
+        $scheduledItem = WorkOrderItem::query()->create(['work_order_id' => $workOrder->id, 'unit_planning_id' => $scheduledPlanning->id, 'planning_item_id' => $scheduledPlanning->planning_item_id, 'status' => 'in_progress', 'scheduled_date' => today()->addDays(2)->toDateString()]);
 
         $cards = collect($this->actingAs($planner)
             ->get(route('work-orders.index'))
@@ -704,11 +703,15 @@ class WorkOrderBoardTest extends TestCase
     {
         $admin = $this->adminSite();
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
         $unit = $this->unit($admin->site_id, 10000, 100);
         $planning = $this->planning($unit, 'Engine Oil', 12000, today()->addDays(10)->toDateString());
 
         $this->actingAs($admin)
-            ->post(route('unit-plannings.create-work-order', $planning))
+            ->post(route('unit-plannings.create-work-order', $planning), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDays(2)->toDateString(),
+            ])
             ->assertRedirect();
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
@@ -741,23 +744,33 @@ class WorkOrderBoardTest extends TestCase
             ->post(route('work-orders.approve', $workOrder))
             ->assertRedirect(route('work-orders.show', $workOrder));
 
-        $this->assertSame('open', $workOrder->refresh()->status);
+        // Penugasan wajib saat mengajukan, jadi item langsung siap dikerjakan
+        // begitu SPV menyetujui.
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
         $this->assertDatabaseHas('work_order_items', [
             'unit_planning_id' => $planning->id,
-            'status' => 'on_hold',
+            'status' => 'in_progress',
             'approved_by' => $spv->id,
         ]);
+        $this->assertSame(
+            today()->addDays(2)->toDateString(),
+            WorkOrderItem::query()->where('unit_planning_id', $planning->id)->firstOrFail()->scheduled_date->toDateString(),
+        );
     }
 
     public function test_spv_can_reject_preview_task_request_and_preview_returns(): void
     {
         $admin = $this->adminSite();
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
         $unit = $this->unit($admin->site_id, 10000, 100);
         $planning = $this->planning($unit, 'Air Filter', 12000, today()->addDays(10)->toDateString());
 
         $this->actingAs($admin)
-            ->post(route('unit-plannings.create-work-order', $planning))
+            ->post(route('unit-plannings.create-work-order', $planning), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDays(2)->toDateString(),
+            ])
             ->assertRedirect();
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
@@ -802,7 +815,11 @@ class WorkOrderBoardTest extends TestCase
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
 
         $this->assertSame($mechanic->id, $workOrder->assigned_mechanic_id);
-        $this->assertSame($scheduledDate, $workOrder->scheduled_date->toDateString());
+        $this->assertSame($scheduledDate, WorkOrderItem::query()
+            ->where('unit_planning_id', $planning->id)
+            ->firstOrFail()
+            ->scheduled_date
+            ->toDateString());
 
         $this->actingAs($spv)
             ->post(route('work-orders.approve', $workOrder))
@@ -831,26 +848,32 @@ class WorkOrderBoardTest extends TestCase
             'approved_by' => $admin->id,
             'approved_at' => now(),
         ]);
-        WorkOrderItem::query()->create([
+        $item = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $planning->id,
             'planning_item_id' => $planning->planning_item_id,
             'status' => 'in_progress',
             'action' => 'replace',
+            'approved_by' => $admin->id,
+            'approved_at' => now(),
         ]);
 
         $this->actingAs($admin)
-            ->post(route('work-orders.assign-mechanic', $workOrder), [
+            ->post(route('work-orders.items.assign', [$workOrder, $item]), [
                 'assigned_mechanic_id' => $mechanic->id,
                 'scheduled_date' => today()->addDay()->toDateString(),
             ])
             ->assertRedirect();
 
         $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
-        $this->assertSame(today()->addDay()->toDateString(), $workOrder->scheduled_date->toDateString());
+        $this->assertSame(today()->addDay()->toDateString(), $item->refresh()->scheduled_date->toDateString());
     }
 
-    public function test_assign_mechanic_rejects_past_date(): void
+    /**
+     * Item lain pada unit yang sama tidak ikut terjadwal — inti dari pemisahan
+     * jadwal ke level item.
+     */
+    public function test_scheduling_one_item_leaves_sibling_item_unscheduled(): void
     {
         $admin = $this->adminSite();
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
@@ -860,14 +883,87 @@ class WorkOrderBoardTest extends TestCase
             'site_id' => $unit->site_id,
             'status' => 'in_progress',
             'trigger_type' => 'normal',
+            'submitted_by' => $admin->id,
+            'approved_by' => $admin->id,
+            'approved_at' => now(),
+        ]);
+
+        $items = collect(['Ban Depan', 'Service A', 'Ban Serep'])->map(function (string $name) use ($unit, $workOrder, $admin): WorkOrderItem {
+            $planning = $this->planning($unit, $name, 12000, today()->addDays(5)->toDateString());
+
+            return WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => 'in_progress',
+                'action' => 'replace',
+                'approved_by' => $admin->id,
+                'approved_at' => now(),
+            ]);
+        });
+
+        foreach ($items as $index => $item) {
+            $this->actingAs($admin)
+                ->post(route('work-orders.items.assign', [$workOrder, $item]), [
+                    'assigned_mechanic_id' => $mechanic->id,
+                    'scheduled_date' => today()->addDays($index + 1)->toDateString(),
+                ])
+                ->assertRedirect();
+        }
+
+        $this->assertSame([
+            today()->addDay()->toDateString(),
+            today()->addDays(2)->toDateString(),
+            today()->addDays(3)->toDateString(),
+        ], $items->map(fn (WorkOrderItem $item): string => $item->refresh()->scheduled_date->toDateString())->all());
+
+        $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
+    }
+
+    /**
+     * Planner boleh memundurkan jadwal untuk mengoreksi salah ketik; yang
+     * dikunci hanya item yang sudah selesai.
+     */
+    public function test_assign_accepts_past_date_but_rejects_completed_item(): void
+    {
+        $admin = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $admin->site_id]);
+        $unit = $this->unit($admin->site_id, 10000, 100);
+        $planning = $this->planning($unit, 'Brake', 12000, today()->addDays(5)->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'status' => 'in_progress',
+            'trigger_type' => 'normal',
+            'approved_at' => now(),
+        ]);
+        $item = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'in_progress',
+            'action' => 'replace',
+            'approved_by' => $admin->id,
             'approved_at' => now(),
         ]);
 
         $this->actingAs($admin)
             ->from(route('work-orders.index'))
-            ->post(route('work-orders.assign-mechanic', $workOrder), [
+            ->post(route('work-orders.items.assign', [$workOrder, $item]), [
                 'assigned_mechanic_id' => $mechanic->id,
                 'scheduled_date' => today()->subDay()->toDateString(),
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(today()->subDay()->toDateString(), $item->refresh()->scheduled_date->toDateString());
+
+        $item->update(['status' => 'complete']);
+
+        $this->actingAs($admin)
+            ->from(route('work-orders.index'))
+            ->post(route('work-orders.items.assign', [$workOrder, $item]), [
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
             ])
             ->assertSessionHasErrors('scheduled_date');
     }
@@ -875,13 +971,18 @@ class WorkOrderBoardTest extends TestCase
     public function test_planner_can_submit_actions_for_overdue_items(): void
     {
         $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
         $replaceItem = $this->overdueWorkOrderItem($planner, 'Replace Item');
         $postponeItem = $this->overdueWorkOrderItem($planner, 'Postpone Item');
         $blockedItem = $this->overdueWorkOrderItem($planner, 'Blocked Item');
         $breakdownItem = $this->overdueWorkOrderItem($planner, 'Breakdown Item');
 
         $this->actingAs($planner)
-            ->post(route('work-orders.items.replace', [$replaceItem->workOrder, $replaceItem]), ['reason' => 'Butuh replace'])
+            ->post(route('work-orders.items.replace', [$replaceItem->workOrder, $replaceItem]), [
+                'reason' => 'Butuh replace',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
             ->assertRedirect(route('work-orders.show', $replaceItem->workOrder));
 
         $this->assertSame('replace', $replaceItem->refresh()->status);
@@ -966,7 +1067,6 @@ class WorkOrderBoardTest extends TestCase
             'status' => 'in_progress',
             'trigger_type' => 'normal',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
         ]);
         $planning = $this->planning($unit, 'Belum Disentuh E', 12000, today()->addDays(10)->toDateString());
         $item = WorkOrderItem::query()->create([
@@ -974,6 +1074,7 @@ class WorkOrderBoardTest extends TestCase
             'unit_planning_id' => $planning->id,
             'planning_item_id' => $planning->planning_item_id,
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         $this->actingAs($planner)
@@ -987,7 +1088,7 @@ class WorkOrderBoardTest extends TestCase
                 ->where('boardColumns.in_progress.data.0.badges.0.label', 'Sedang dikerjakan')
             );
 
-        $workOrder->update(['scheduled_date' => today()->addDays(3)->toDateString()]);
+        $item->update(['scheduled_date' => today()->addDays(3)->toDateString()]);
 
         $this->actingAs($planner)
             ->get(route('work-orders.index'))
@@ -1065,7 +1166,6 @@ class WorkOrderBoardTest extends TestCase
             'status' => 'in_progress',
             'trigger_type' => 'normal',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
         ]);
 
         $targetOnHold = WorkOrderItem::query()->create([
@@ -1079,6 +1179,7 @@ class WorkOrderBoardTest extends TestCase
             'unit_planning_id' => $this->planning($targetUnit, 'Greasing', 9000, today()->addDays(5)->toDateString())->id,
             'planning_item_id' => PlanningItem::query()->where('name', 'Greasing')->value('id'),
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
         $targetComplete = WorkOrderItem::query()->create([
             'work_order_id' => $targetWorkOrder->id,
@@ -1139,7 +1240,6 @@ class WorkOrderBoardTest extends TestCase
                 'status' => 'in_progress',
                 'trigger_type' => 'normal',
                 'assigned_mechanic_id' => $mechanic->id,
-                'scheduled_date' => today()->toDateString(),
             ]);
 
             $matchingItemIds[$status] = WorkOrderItem::query()->create([
@@ -1147,6 +1247,7 @@ class WorkOrderBoardTest extends TestCase
                 'unit_planning_id' => $planning->id,
                 'planning_item_id' => $serviceB->id,
                 'status' => $status,
+                'scheduled_date' => $status === 'in_progress' ? today()->toDateString() : null,
             ])->id;
 
             $otherPlanning = $this->planning($unit, 'Ban Belakang '.$index, $odo + 900, today()->addDays(5)->toDateString());

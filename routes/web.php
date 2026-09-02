@@ -66,7 +66,7 @@ Route::middleware('auth')->group(function () {
     Route::get('work-orders/{wo}', [WorkOrderController::class, 'show'])->name('work-orders.show');
     Route::post('work-orders/{wo}/approve', [WorkOrderController::class, 'approve'])->name('work-orders.approve');
     Route::post('work-orders/{wo}/reject', [WorkOrderController::class, 'reject'])->name('work-orders.reject');
-    Route::post('work-orders/{wo}/assign-mechanic', [WorkOrderController::class, 'assignMechanic'])->name('work-orders.assign-mechanic');
+    Route::post('work-orders/{wo}/items/{item}/assign', [WorkOrderController::class, 'assignItem'])->name('work-orders.items.assign');
     Route::post('unit-plannings/{planning}/create-work-order', [WorkOrderController::class, 'createFromPlanning'])->name('unit-plannings.create-work-order');
     Route::post('units/{unit}/manual-findings', [WorkOrderController::class, 'storeManualFinding'])->name('units.manual-findings.store');
     Route::post('work-orders/{wo}/items/{item}/replace', [WorkOrderController::class, 'submitReplace'])->name('work-orders.items.replace');

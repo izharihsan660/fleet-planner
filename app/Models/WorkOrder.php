@@ -17,7 +17,6 @@ class WorkOrder extends Model
         'approved_by',
         'approved_at',
         'assigned_mechanic_id',
-        'scheduled_date',
         'notes',
     ];
 
@@ -25,7 +24,6 @@ class WorkOrder extends Model
     {
         return [
             'approved_at' => 'datetime',
-            'scheduled_date' => 'date',
         ];
     }
 

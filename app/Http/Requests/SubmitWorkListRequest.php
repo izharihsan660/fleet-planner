@@ -28,7 +28,7 @@ class SubmitWorkListRequest extends FormRequest
             'groups.*.item_ids' => ['required', 'array', 'min:1'],
             'groups.*.item_ids.*' => ['required', 'integer', 'distinct', Rule::exists('work_order_items', 'id')],
             'groups.*.assigned_mechanic_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('role', UserRole::Mekanik->value)],
-            'groups.*.scheduled_date' => ['required', 'date', 'after_or_equal:today'],
+            'groups.*.scheduled_date' => ['required', 'date'],
         ];
     }
 

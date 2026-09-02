@@ -85,7 +85,7 @@ class ApprovalQueueController extends Controller
                             : $currentDueDate),
                     'new_due_date' => $item->new_due_date?->toDateString(),
                     'assigned_mechanic_name' => $item->workOrder?->assignedMechanic?->name,
-                    'scheduled_date' => $item->workOrder?->scheduled_date?->toDateString(),
+                    'scheduled_date' => $item->scheduled_date?->toDateString(),
                     'waiting_hours' => $waitingHours,
                     'waiting_label' => $waitingDays > 0 ? $waitingDays.' hari' : max(1, $waitingHours).' jam',
                     'is_warning' => $waitingHours > 48,
@@ -155,7 +155,7 @@ class ApprovalQueueController extends Controller
 
         if ($item->status === 'pending_create') {
             $item->update([
-                'status' => $workOrder->assigned_mechanic_id === null ? 'on_hold' : 'in_progress',
+                'status' => $this->approvedItemStatus($workOrder, $item),
                 'approved_by' => $userId,
                 'approved_at' => now(),
             ]);
@@ -185,13 +185,24 @@ class ApprovalQueueController extends Controller
         }
 
         $item->update([
-            'status' => 'in_progress',
+            'status' => $this->approvedItemStatus($workOrder, $item),
             'approved_by' => $userId,
             'approved_at' => now(),
         ]);
 
         $notifications->replaceApprovedForLogistics($workOrder, $item->refresh());
         $this->syncWorkOrderStatusFromItems($workOrder->refresh());
+    }
+
+    /**
+     * Item hanya masuk In Progress kalau unitnya sudah punya penanggung jawab
+     * dan item ini sudah punya tanggalnya sendiri.
+     */
+    private function approvedItemStatus(WorkOrder $workOrder, WorkOrderItem $item): string
+    {
+        return $workOrder->assigned_mechanic_id !== null && $item->scheduled_date !== null
+            ? 'in_progress'
+            : 'on_hold';
     }
 
     private function rejectItem(WorkOrderItem $item, int $userId, string $reason): void

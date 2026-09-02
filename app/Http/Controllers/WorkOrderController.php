@@ -105,10 +105,9 @@ class WorkOrderController extends Controller
                     });
             })
             ->whereHas('workOrder', fn ($query) => $query->where('assigned_mechanic_id', $user->id))
-            ->join('work_orders', 'work_orders.id', '=', 'work_order_items.work_order_id')
             ->select('work_order_items.*')
-            ->orderByRaw('CASE WHEN work_orders.scheduled_date IS NULL THEN 1 ELSE 0 END')
-            ->orderBy('work_orders.scheduled_date')
+            ->orderByRaw('CASE WHEN work_order_items.scheduled_date IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('work_order_items.scheduled_date')
             ->orderBy('work_order_items.id')
             ->get()
             ->map(fn (WorkOrderItem $item): array => [
@@ -116,7 +115,7 @@ class WorkOrderController extends Controller
                 'work_order_id' => $item->work_order_id,
                 'unit_name' => $item->workOrder?->unit?->current_plate ?? '-',
                 'item_name' => $item->planningItem?->name ?? 'Pekerjaan maintenance',
-                'scheduled_date' => $item->workOrder?->scheduled_date?->toDateString(),
+                'scheduled_date' => $item->scheduled_date?->toDateString(),
                 'planned_date' => $item->planned_date?->toDateString(),
                 'current_odo' => $item->workOrder?->unit?->current_odo ?? 0,
                 'site_name' => $item->workOrder?->site?->name,
@@ -182,7 +181,7 @@ class WorkOrderController extends Controller
         $wo->load([
             'unit' => fn ($query) => $query->with(['site', 'unitPlannings:id,unit_id,last_done_km']),
             'site',
-            'items' => fn ($query) => $query->applicable()->with(['planningItem', 'unitPlanning']),
+            'items' => fn ($query) => $query->applicable()->forWorkOrderDetail()->with(['planningItem', 'unitPlanning']),
             'approvedBy:id,name',
             'assignedMechanic:id,name',
         ]);
@@ -232,7 +231,7 @@ class WorkOrderController extends Controller
             return back()->withErrors(['planning' => 'Planning item ini sudah memiliki WO aktif.']);
         }
 
-        $assignment = $this->optionalAssignmentPayload($request, $planning->unit->site_id);
+        $assignment = $this->assignmentPayload($request, $planning->unit->site_id);
 
         DB::transaction(function () use ($request, $planning, $notifications, $assignment): void {
             $workOrder = WorkOrder::query()->create([
@@ -242,7 +241,7 @@ class WorkOrderController extends Controller
                 'status' => 'open',
                 'submitted_by' => $request->user()->id,
                 'notes' => 'Dibuat lebih awal dari preview Upcoming/Ancang-ancang.',
-                ...$assignment,
+                ...$assignment['work_order'],
             ]);
 
             $item = WorkOrderItem::query()->create([
@@ -252,6 +251,7 @@ class WorkOrderController extends Controller
                 'status' => 'pending_create',
                 'action' => 'create_task',
                 'submitted_by' => $request->user()->id,
+                ...$assignment['item'],
             ]);
 
             $notifications->taskCreationRequested($item);
@@ -282,7 +282,7 @@ class WorkOrderController extends Controller
                 'planning_item_ids' => 'Item Tidak Berlaku tidak dapat dibuatkan task: '.$excludedItemNames->implode(', ').'.',
             ]);
         }
-        $assignment = $this->optionalAssignmentPayload($request, $unit->site_id);
+        $assignment = $this->assignmentPayload($request, $unit->site_id);
 
         DB::transaction(function () use ($request, $unit, $planningItems, $notifications, $assignment): void {
             $workOrder = WorkOrder::query()->create([
@@ -292,7 +292,7 @@ class WorkOrderController extends Controller
                 'status' => 'open',
                 'submitted_by' => $request->user()->id,
                 'notes' => $request->string('reason')->toString(),
-                ...$assignment,
+                ...$assignment['work_order'],
             ]);
 
             foreach ($request->validated('planning_item_ids') as $planningItemId) {
@@ -316,6 +316,7 @@ class WorkOrderController extends Controller
                     'previous_due_km' => $planning->next_due_km,
                     'previous_due_date' => $planning->next_due_date?->toDateString(),
                     'submitted_by' => $request->user()->id,
+                    ...$assignment['item'],
                 ]);
 
                 $item->setRelation('planningItem', $planningItems->get($planningItemId));
@@ -327,17 +328,38 @@ class WorkOrderController extends Controller
         return redirect()->route('work-orders.index')->with('status', 'Lapor Temuan berhasil diajukan untuk approval SPV.');
     }
 
-    public function assignMechanic(AssignWorkOrderMechanicRequest $request, WorkOrder $wo): RedirectResponse
+    /**
+     * Mekanik disimpan di WO sebagai penanggung jawab unit, tanggal disimpan di
+     * item yang dijadwalkan. Menjadwalkan item kedua tidak lagi menimpa jadwal
+     * item pertama pada unit yang sama.
+     */
+    public function assignItem(AssignWorkOrderMechanicRequest $request, WorkOrder $wo, WorkOrderItem $item): RedirectResponse
     {
         $this->abortIfCannotAccessSite($request, $wo);
+        $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
 
-        if ($wo->status !== 'in_progress' || $wo->approved_at === null) {
-            return back()->withErrors(['assigned_mechanic_id' => 'WO harus approved dan berada di In Progress.']);
+        if ($item->approved_at === null) {
+            return back()->withErrors(['assigned_mechanic_id' => 'Item harus disetujui SPV sebelum dijadwalkan.']);
         }
 
-        $wo->update($request->validated());
+        if ($item->status === 'complete') {
+            return back()->withErrors(['scheduled_date' => 'Item yang sudah selesai tidak bisa dijadwalkan ulang.']);
+        }
 
-        return back()->with('status', 'Mekanik berhasil di-assign.');
+        $assignment = $request->validated();
+
+        DB::transaction(function () use ($wo, $item, $assignment): void {
+            $wo->update(['assigned_mechanic_id' => (int) $assignment['assigned_mechanic_id']]);
+
+            $item->update([
+                'scheduled_date' => $assignment['scheduled_date'],
+                ...($item->status === 'on_hold' ? ['status' => 'in_progress'] : []),
+            ]);
+        });
+
+        $this->syncWorkOrderStatusFromItems($wo->refresh());
+
+        return back()->with('status', 'Jadwal item berhasil disimpan.');
     }
 
     public function approve(Request $request, WorkOrder $wo, FleetNotificationService $notifications): RedirectResponse
@@ -351,11 +373,11 @@ class WorkOrderController extends Controller
                 'unit',
             ]);
 
+            // Hanya item yang benar-benar diajukan lewat form yang bisa disetujui.
+            // WO hasil trigger otomatis tidak lagi bisa di-approve borongan
+            // selagi itemnya masih on_hold, karena item seperti itu belum punya
+            // mekanik penanggung jawab maupun rencana jadwal.
             $submittedCandidates = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
-
-            if ($submittedCandidates->isEmpty() && $wo->submitted_by === null) {
-                $submittedCandidates = $wo->items->where('status', 'on_hold');
-            }
 
             $submittedItems = $submittedCandidates
                 ->reject(fn (WorkOrderItem $item): bool => ($item->unitPlanning?->isBaselineMissing() ?? true)
@@ -378,7 +400,7 @@ class WorkOrderController extends Controller
             foreach ($submittedItems as $item) {
                 if ($item->status === 'pending_create') {
                     $item->update([
-                        'status' => $wo->assigned_mechanic_id === null ? 'on_hold' : 'in_progress',
+                        'status' => $this->approvedItemStatus($wo, $item),
                         'approved_by' => $request->user()->id,
                         'approved_at' => now(),
                     ]);
@@ -405,7 +427,7 @@ class WorkOrderController extends Controller
                 }
 
                 $item->update([
-                    'status' => 'in_progress',
+                    'status' => $this->approvedItemStatus($wo, $item),
                     'approved_by' => $request->user()->id,
                     'approved_at' => now(),
                 ]);
@@ -464,14 +486,12 @@ class WorkOrderController extends Controller
             return back()->withErrors(['action' => 'Hanya item On Hold, Overdue, Blocked, atau Rejected yang bisa diajukan Replace.']);
         }
 
-        $assignment = $this->optionalAssignmentPayload($request, $wo->site_id);
+        $assignment = $this->assignmentPayload($request, $wo->site_id);
 
         DB::transaction(function () use ($request, $wo, $item, $assignment): void {
             $this->reopenCancelledWorkOrder($wo);
 
-            if ($assignment !== []) {
-                $wo->update($assignment);
-            }
+            $wo->update($assignment['work_order']);
 
             $item->update([
                 'status' => 'replace',
@@ -481,6 +501,7 @@ class WorkOrderController extends Controller
                 'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
                 'planned_date' => $request->date('planned_date')?->toDateString(),
                 'submitted_by' => $request->user()->id,
+                ...$assignment['item'],
             ]);
         });
 
@@ -792,8 +813,8 @@ class WorkOrderController extends Controller
             return $query
                 ->where('work_order_items.status', 'in_progress')
                 ->whereNotNull('work_orders.assigned_mechanic_id')
-                ->whereNotNull('work_orders.scheduled_date')
-                ->whereDate('work_orders.scheduled_date', '<=', $today);
+                ->whereNotNull('work_order_items.scheduled_date')
+                ->whereDate('work_order_items.scheduled_date', '<=', $today);
         }
 
         return $query->where(fn (Builder $onHoldQuery): Builder => $onHoldQuery
@@ -805,8 +826,8 @@ class WorkOrderController extends Controller
                 ->where('work_order_items.status', 'in_progress')
                 ->where(fn (Builder $scheduleQuery): Builder => $scheduleQuery
                     ->whereNull('work_orders.assigned_mechanic_id')
-                    ->orWhereNull('work_orders.scheduled_date')
-                    ->orWhereDate('work_orders.scheduled_date', '>', $today))));
+                    ->orWhereNull('work_order_items.scheduled_date')
+                    ->orWhereDate('work_order_items.scheduled_date', '>', $today))));
     }
 
     /**
@@ -890,20 +911,22 @@ class WorkOrderController extends Controller
             return 'complete';
         }
 
-        if ($item->status === 'in_progress' && $this->mechanicWorkHasStarted($item->workOrder)) {
+        if ($item->status === 'in_progress' && $item->workHasStarted()) {
             return 'in_progress';
         }
 
         return 'on_hold';
     }
 
-    private function mechanicWorkHasStarted(?WorkOrder $workOrder): bool
+    /**
+     * Item hanya masuk In Progress kalau unitnya sudah punya penanggung jawab
+     * dan item ini sudah punya tanggalnya sendiri.
+     */
+    private function approvedItemStatus(WorkOrder $workOrder, WorkOrderItem $item): string
     {
-        if ($workOrder === null || $workOrder->assigned_mechanic_id === null || $workOrder->scheduled_date === null) {
-            return false;
-        }
-
-        return CarbonImmutable::parse($workOrder->scheduled_date)->lessThanOrEqualTo(CarbonImmutable::today());
+        return $workOrder->assigned_mechanic_id !== null && $item->scheduled_date !== null
+            ? 'in_progress'
+            : 'on_hold';
     }
 
     /**
@@ -944,7 +967,8 @@ class WorkOrderController extends Controller
             'new_due_date' => $item->new_due_date?->toDateString(),
             'completed_date' => $item->completed_date?->toDateString(),
             'assigned_mechanic_id' => $workOrder?->assigned_mechanic_id,
-            'scheduled_date' => $workOrder?->scheduled_date?->toDateString(),
+            'scheduled_date' => $item->scheduled_date?->toDateString(),
+            'can_schedule' => $item->approved_at !== null && $item->status !== 'complete',
         ];
     }
 
@@ -1010,18 +1034,22 @@ class WorkOrderController extends Controller
             ];
         }
 
+        if ($item->status === 'on_hold' && $item->approved_at !== null) {
+            return ['key' => 'waiting_schedule', 'tone' => 'neutral', 'label' => 'Sudah disetujui, menunggu jadwal'];
+        }
+
         if ($item->status === 'in_progress') {
             $workOrder = $item->workOrder;
 
-            if ($this->mechanicWorkHasStarted($workOrder)) {
+            if ($item->workHasStarted()) {
                 return ['key' => 'working', 'tone' => 'info', 'label' => 'Sedang dikerjakan'];
             }
 
-            if ($workOrder?->assignedMechanic !== null && $workOrder->scheduled_date !== null) {
+            if ($workOrder?->assignedMechanic !== null && $item->scheduled_date !== null) {
                 return [
                     'key' => 'scheduled',
                     'tone' => 'neutral',
-                    'label' => $workOrder->assignedMechanic->name.' - '.$workOrder->scheduled_date->toDateString(),
+                    'label' => $workOrder->assignedMechanic->name.' - '.$item->scheduled_date->toDateString(),
                 ];
             }
 
@@ -1256,27 +1284,30 @@ class WorkOrderController extends Controller
     }
 
     /**
-     * @return array{assigned_mechanic_id?: int, scheduled_date?: string}
+     * Penugasan terbelah dua tabel: mekanik penanggung jawab ke WO, tanggal
+     * pengerjaan ke item. Keduanya wajib — tidak ada pengajuan tanpa rencana
+     * jadwal, sama seperti aturan yang sudah berlaku di Daftar Kerja. Tanggal
+     * mundur tetap diizinkan supaya salah ketik bisa dikoreksi.
+     *
+     * @return array{work_order: array<string, int>, item: array<string, string>}
      */
-    private function optionalAssignmentPayload(Request $request, int $siteId): array
+    private function assignmentPayload(Request $request, int $siteId): array
     {
         $assignment = $request->validate([
             'assigned_mechanic_id' => [
-                'nullable',
-                'required_with:scheduled_date',
+                'required',
                 'integer',
                 Rule::exists('users', 'id')->where('role', UserRole::Mekanik->value)->where('site_id', $siteId),
             ],
-            'scheduled_date' => ['nullable', 'required_with:assigned_mechanic_id', 'date', 'after_or_equal:today'],
+            'scheduled_date' => ['required', 'date'],
+        ], [
+            'assigned_mechanic_id.required' => 'Pilih mekanik penanggung jawab.',
+            'scheduled_date.required' => 'Tentukan rencana jadwal pengerjaan.',
         ]);
 
-        if (($assignment['assigned_mechanic_id'] ?? null) === null) {
-            return [];
-        }
-
         return [
-            'assigned_mechanic_id' => (int) $assignment['assigned_mechanic_id'],
-            'scheduled_date' => $assignment['scheduled_date'],
+            'work_order' => ['assigned_mechanic_id' => (int) $assignment['assigned_mechanic_id']],
+            'item' => ['scheduled_date' => $assignment['scheduled_date']],
         ];
     }
 

@@ -14,6 +14,11 @@ class WorkOrderProgressService
     private const TERMINAL_WORK_ORDER_STATUSES = ['cancelled', 'complete'];
 
     /**
+     * @var array<int, string>
+     */
+    private const RESOLVED_ITEM_STATUSES = ['complete', 'postponed', 'cancelled'];
+
+    /**
      * @var array<string, string>
      */
     private const ACTIVE_ITEM_LABELS = [
@@ -66,7 +71,7 @@ class WorkOrderProgressService
     {
         return $items->isNotEmpty()
             && $this->progressItems($items)->every(
-                fn (WorkOrderItem $item): bool => in_array($item->status, $this->finalStatuses(), true)
+                fn (WorkOrderItem $item): bool => in_array($item->status, self::RESOLVED_ITEM_STATUSES, true)
             );
     }
 
@@ -103,7 +108,7 @@ class WorkOrderProgressService
     public function activeItems(Collection $items): Collection
     {
         return $this->progressItems($items)
-            ->reject(fn (WorkOrderItem $item): bool => in_array($item->status, $this->finalStatuses(), true))
+            ->reject(fn (WorkOrderItem $item): bool => in_array($item->status, self::RESOLVED_ITEM_STATUSES, true))
             ->values();
     }
 
@@ -186,6 +191,10 @@ class WorkOrderProgressService
         $items ??= $workOrder->items()->applicable()->get();
 
         if ($items->isEmpty()) {
+            return 'cancelled';
+        }
+
+        if ($items->every(fn (WorkOrderItem $item): bool => $item->status === 'cancelled')) {
             return 'cancelled';
         }
 

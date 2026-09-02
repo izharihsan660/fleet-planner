@@ -182,7 +182,6 @@ class MaintenanceTriggerTest extends TestCase
             'trigger_type' => 'normal',
             'status' => 'in_progress',
             'assigned_mechanic_id' => $mechanic->id,
-            'scheduled_date' => today()->toDateString(),
             'approved_at' => now(),
         ]);
         WorkOrderItem::query()->create([
@@ -190,6 +189,7 @@ class MaintenanceTriggerTest extends TestCase
             'unit_planning_id' => $workingPlanning->id,
             'planning_item_id' => $workingPlanning->planning_item_id,
             'status' => 'in_progress',
+            'scheduled_date' => today()->toDateString(),
         ]);
 
         $this->actingAs($mechanic)->post(route('inspections.store'), [
@@ -258,14 +258,19 @@ class MaintenanceTriggerTest extends TestCase
             'next_due_date' => now()->toDateString(),
         ]);
         $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);
+        $spvOps = User::factory()->create(['role' => UserRole::SpvHo, 'site_id' => null]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        // Sudah diajukan planner lengkap dengan penanggung jawab dan jadwalnya.
         $item = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $unitPlanning->id,
             'planning_item_id' => $planningItem->id,
-            'status' => 'on_hold',
+            'status' => 'replace',
+            'action' => 'replace',
+            'scheduled_date' => today()->toDateString(),
         ]);
-        $spvOps = User::factory()->create(['role' => UserRole::SpvHo, 'site_id' => null]);
-        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $workOrder->update(['assigned_mechanic_id' => $mechanic->id]);
 
         $this->actingAs($spvOps)->post(route('work-orders.approve', $workOrder))->assertRedirect(route('work-orders.show', $workOrder));
 

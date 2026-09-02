@@ -118,7 +118,7 @@ function AssignMechanicForm({ item, mechanics, onCancel }: { item: WorkOrderBoar
         event.preventDefault();
         setShowConfirm(true);
     };
-    const confirm = () => form.post(route('work-orders.assign-mechanic', item.work_order_id), { onSuccess: onCancel, onFinish: () => setShowConfirm(false), preserveScroll: true });
+    const confirm = () => form.post(route('work-orders.items.assign', [item.work_order_id, item.id]), { onSuccess: onCancel, onFinish: () => setShowConfirm(false), preserveScroll: true });
 
     return (
         <>
@@ -144,7 +144,7 @@ function AssignMechanicForm({ item, mechanics, onCancel }: { item: WorkOrderBoar
                     <SecondaryButton type="button" onClick={onCancel}>Batal</SecondaryButton>
                 </div>
             </form>
-            <ConfirmDialog show={showConfirm} message={`Jadwalkan ${selectedMechanic?.name ?? '-'} untuk ${item.unit_plate} pada ${form.data.scheduled_date || '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} />
+            <ConfirmDialog show={showConfirm} message={`Jadwalkan ${item.item_name} (${item.unit_plate}) pada ${form.data.scheduled_date || '-'} dengan penanggung jawab ${selectedMechanic?.name ?? '-'}?`} processing={form.processing} onCancel={() => setShowConfirm(false)} onConfirm={confirm} />
         </>
     );
 }
@@ -178,12 +178,12 @@ function PreviewCard({ item, mechanics, canCreate }: { item: WorkOrderPreviewIte
                 {canCreate && item.approval_status !== 'pending_create' && <PrimaryButton type="button" className="w-full text-xs normal-case" onClick={() => setShowForm(!showForm)}>Buat Tugas Sekarang</PrimaryButton>}
                 {showForm && (
                     <form onSubmit={(event) => { event.preventDefault(); setShowConfirm(true); }} className="space-y-3 rounded-lg border bg-muted/40 p-3">
-                        <select value={form.data.assigned_mechanic_id} onChange={(event) => form.setData('assigned_mechanic_id', event.target.value)} className="w-full rounded-lg border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
-                            <option value="">Mekanik belum ditentukan</option>
+                        <select required value={form.data.assigned_mechanic_id} onChange={(event) => form.setData('assigned_mechanic_id', event.target.value)} className="w-full rounded-lg border-border bg-background p-2 text-sm shadow-xs focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring">
+                            <option value="" disabled>Pilih mekanik penanggung jawab</option>
                             {siteMechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}
                         </select>
                         {form.errors.assigned_mechanic_id && <p className="text-xs text-destructive">{form.errors.assigned_mechanic_id}</p>}
-                        <Input type="date" min={new Date().toISOString().slice(0, 10)} value={form.data.scheduled_date} onChange={(event) => form.setData('scheduled_date', event.target.value)} />
+                        <Input type="date" required value={form.data.scheduled_date} onChange={(event) => form.setData('scheduled_date', event.target.value)} />
                         {form.errors.scheduled_date && <p className="text-xs text-destructive">{form.errors.scheduled_date}</p>}
                         <div className="flex gap-2">
                             <PrimaryButton disabled={form.processing}>Ajukan</PrimaryButton>
@@ -209,7 +209,7 @@ function BoardItemCard({ item, mechanics, canAssign, canSubmitActions, canCondit
     const canResubmitRejected = canSubmitActions && !item.baseline_missing && item.status === 'rejected' && ['replace', 'postpone'].includes(item.action ?? '');
     const canMarkWaitingPart = canCondition && !item.baseline_missing && ['on_hold', 'in_progress', 'overdue'].includes(item.status);
     const canComplete = canCondition && !item.baseline_missing && item.phase === 'in_progress';
-    const canSchedule = canAssign && item.phase === 'on_hold' && item.status === 'in_progress' && item.assigned_mechanic_id === null;
+    const canSchedule = canAssign && item.can_schedule;
 
     return (
         <Card className="gap-3 shadow-xs transition hover:border-ring/40 hover:shadow-sm">
@@ -243,7 +243,7 @@ function BoardItemCard({ item, mechanics, canAssign, canSubmitActions, canCondit
                             {canResubmitRejected && item.action === 'replace' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('replace')}>Ajukan Ulang Penggantian</SecondaryButton>}
                             {canResubmitRejected && item.action === 'postpone' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('postpone')}>Ajukan Ulang Penundaan</SecondaryButton>}
                             {canMarkWaitingPart && item.status !== 'blocked' && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('blocked')}>Terhambat</SecondaryButton>}
-                            {canSchedule && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('assign')}>Jadwalkan Mekanik</SecondaryButton>}
+                            {canSchedule && <SecondaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('assign')}>{item.scheduled_date ? 'Ubah Jadwal' : 'Jadwalkan'}</SecondaryButton>}
                             {canComplete && <PrimaryButton type="button" className="flex-1 text-xs normal-case" onClick={() => toggleForm('complete')}>Selesaikan</PrimaryButton>}
                         </div>
                         {isOpenForm('replace') && <ReplaceForm workOrderId={item.work_order_id} itemId={item.id} itemName={item.item_name} defaultReason={item.reason} mechanics={mechanics.filter((mechanic) => mechanic.site_id === item.site_id)} assignedMechanicId={item.assigned_mechanic_id} scheduledDate={item.scheduled_date} onCancel={closeForm} />}

@@ -129,7 +129,7 @@ export default function Tasks({ tasks }: PageProps<{ tasks: MechanicTask[] }>) {
                                             <p className="mt-2 text-lg font-semibold text-foreground">{task.item_name}</p>
                                             <div className="mt-3 flex items-center gap-2 text-base text-muted-foreground">
                                                 <CalendarDays className="size-5" />
-                                                <span>{task.scheduled_date ?? 'Belum dijadwalkan'}</span>
+                                                <span>Jadwal: {task.scheduled_date ?? 'Belum dijadwalkan'}</span>
                                             </div>
                                             {task.planned_date && (
                                                 <div className="mt-2 flex items-center gap-2 text-base text-muted-foreground">

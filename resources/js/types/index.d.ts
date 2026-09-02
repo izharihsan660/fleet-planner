@@ -119,7 +119,7 @@ export interface UnitPlanning {
 }
 
 export type WorkOrderStatus = 'open' | 'in_progress' | 'complete' | 'cancelled';
-export type WorkOrderItemStatus = 'on_hold' | 'pending_create' | 'replace' | 'postpone' | 'in_progress' | 'complete' | 'postponed' | 'blocked' | 'breakdown' | 'overdue' | 'rejected';
+export type WorkOrderItemStatus = 'on_hold' | 'pending_create' | 'replace' | 'postpone' | 'in_progress' | 'complete' | 'postponed' | 'blocked' | 'breakdown' | 'overdue' | 'rejected' | 'cancelled';
 export type WorkOrderItemAction = 'create_task' | 'replace' | 'postpone' | 'blocked' | 'breakdown';
 export type DueLevel = 'green' | 'yellow' | 'red';
 export type WorkOrderSubStatus = 'waiting_approval' | 'waiting_part' | 'assigned' | 'working';
@@ -149,6 +149,7 @@ export interface WorkOrderItem {
     effective_due_date: string | null;
     available_date: string | null;
     planned_date: string | null;
+    scheduled_date: string | null;
     freeze_start: string | null;
     freeze_end: string | null;
     completed_odo: number | null;
@@ -172,7 +173,6 @@ export interface WorkOrder {
     approved_by_id: number | null;
     approved_at: string | null;
     assigned_mechanic_id: number | null;
-    scheduled_date: string | null;
     notes: string | null;
     created_at: string | null;
     unit?: Unit;
@@ -235,6 +235,7 @@ export interface WorkOrderBoardItem {
     completed_date: string | null;
     assigned_mechanic_id: number | null;
     scheduled_date: string | null;
+    can_schedule: boolean;
 }
 
 export interface WorkOrderPreviewItem {
