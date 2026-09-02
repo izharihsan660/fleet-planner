@@ -373,11 +373,11 @@ class WorkOrderController extends Controller
                 'unit',
             ]);
 
+            // Hanya item yang benar-benar diajukan lewat form yang bisa disetujui.
+            // WO hasil trigger otomatis tidak lagi bisa di-approve borongan
+            // selagi itemnya masih on_hold, karena item seperti itu belum punya
+            // mekanik penanggung jawab maupun rencana jadwal.
             $submittedCandidates = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
-
-            if ($submittedCandidates->isEmpty() && $wo->submitted_by === null) {
-                $submittedCandidates = $wo->items->where('status', 'on_hold');
-            }
 
             $submittedItems = $submittedCandidates
                 ->reject(fn (WorkOrderItem $item): bool => ($item->unitPlanning?->isBaselineMissing() ?? true)

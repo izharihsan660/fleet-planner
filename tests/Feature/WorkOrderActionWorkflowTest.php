@@ -211,11 +211,47 @@ class WorkOrderActionWorkflowTest extends TestCase
     }
 
     /**
-     * Satu-satunya jalur yang masih bisa menghasilkan item disetujui tanpa
-     * jadwal: WO hasil trigger otomatis yang di-approve langsung oleh SPV tanpa
-     * melewati form pengajuan. Item seperti itu menunggu dijadwalkan.
+     * Penjaga terakhir: assigned_mechanic_id memakai nullOnDelete, jadi
+     * penanggung jawab bisa hilang bila akun mekaniknya dihapus setelah
+     * pengajuan. Item seperti itu tidak boleh diam-diam jadi tugas mekanik.
      */
-    public function test_auto_generated_work_order_approved_without_schedule_waits_for_scheduling(): void
+    public function test_approval_falls_back_to_on_hold_when_assigned_mechanic_is_deleted(): void
+    {
+        [$site, $unit, $planning] = $this->makePlanningContext(75000);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+        [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner);
+
+        $this->actingAs($planner)
+            ->post(route('work-orders.items.replace', [$workOrder, $item]), [
+                'reason' => 'Perlu diganti.',
+                'assigned_mechanic_id' => $mechanic->id,
+                'scheduled_date' => today()->addDay()->toDateString(),
+            ])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $mechanic->delete();
+
+        $this->assertNull($workOrder->refresh()->assigned_mechanic_id);
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $item->refresh();
+
+        $this->assertSame('on_hold', $item->status);
+        $this->assertNotNull($item->approved_at);
+        $this->assertNotNull($item->scheduled_date);
+    }
+
+    /**
+     * WO hasil trigger otomatis tidak bisa di-approve borongan selagi itemnya
+     * masih on_hold — item itu belum punya penanggung jawab maupun jadwal.
+     * Planner harus mengajukannya lebih dulu.
+     */
+    public function test_spv_cannot_approve_untriaged_auto_generated_work_order(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
@@ -238,22 +274,27 @@ class WorkOrderActionWorkflowTest extends TestCase
 
         $this->actingAs($spv)
             ->post(route('work-orders.approve', $workOrder))
-            ->assertRedirect(route('work-orders.show', $workOrder));
+            ->assertStatus(422);
 
         $this->assertSame('on_hold', $item->refresh()->status);
-        $this->assertNotNull($item->approved_at);
-        $this->assertNull($item->scheduled_date);
+        $this->assertNull($item->approved_at);
+        $this->assertSame('open', $workOrder->refresh()->status);
 
+        // Setelah planner mengajukan lengkap dengan jadwal, approve berjalan.
         $this->actingAs($planner)
-            ->post(route('work-orders.items.assign', [$workOrder, $item]), [
+            ->post(route('work-orders.items.replace', [$workOrder, $item]), [
+                'reason' => 'Perlu diganti.',
                 'assigned_mechanic_id' => $mechanic->id,
                 'scheduled_date' => today()->addDay()->toDateString(),
             ])
-            ->assertRedirect();
+            ->assertRedirect(route('work-orders.show', $workOrder));
 
-        $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder))
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
         $this->assertSame('in_progress', $item->refresh()->status);
-        $this->assertSame('in_progress', $workOrder->status);
+        $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
     }
 
     public function test_planner_area_submits_postpone_and_spv_approval_moves_due_schedule(): void
