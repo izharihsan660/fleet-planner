@@ -257,6 +257,7 @@ class WorkListController extends Controller
             'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
             'scheduled_date' => $group['scheduled_date'],
             'submitted_by' => $user->id,
+            'submitted_at' => now(),
         ]);
 
         $notifications->taskSubmitted($item->refresh(), 'replace');
@@ -276,6 +277,7 @@ class WorkListController extends Controller
             'new_due_km' => $item->unitPlanning?->next_due_km ?? 0,
             'new_due_date' => $group['scheduled_date'],
             'submitted_by' => $user->id,
+            'submitted_at' => now(),
         ]);
 
         $notifications->taskSubmitted($item->refresh(), 'postpone');
@@ -291,6 +293,7 @@ class WorkListController extends Controller
             'action' => 'blocked',
             'reason' => 'Diblokir dari Daftar Kerja.',
             'submitted_by' => $user->id,
+            'submitted_at' => now(),
         ]);
 
         $notifications->taskSubmitted($item->refresh(), 'blocked');

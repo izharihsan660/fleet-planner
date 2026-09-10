@@ -22,6 +22,7 @@ class BlockedBreakdownService
             'action' => 'blocked',
             'reason' => $reason,
             'submitted_by' => $actor->id,
+            'submitted_at' => now(),
         ]);
 
         app(FleetNotificationService::class)->taskSubmitted($item->refresh(), 'blocked');

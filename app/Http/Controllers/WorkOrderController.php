@@ -276,6 +276,7 @@ class WorkOrderController extends Controller
                 'status' => 'pending_create',
                 'action' => 'create_task',
                 'submitted_by' => $request->user()->id,
+                'submitted_at' => now(),
                 ...$assignment['item'],
             ]);
 
@@ -341,6 +342,7 @@ class WorkOrderController extends Controller
                     'previous_due_km' => $planning->next_due_km,
                     'previous_due_date' => $planning->next_due_date?->toDateString(),
                     'submitted_by' => $request->user()->id,
+                    'submitted_at' => now(),
                     ...$assignment['item'],
                 ]);
 
@@ -529,6 +531,7 @@ class WorkOrderController extends Controller
                 'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
                 'planned_date' => $request->date('planned_date')?->toDateString(),
                 'submitted_by' => $request->user()->id,
+                'submitted_at' => now(),
                 ...$assignment['item'],
             ]);
         });
@@ -566,6 +569,7 @@ class WorkOrderController extends Controller
                 'new_due_km' => $request->integer('new_due_km'),
                 'new_due_date' => $request->date('new_due_date')->toDateString(),
                 'submitted_by' => $request->user()->id,
+                'submitted_at' => now(),
             ]);
         });
 
