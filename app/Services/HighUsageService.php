@@ -194,6 +194,8 @@ class HighUsageService
             'previous_due_km' => $flag->unitPlanning?->next_due_km,
             'previous_due_date' => $flag->unitPlanning?->next_due_date?->toDateString(),
             'submitted_by' => $actor->id,
+            // Item on_hold baru dibuat sistem, belum diajukan ke SPV.
+            'submitted_at' => empty($data) ? null : now(),
             'new_due_km' => $data['new_due_km'] ?? null,
             'new_due_date' => $data['new_due_date'] ?? null,
             'available_date' => $data['available_date'] ?? null,

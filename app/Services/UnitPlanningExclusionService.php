@@ -46,6 +46,9 @@ class UnitPlanningExclusionService
                         $interval['interval_km'],
                     ),
                 'next_due_date' => $unitPlanning->last_done_date?->copy()->addDays($interval['interval_days'])->toDateString(),
+                // Diaktifkan kembali berarti due-nya dihitung ulang dari interval,
+                // jadi penetapan manual lama tidak berlaku lagi.
+                'due_manually_set' => false,
             ]);
 
             return $unitPlanning->refresh();

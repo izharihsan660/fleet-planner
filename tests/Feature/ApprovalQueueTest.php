@@ -28,11 +28,14 @@ class ApprovalQueueTest extends TestCase
             'site_id' => $oldItem->workOrder->site_id,
         ]);
         $scheduledDate = today()->addDays(2)->toDateString();
-        $oldSubmittedDate = now()->subDays(10)->startOfDay();
+        $oldSubmittedDate = now()->subDays(5);
         $oldItem->forceFill([
             'scheduled_date' => $scheduledDate,
-            'created_at' => $oldSubmittedDate,
-            'updated_at' => now()->subDays(5),
+            // created_at sengaja jauh lebih tua: kolom Tanggal Submit tidak
+            // boleh lagi memakainya.
+            'created_at' => now()->subDays(10)->startOfDay(),
+            'submitted_at' => $oldSubmittedDate,
+            'updated_at' => now()->subDay(),
         ])->save();
         $oldItem->workOrder->update(['assigned_mechanic_id' => $mechanic->id]);
         $newerItem->forceFill(['updated_at' => now()->subHours(6)])->save();
@@ -62,12 +65,87 @@ class ApprovalQueueTest extends TestCase
             );
     }
 
+    public function test_submitting_from_work_list_records_submit_time_instead_of_item_creation_time(): void
+    {
+        [$spv, $replaceItem] = $this->createApprovalScenario();
+        $planner = $replaceItem->submittedBy()->firstOrFail();
+        $site = $replaceItem->workOrder->site;
+        $planner->update(['region_id' => $site->region_id, 'site_id' => null]);
+        $item = $this->createPendingItem($site, $planner, 'KT 9009 ZZ', 'V-Belt', 'on_hold');
+
+        // Item digenerate interval jauh sebelum planner mengajukannya.
+        $item->forceFill([
+            'action' => null,
+            'reason' => null,
+            'submitted_by' => null,
+            'submitted_at' => null,
+            'created_at' => now()->subDays(40)->startOfDay(),
+            'updated_at' => now()->subDays(40)->startOfDay(),
+        ])->save();
+
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+
+        $this->actingAs($planner)
+            ->post(route('work-list.store'), [
+                'groups' => [[
+                    'site_id' => $site->id,
+                    'item_ids' => [$item->id],
+                    'action' => 'replace',
+                    'assigned_mechanic_id' => $mechanic->id,
+                    'scheduled_date' => today()->addDays(3)->toDateString(),
+                ]],
+            ])
+            ->assertRedirect();
+
+        $item->refresh();
+
+        $this->assertNotNull($item->submitted_at);
+        $this->assertSame(today()->toDateString(), $item->submitted_at->toDateString());
+        $this->assertSame(now()->subDays(40)->toDateString(), $item->created_at->toDateString());
+
+        $this->actingAs($spv)
+            ->get(route('approval-queue.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('items', function (mixed $items) use ($item): bool {
+                    $queued = collect($items)->firstWhere('id', $item->id);
+
+                    // Kolom Tanggal Submit dan Lama Menunggu harus bersumber sama.
+                    return $queued !== null
+                        && data_get($queued, 'submitted_date') === today()->toDateString()
+                        && data_get($queued, 'waiting_hours') < 24;
+                })
+            );
+    }
+
+    public function test_approval_queue_falls_back_to_updated_at_when_submitted_at_is_missing(): void
+    {
+        [$spv, $legacyItem] = $this->createApprovalScenario();
+        $legacyItem->forceFill([
+            'submitted_at' => null,
+            'created_at' => now()->subDays(30)->startOfDay(),
+            'updated_at' => now()->subDays(3),
+        ])->save();
+
+        $this->actingAs($spv)
+            ->get(route('approval-queue.index'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('items', function (mixed $items) use ($legacyItem): bool {
+                    $queued = collect($items)->firstWhere('id', $legacyItem->id);
+
+                    return $queued !== null
+                        && data_get($queued, 'submitted_date') === now()->subDays(3)->toDateString();
+                })
+            );
+    }
+
     public function test_approval_queue_exposes_submission_and_due_dates_for_blocked_action_items(): void
     {
         [$spv, $replaceItem, $postponeItem] = $this->createApprovalScenario();
         $planner = $replaceItem->submittedBy()->firstOrFail();
         $blockedDueDate = today()->addDays(45)->toDateString();
-        $blockedSubmittedDate = now()->subDays(4)->startOfDay();
+        $blockedSubmittedDate = now()->subDays(4);
         $blockedItem = $this->createPendingItem($replaceItem->workOrder->site, $planner, 'KT 3003 CC', 'Air Dryer', 'pending_create');
         $blockedMechanic = User::factory()->create([
             'name' => 'Mekanik Blocked',
@@ -81,7 +159,8 @@ class ApprovalQueueTest extends TestCase
         $blockedItem->update(['scheduled_date' => $blockedScheduledDate]);
         $blockedItem->forceFill([
             'action' => 'blocked',
-            'created_at' => $blockedSubmittedDate,
+            'created_at' => now()->subDays(20)->startOfDay(),
+            'submitted_at' => $blockedSubmittedDate,
             'updated_at' => now()->subHour(),
         ])->save();
 
@@ -395,6 +474,7 @@ class ApprovalQueueTest extends TestCase
             'new_due_km' => $status === 'postpone' ? 15000 : null,
             'new_due_date' => $status === 'postpone' ? today()->addDays(60)->toDateString() : null,
             'submitted_by' => $planner->id,
+            'submitted_at' => now(),
         ]);
     }
 }

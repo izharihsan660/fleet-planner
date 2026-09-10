@@ -75,6 +75,7 @@ class ImportUnitPlanningsJob implements ShouldQueue
                             ? null
                             : $lastDoneDate->addDays($interval['interval_days'])->toDateString(),
                         'is_estimated' => $isEstimated,
+                        'due_manually_set' => false,
                         'is_excluded' => $isExcluded,
                         'excluded_reason' => $exclusion['reason'] ?? null,
                         'freeze_start' => null,

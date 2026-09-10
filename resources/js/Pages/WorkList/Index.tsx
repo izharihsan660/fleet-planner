@@ -31,6 +31,10 @@ type WorkListItem = {
     due_km: number | null;
     late_days: number;
     baseline_missing: boolean;
+    assigned_mechanic_id: number | null;
+    assigned_mechanic_name: string | null;
+    scheduled_date: string | null;
+    is_scheduled: boolean;
     status_label: string;
 };
 
@@ -92,10 +96,13 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
     const [activeBaselineItemId, setActiveBaselineItemId] = useState<number | null>(null);
 
     const selectedItems = useMemo(
-        () => items.filter((item) => selectedIds.includes(item.id)),
+        () => items.filter((item) => selectedIds.includes(item.id) && ! item.is_scheduled),
         [items, selectedIds],
     );
-    const selectableItems = items;
+    // Item yang sudah punya mekanik dan tanggal tetap ditampilkan supaya planner
+    // melihat gambaran penuh, tapi tidak bisa dipilih: mengajukannya dari sini
+    // akan menimpa jadwal yang sudah berjalan.
+    const selectableItems = useMemo(() => items.filter((item) => !item.is_scheduled), [items]);
 
     const selectedSiteIds = useMemo(
         () => Array.from(new Set(selectedItems.map((item) => item.site_id))),
@@ -305,13 +312,14 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
                                         <TableHead className="px-4 py-4 text-base font-semibold">Nama Item</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Site</TableHead>
                                         <TableHead className="px-4 py-4 text-base font-semibold">Status</TableHead>
+                                        <TableHead className="px-4 py-4 text-base font-semibold">Penugasan</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody className="divide-y">
                                     {items.map((item) => (
                                         <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : item.is_priority ? 'bg-fuchsia-50/40 dark:bg-fuchsia-500/5' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
-                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id)} onCheckedChange={() => toggleItem(item.id)} />
+                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id) && ! item.is_scheduled} disabled={item.is_scheduled} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
                                             <TableCell className="px-4 py-4">
                                                 <p className="text-base font-semibold text-foreground">{item.plate_number}</p>
@@ -332,11 +340,21 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
                                                     {item.status_label}
                                                 </span>
                                             </TableCell>
+                                            <TableCell className="px-4 py-4">
+                                                {item.is_scheduled ? (
+                                                    <>
+                                                        <StatusBadge tone="info">{item.assigned_mechanic_name ?? 'Mekanik'} — {item.scheduled_date}</StatusBadge>
+                                                        <p className="mt-1 text-sm text-muted-foreground">Sudah dijadwalkan. Ubah lewat Perintah Kerja.</p>
+                                                    </>
+                                                ) : (
+                                                    <span className="text-base text-muted-foreground">Belum ditugaskan</span>
+                                                )}
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                     {items.length === 0 && (
                                         <TableRow>
-                                            <TableCell colSpan={5} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item aktif untuk filter ini.</TableCell>
+                                            <TableCell colSpan={6} className="px-4 py-12 text-center text-base text-muted-foreground">Belum ada item aktif untuk filter ini.</TableCell>
                                         </TableRow>
                                     )}
                                 </TableBody>

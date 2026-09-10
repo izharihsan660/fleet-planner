@@ -68,6 +68,9 @@ class WorkOrderItemCompletionService
                 'next_due_km' => $completedOdo + $interval['interval_km'],
                 'next_due_date' => $completedDate->addDays($interval['interval_days'])->toDateString(),
                 'is_estimated' => false,
+                // Siklus baru dihitung dari KM penyelesaian yang terukur, jadi
+                // penetapan manual sebelumnya tidak berlaku lagi.
+                'due_manually_set' => false,
             ]);
 
             $this->workOrderProgressService->sync($workOrder->refresh());

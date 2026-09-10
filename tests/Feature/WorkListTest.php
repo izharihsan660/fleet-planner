@@ -360,6 +360,66 @@ class WorkListTest extends TestCase
         $this->assertSame(2, Notification::query()->where('type', 'task_submitted')->count());
     }
 
+    /**
+     * Daftar Kerja tidak mengirim penugasan ke tampilan, jadi item yang sudah
+     * dijadwalkan ke mekanik terlihat sama persis dengan item yang belum
+     * ditangani siapa pun — dan pengajuan dari sini menimpa mekanik serta
+     * tanggalnya tanpa planner sadar. Penugasannya sekarang ikut dikirim.
+     */
+    public function test_daftar_kerja_exposes_assignment_for_already_scheduled_items(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id, 'name' => 'Budi']);
+        $scheduledItem = $this->createWorkListItem($site, 'KT 1001 AA', 'Ganti Oli', 'overdue', today()->subDays(2)->toDateString());
+        $this->scheduleItem($scheduledItem, $mechanic, today()->addDays(3)->toDateString());
+        $this->createWorkListItem($site, 'KT 2002 BB', 'Filter Solar', 'overdue', today()->subDays(4)->toDateString());
+
+        $items = collect($this->actingAs($planner)
+            ->get(route('work-list.index'))
+            ->assertOk()
+            ->inertiaProps('items'))
+            ->keyBy('plate_number');
+
+        $this->assertTrue($items['KT 1001 AA']['is_scheduled']);
+        $this->assertSame('Budi', $items['KT 1001 AA']['assigned_mechanic_name']);
+        $this->assertSame($mechanic->id, $items['KT 1001 AA']['assigned_mechanic_id']);
+        $this->assertSame(today()->addDays(3)->toDateString(), $items['KT 1001 AA']['scheduled_date']);
+
+        $this->assertFalse($items['KT 2002 BB']['is_scheduled']);
+        $this->assertNull($items['KT 2002 BB']['assigned_mechanic_name']);
+        $this->assertNull($items['KT 2002 BB']['scheduled_date']);
+    }
+
+    public function test_submitting_an_already_scheduled_item_from_daftar_kerja_is_rejected(): void
+    {
+        [$planner, $site] = $this->createRegionUserAndSites();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $otherMechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $item = $this->createWorkListItem($site, 'KT 1001 AA', 'Ganti Oli', 'overdue', today()->subDays(2)->toDateString());
+        $this->scheduleItem($item, $mechanic, today()->addDays(3)->toDateString());
+
+        $this->actingAs($planner)
+            ->post(route('work-list.store'), [
+                'groups' => [[
+                    'site_id' => $site->id,
+                    'action' => 'replace',
+                    'item_ids' => [$item->id],
+                    'assigned_mechanic_id' => $otherMechanic->id,
+                    'scheduled_date' => today()->addDays(10)->toDateString(),
+                ]],
+            ])
+            ->assertStatus(422);
+
+        $this->assertSame('overdue', $item->refresh()->status);
+        $this->assertSame(
+            today()->addDays(3)->toDateString(),
+            $item->scheduled_date?->toDateString(),
+            'Jadwal yang sudah berjalan tidak boleh ditimpa dari Daftar Kerja.',
+        );
+        $this->assertSame($mechanic->id, $item->workOrder->refresh()->assigned_mechanic_id);
+        $this->assertSame(0, Notification::query()->where('type', 'task_submitted')->count());
+    }
+
     public function test_work_orders_kanban_still_uses_existing_page(): void
     {
         [$planner] = $this->createRegionUserAndSites();
@@ -384,6 +444,12 @@ class WorkListTest extends TestCase
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => $region->id, 'site_id' => null]);
 
         return [$planner, $firstSite, $secondSite];
+    }
+
+    private function scheduleItem(WorkOrderItem $item, User $mechanic, string $scheduledDate): void
+    {
+        $item->workOrder->update(['assigned_mechanic_id' => $mechanic->id]);
+        $item->update(['scheduled_date' => $scheduledDate, 'approved_by' => $mechanic->id, 'approved_at' => now()]);
     }
 
     private function createWorkListItem(Site $site, string $plate, string $itemName, string $status, string $nextDueDate): WorkOrderItem

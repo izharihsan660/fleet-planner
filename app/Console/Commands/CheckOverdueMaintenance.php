@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
+use App\Services\WorkOrderProgressService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +16,7 @@ class CheckOverdueMaintenance extends Command
 
     protected $description = 'Mark overdue maintenance work order items and notify operation users.';
 
-    public function handle(FleetNotificationService $notifications): int
+    public function handle(FleetNotificationService $notifications, WorkOrderProgressService $workOrderProgressService): int
     {
         $isDryRun = (bool) $this->option('dry-run');
 
@@ -51,21 +53,32 @@ class CheckOverdueMaintenance extends Command
                         ->whereColumn('units.current_odo', '>=', 'unit_plannings.next_due_km'))))
             ->get();
 
+        $restoredCount = $staleOverdueItems->filter(
+            fn (WorkOrderItem $item): bool => $item->isScheduled()
+        )->count();
+
         if ($isDryRun) {
             $this->info("{$overdueItems->count()} work order item akan ditandai overdue.");
             $this->info("{$staleOverdueItems->count()} work order item overdue stale akan dikembalikan ke on_hold.");
+            $this->info("{$restoredCount} di antaranya kembali ke in_progress karena mekanik dan jadwalnya masih ada.");
 
             return self::SUCCESS;
         }
 
-        DB::transaction(function () use ($overdueItems, $staleOverdueItems): void {
+        DB::transaction(function () use ($overdueItems, $staleOverdueItems, $workOrderProgressService): void {
             $overdueItems->each(function (WorkOrderItem $item): void {
                 $item->update(['status' => 'overdue']);
             });
 
+            // Item yang keluar dari overdue dikembalikan ke tahap kerjanya semula.
+            // Item yang masih memegang mekanik penanggung jawab dan tanggalnya
+            // sendiri berarti tadinya in_progress — memaksanya ke on_hold membuat
+            // pekerjaan itu lenyap dari Tugas Saya mekanik tanpa ada yang tahu.
             $staleOverdueItems->each(function (WorkOrderItem $item): void {
-                $item->update(['status' => 'on_hold']);
+                $item->update(['status' => $item->isScheduled() ? 'in_progress' : 'on_hold']);
             });
+
+            $this->syncAffectedWorkOrders($overdueItems, $staleOverdueItems, $workOrderProgressService);
         });
 
         WorkOrderItem::query()
@@ -81,7 +94,37 @@ class CheckOverdueMaintenance extends Command
 
         $this->info("{$overdueItems->count()} work order item overdue diproses.");
         $this->info("{$staleOverdueItems->count()} work order item overdue stale dikembalikan ke on_hold.");
+        $this->info("{$restoredCount} di antaranya kembali ke in_progress karena mekanik dan jadwalnya masih ada.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Status WO diturunkan dari status itemnya, jadi menggeser status item tanpa
+     * ikut menyinkronkan induknya membuat work_orders.status membeku di nilai
+     * lama sampai ada aksi manual berikutnya.
+     *
+     * @param  Collection<int, WorkOrderItem>  $overdueItems
+     * @param  Collection<int, WorkOrderItem>  $staleOverdueItems
+     */
+    private function syncAffectedWorkOrders(
+        Collection $overdueItems,
+        Collection $staleOverdueItems,
+        WorkOrderProgressService $workOrderProgressService,
+    ): void {
+        $workOrderIds = $overdueItems
+            ->merge($staleOverdueItems)
+            ->pluck('work_order_id')
+            ->unique()
+            ->values();
+
+        if ($workOrderIds->isEmpty()) {
+            return;
+        }
+
+        WorkOrder::query()
+            ->whereIn('id', $workOrderIds)
+            ->get()
+            ->each(fn (WorkOrder $workOrder) => $workOrderProgressService->sync($workOrder));
     }
 }

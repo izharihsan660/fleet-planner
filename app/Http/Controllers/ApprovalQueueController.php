@@ -57,7 +57,8 @@ class ApprovalQueueController extends Controller
             })
             ->get()
             ->map(function (WorkOrderItem $item) use ($now): array {
-                $submittedAt = CarbonImmutable::parse($item->updated_at);
+                // submitted_at bisa null untuk data lama yang belum ter-backfill.
+                $submittedAt = CarbonImmutable::parse($item->submitted_at ?? $item->updated_at);
                 $waitingHours = max(0, (int) $submittedAt->diffInHours($now));
                 $waitingDays = intdiv($waitingHours, 24);
                 $unit = $item->workOrder?->unit;
@@ -76,8 +77,8 @@ class ApprovalQueueController extends Controller
                     'site_name' => $item->workOrder?->site?->name ?? '-',
                     'region_name' => $item->workOrder?->site?->area?->name ?? '-',
                     'submitted_by_name' => $item->submittedBy?->name ?? '-',
-                    'submitted_at' => $item->updated_at?->toDateTimeString(),
-                    'submitted_date' => $item->created_at?->toDateString(),
+                    'submitted_at' => $submittedAt->toDateTimeString(),
+                    'submitted_date' => $submittedAt->toDateString(),
                     'due_date' => $baselineMissing
                         ? null
                         : ($item->action === 'postpone'
@@ -171,6 +172,9 @@ class ApprovalQueueController extends Controller
                 'next_due_km' => $item->new_due_km,
                 'next_due_date' => $item->new_due_date?->toDateString(),
                 'last_done_date' => $item->available_date?->toDateString() ?? $item->unitPlanning?->last_done_date?->toDateString(),
+                // Ditetapkan SPV, bukan dihitung dari interval — jangan disetel
+                // balik oleh perhitungan ulang mana pun.
+                'due_manually_set' => true,
             ]);
 
             $item->update([

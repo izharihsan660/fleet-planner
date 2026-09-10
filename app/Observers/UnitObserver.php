@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Models\Unit;
 use App\Services\UnitPlanningGenerator;
+use App\Services\UnitSiteRelocationService;
 use Illuminate\Support\Carbon;
 
 class UnitObserver
@@ -20,10 +21,20 @@ class UnitObserver
 
     public function updated(Unit $unit): void
     {
-        if (! $unit->wasChanged('current_plate')) {
-            return;
+        if ($unit->wasChanged('current_plate')) {
+            $this->recordPlateChange($unit);
         }
 
+        // Dipasang di observer, bukan di controller, supaya berlaku untuk setiap
+        // jalur yang memindahkan unit — Master Data, approval Pindah Site,
+        // maupun import — tanpa perlu diingat satu per satu.
+        if ($unit->wasChanged('site_id')) {
+            app(UnitSiteRelocationService::class)->relocateActiveWorkOrders($unit);
+        }
+    }
+
+    private function recordPlateChange(Unit $unit): void
+    {
         $today = Carbon::today();
         $oldPlate = $unit->getOriginal('current_plate');
 

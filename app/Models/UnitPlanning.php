@@ -17,6 +17,7 @@ class UnitPlanning extends Model
         'next_due_km',
         'next_due_date',
         'is_estimated',
+        'due_manually_set',
         'is_excluded',
         'excluded_reason',
         'freeze_start',
@@ -28,6 +29,7 @@ class UnitPlanning extends Model
             'last_done_date' => 'date',
             'next_due_date' => 'date',
             'is_estimated' => 'boolean',
+            'due_manually_set' => 'boolean',
             'is_excluded' => 'boolean',
             'freeze_start' => 'datetime',
         ];

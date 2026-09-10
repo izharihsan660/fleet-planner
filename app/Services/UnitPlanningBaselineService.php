@@ -36,6 +36,7 @@ class UnitPlanningBaselineService
                 'next_due_km' => $nextDueKm,
                 'next_due_date' => $nextDueDate,
                 'is_estimated' => false,
+                'due_manually_set' => false,
             ]);
 
             $activeItem = WorkOrderItem::query()
