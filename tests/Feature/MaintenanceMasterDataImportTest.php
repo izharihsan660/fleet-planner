@@ -12,6 +12,7 @@ use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Services\MaintenanceImportReader;
 use App\Services\PlanningIntervalResolver;
+use Carbon\CarbonImmutable;
 use Database\Seeders\PlanningItemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -558,6 +559,125 @@ class MaintenanceMasterDataImportTest extends TestCase
         copy(base_path("data-migration/{$filename}"), $path);
 
         return new UploadedFile($path, $filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
+    }
+
+    public function test_unit_planning_import_keeps_existing_baseline_when_row_has_no_km_and_no_date(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        $unit = Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 8888 ZZ', 'type' => 'Pickup', 'brand' => 'Toyota', 'vehicle_category' => 'pickup_suv', 'year' => 2024, 'current_odo' => 90000, 'has_odometer_reading' => true, 'status' => 'active']);
+        $serviceA = PlanningItem::query()->where('name', 'Service A')->firstOrFail();
+
+        $planning = $unit->unitPlannings()->whereBelongsTo($serviceA)->firstOrFail();
+        $planning->update([
+            'last_done_km' => 40000,
+            'last_done_date' => '2026-01-01',
+            'next_due_km' => 999999,
+            'next_due_date' => '2030-12-31',
+        ]);
+
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $this->makeBlankPlanningRowUpload('DD 8888 ZZ')])
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('preview.total_rows', 1)
+                ->where('preview.valid_rows', 1)
+                ->where('preview.skipped_rows', 1));
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), ['type' => 'unit_plannings', 'path' => $path, 'original_filename' => 'blank-planning-row.xlsx'])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        Queue::assertPushed(ImportUnitPlanningsJob::class, function (ImportUnitPlanningsJob $job): bool {
+            $job->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
+
+            return true;
+        });
+
+        $planning->refresh();
+
+        $this->assertSame(40000, $planning->last_done_km);
+        $this->assertSame('2026-01-01', $planning->last_done_date?->toDateString());
+        $this->assertSame(999999, $planning->next_due_km);
+        $this->assertSame('2030-12-31', $planning->next_due_date?->toDateString());
+        $this->assertSame(1, MaintenanceImport::query()->firstOrFail()->summary['skipped_rows']);
+    }
+
+    public function test_unit_planning_import_with_only_a_date_keeps_existing_km_baseline(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+        $this->seed(PlanningItemSeeder::class);
+
+        $site = Site::query()->create(['name' => 'BPN', 'region' => 'Kalimantan Timur']);
+        $unit = Unit::query()->create(['site_id' => $site->id, 'customer' => 'PT NAJ', 'current_plate' => 'DD 9999 ZZ', 'type' => 'Pickup', 'brand' => 'Toyota', 'vehicle_category' => 'pickup_suv', 'year' => 2024, 'current_odo' => 90000, 'has_odometer_reading' => true, 'status' => 'active']);
+        $serviceA = PlanningItem::query()->where('name', 'Service A')->firstOrFail();
+        $interval = app(PlanningIntervalResolver::class)->resolve($serviceA, $unit);
+
+        $planning = $unit->unitPlannings()->whereBelongsTo($serviceA)->firstOrFail();
+        $planning->update(['last_done_km' => 40000, 'last_done_date' => '2026-01-01']);
+
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.preview'), ['type' => 'unit_plannings', 'file' => $this->makeDateOnlyPlanningRowUpload('DD 9999 ZZ')])
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('preview.skipped_rows', 0));
+
+        $path = collect(Storage::disk('local')->files('imports'))->first();
+
+        $this->actingAs($user)
+            ->post(route('maintenance-imports.commit'), ['type' => 'unit_plannings', 'path' => $path, 'original_filename' => 'date-only-planning-row.xlsx'])
+            ->assertRedirect(route('maintenance-imports.index'));
+
+        Queue::assertPushed(ImportUnitPlanningsJob::class, function (ImportUnitPlanningsJob $job): bool {
+            $job->handle(app(MaintenanceImportReader::class), app(PlanningIntervalResolver::class));
+
+            return true;
+        });
+
+        $planning->refresh();
+
+        $this->assertSame(40000, $planning->last_done_km);
+        $this->assertSame('2026-02-01', $planning->last_done_date?->toDateString());
+        $this->assertSame(40000 + $interval['interval_km'], $planning->next_due_km);
+        $this->assertSame(
+            CarbonImmutable::parse('2026-02-01')->addDays($interval['interval_days'])->toDateString(),
+            $planning->next_due_date?->toDateString(),
+        );
+    }
+
+    private function makeBlankPlanningRowUpload(string $plate): UploadedFile
+    {
+        return $this->makeSinglePlanningRowUpload($plate, '', '', 'blank-planning-row');
+    }
+
+    private function makeDateOnlyPlanningRowUpload(string $plate): UploadedFile
+    {
+        return $this->makeSinglePlanningRowUpload($plate, '2026-02-01', '', 'date-only-planning-row');
+    }
+
+    private function makeSinglePlanningRowUpload(string $plate, string $date, string $km, string $name): UploadedFile
+    {
+        $spreadsheet = new Spreadsheet;
+        $spreadsheet->getActiveSheet()->setTitle('SETUP AWAL ITEM');
+        $spreadsheet->getActiveSheet()->fromArray([
+            ['Plat Nomor (otomatis)', 'Nama Item (otomatis)', 'Kapan Terakhir Diganti (Tanggal)', 'KM Saat Diganti (opsional)'],
+            [$plate, 'Service A', $date, $km],
+        ]);
+
+        $path = tempnam(sys_get_temp_dir(), $name.'-').'.xlsx';
+        (new Xlsx($spreadsheet))->save($path);
+        $spreadsheet->disconnectWorksheets();
+
+        return new UploadedFile($path, $name.'.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 
     private function makeMixedPlanningDatesUpload(): UploadedFile

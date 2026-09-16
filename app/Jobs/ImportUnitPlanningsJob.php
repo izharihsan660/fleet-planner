@@ -8,6 +8,7 @@ use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Services\MaintenanceImportReader;
 use App\Services\PlanningIntervalResolver;
+use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -37,8 +38,9 @@ class ImportUnitPlanningsJob implements ShouldQueue
         $failedRows = 0;
         $estimatedRows = 0;
         $excludedRows = 0;
+        $skippedRows = 0;
         $failures = [];
-        DB::transaction(function () use ($rows, $units, $items, $reader, $intervalResolver, &$successRows, &$failedRows, &$estimatedRows, &$excludedRows, &$failures): void {
+        DB::transaction(function () use ($rows, $units, $items, $reader, $intervalResolver, &$successRows, &$failedRows, &$estimatedRows, &$excludedRows, &$skippedRows, &$failures): void {
             foreach ($rows as $index => $row) {
                 $line = $index + 2;
                 $unit = $units->get(strtoupper($row['plat_nomor'] ?? ''));
@@ -57,30 +59,68 @@ class ImportUnitPlanningsJob implements ShouldQueue
                 }
 
                 $lastDoneDate = $isExcluded ? null : $reader->parseLastDoneDate($lastDoneDateValue);
+                $hasLastDoneKm = $lastDoneKm > 0;
+
+                // Baris tanpa KM, tanpa tanggal, dan tanpa penanda "TIDAK PERLU" tidak
+                // membawa informasi apa pun. Menuliskannya tetap akan menimpa baseline
+                // yang sudah ada dengan 0 — itu yang dulu menghapus riwayat penggantian
+                // satu armada penuh dalam sekali import tanpa satu pun pesan error.
+                if (! $isExcluded && ! $hasLastDoneKm && $lastDoneDate === null) {
+                    UnitPlanning::query()->firstOrCreate([
+                        'unit_id' => $unit->id,
+                        'planning_item_id' => $planningItem->id,
+                    ]);
+
+                    $skippedRows++;
+
+                    continue;
+                }
+
                 $interval = $isExcluded ? null : $intervalResolver->resolve($planningItem, $unit);
-                UnitPlanning::query()->updateOrCreate(
-                    ['unit_id' => $unit->id, 'planning_item_id' => $planningItem->id],
-                    [
-                        'last_done_km' => $lastDoneKm,
-                        'last_done_date' => $lastDoneDate?->toDateString(),
-                        'next_due_km' => $isExcluded || $lastDoneDate === null
-                            ? null
-                            : $intervalResolver->nextDueKm(
-                                $lastDoneKm,
-                                (int) $unit->current_odo,
-                                (bool) $unit->has_odometer_reading,
-                                $interval['interval_km'],
-                            ),
-                        'next_due_date' => $isExcluded || $lastDoneDate === null
-                            ? null
-                            : $lastDoneDate->addDays($interval['interval_days'])->toDateString(),
-                        'is_estimated' => $isEstimated,
-                        'due_manually_set' => false,
-                        'is_excluded' => $isExcluded,
-                        'excluded_reason' => $exclusion['reason'] ?? null,
-                        'freeze_start' => null,
-                    ],
-                );
+                $unitPlanning = UnitPlanning::query()->firstOrNew([
+                    'unit_id' => $unit->id,
+                    'planning_item_id' => $planningItem->id,
+                ]);
+
+                $attributes = [
+                    'is_estimated' => $isEstimated,
+                    'due_manually_set' => false,
+                    'is_excluded' => $isExcluded,
+                    'excluded_reason' => $exclusion['reason'] ?? null,
+                    'freeze_start' => null,
+                ];
+
+                // Kolom kosong berarti "tidak ada informasi", bukan "kosongkan".
+                if ($hasLastDoneKm) {
+                    $attributes['last_done_km'] = $lastDoneKm;
+                }
+
+                if ($isExcluded) {
+                    $attributes['last_done_date'] = null;
+                    $attributes['next_due_km'] = null;
+                    $attributes['next_due_date'] = null;
+                } else {
+                    if ($lastDoneDate !== null) {
+                        $attributes['last_done_date'] = $lastDoneDate->toDateString();
+                    }
+
+                    $effectiveDate = $lastDoneDate ?? $this->existingLastDoneDate($unitPlanning);
+                    $effectiveKm = $hasLastDoneKm ? $lastDoneKm : (int) $unitPlanning->last_done_km;
+
+                    $attributes['next_due_km'] = $effectiveDate === null
+                        ? null
+                        : $intervalResolver->nextDueKm(
+                            $effectiveKm,
+                            (int) $unit->current_odo,
+                            (bool) $unit->has_odometer_reading,
+                            $interval['interval_km'],
+                        );
+                    $attributes['next_due_date'] = $effectiveDate === null
+                        ? null
+                        : $effectiveDate->addDays($interval['interval_days'])->toDateString();
+                }
+
+                $unitPlanning->fill($attributes)->save();
 
                 $successRows++;
                 $estimatedRows += $isEstimated ? 1 : 0;
@@ -96,6 +136,7 @@ class ImportUnitPlanningsJob implements ShouldQueue
             'summary' => [
                 'failures' => array_slice($failures, 0, 50),
                 'excluded_rows' => $excludedRows,
+                'skipped_rows' => $skippedRows,
             ],
             'finished_at' => now(),
         ]);
@@ -108,6 +149,13 @@ class ImportUnitPlanningsJob implements ShouldQueue
             'summary' => ['error' => $exception->getMessage()],
             'finished_at' => now(),
         ]);
+    }
+
+    private function existingLastDoneDate(UnitPlanning $unitPlanning): ?CarbonImmutable
+    {
+        return $unitPlanning->last_done_date === null
+            ? null
+            : CarbonImmutable::parse($unitPlanning->last_done_date);
     }
 
     private function parseInteger(string $value): int

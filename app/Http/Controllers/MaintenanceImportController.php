@@ -45,6 +45,7 @@ class MaintenanceImportController extends Controller
                 'invalid_rows' => collect($validatedRows)->where('valid', false)->count(),
                 'estimated_rows' => collect($validatedRows)->where('is_estimated', true)->count(),
                 'excluded_rows' => collect($validatedRows)->where('is_excluded', true)->count(),
+                'skipped_rows' => collect($validatedRows)->where('is_skipped', true)->count(),
                 'rows' => array_slice($validatedRows, 0, 25),
             ],
         ]);
@@ -121,7 +122,7 @@ class MaintenanceImportController extends Controller
 
             $seen[] = $plate;
 
-            return ['line' => $index + 2, 'valid' => $errors === [], 'errors' => $errors, 'data' => $row, 'is_estimated' => false];
+            return ['line' => $index + 2, 'valid' => $errors === [], 'errors' => $errors, 'data' => $row, 'is_estimated' => false, 'is_skipped' => false];
         })->all();
     }
 
@@ -156,9 +157,11 @@ class MaintenanceImportController extends Controller
                 $errors[] = 'Last done KM melebihi odometer unit.';
             }
 
+            $lastDoneDate = null;
+
             if (! $isExcluded) {
                 try {
-                    $reader->parseLastDoneDate($lastDoneDateValue);
+                    $lastDoneDate = $reader->parseLastDoneDate($lastDoneDateValue);
                 } catch (InvalidFormatException) {
                     $errors[] = 'Tanggal terakhir diganti tidak valid.';
                 }
@@ -172,6 +175,8 @@ class MaintenanceImportController extends Controller
                 'is_estimated' => ! $isExcluded && str_contains(strtoupper($row['catatan'] ?? ''), 'TIDAK ADA RIWAYAT COMPLETE'),
                 'is_excluded' => $isExcluded,
                 'excluded_reason' => $exclusion['reason'] ?? null,
+                // Baris tanpa KM dan tanpa tanggal tidak mengubah apa pun saat commit.
+                'is_skipped' => ! $isExcluded && $lastDoneKm <= 0 && $lastDoneDate === null,
             ];
         })->all();
     }

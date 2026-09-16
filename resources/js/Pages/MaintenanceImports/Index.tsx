@@ -11,8 +11,8 @@ import { Head, router, useForm } from '@inertiajs/react';
 import { FormEvent } from 'react';
 
 type MaintenanceImport = { id: number; type: string; status: string; original_filename: string | null; total_rows: number; success_rows: number; failed_rows: number; estimated_rows: number; created_at: string; finished_at: string | null; summary?: Record<string, unknown> | null };
-type PreviewRow = { line: number; valid: boolean; errors: string[]; is_estimated: boolean; is_excluded: boolean; excluded_reason: string | null; data: Record<string, string> };
-type Preview = { type: 'units' | 'unit_plannings'; path: string; original_filename: string; total_rows: number; valid_rows: number; invalid_rows: number; estimated_rows: number; excluded_rows: number; rows: PreviewRow[] };
+type PreviewRow = { line: number; valid: boolean; errors: string[]; is_estimated: boolean; is_excluded: boolean; is_skipped: boolean; excluded_reason: string | null; data: Record<string, string> };
+type Preview = { type: 'units' | 'unit_plannings'; path: string; original_filename: string; total_rows: number; valid_rows: number; invalid_rows: number; estimated_rows: number; excluded_rows: number; skipped_rows: number; rows: PreviewRow[] };
 
 export default function Index({ imports, preview }: PageProps<{ imports: MaintenanceImport[]; preview?: Preview }>) {
     const form = useForm<{ type: 'units' | 'unit_plannings'; file: File | null }>({ type: 'units', file: null });
@@ -62,7 +62,7 @@ export default function Index({ imports, preview }: PageProps<{ imports: Mainten
                                     <div>
                                         <h3 className="text-lg font-semibold text-foreground">Preview {preview.original_filename}</h3>
                                         <p className="text-sm text-muted-foreground">
-                                            Total {preview.total_rows} baris, valid {preview.valid_rows}, gagal {preview.invalid_rows}, estimated {preview.estimated_rows}, tidak berlaku {preview.excluded_rows}.
+                                            Total {preview.total_rows} baris, valid {preview.valid_rows}, gagal {preview.invalid_rows}, estimated {preview.estimated_rows}, tidak berlaku {preview.excluded_rows}, dilewati {preview.skipped_rows}.
                                         </p>
                                     </div>
                                     <PrimaryButton onClick={commit} disabled={preview.invalid_rows > 0}>Commit Import</PrimaryButton>
@@ -81,10 +81,11 @@ export default function Index({ imports, preview }: PageProps<{ imports: Mainten
                                                         <div className="flex flex-wrap gap-2">
                                                             <StatusBadge tone={row.valid ? 'safe' : 'danger'}>{row.valid ? 'Valid' : 'Invalid'}</StatusBadge>
                                                             {row.is_excluded && <StatusBadge tone="danger">Tidak Berlaku</StatusBadge>}
+                                                            {row.is_skipped && <StatusBadge tone="warning">Dilewati</StatusBadge>}
                                                             {row.is_estimated && <StatusBadge tone="warning">Estimated</StatusBadge>}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>{row.is_excluded ? (row.excluded_reason ?? 'Tidak Berlaku') : (row.errors.join(', ') || '-')}</TableCell>
+                                                    <TableCell>{row.is_excluded ? (row.excluded_reason ?? 'Tidak Berlaku') : row.is_skipped ? 'KM dan tanggal kosong — data lama dipertahankan' : (row.errors.join(', ') || '-')}</TableCell>
                                                     <TableCell className="max-w-xl truncate">{JSON.stringify(row.data)}</TableCell>
                                                 </TableRow>
                                             ))}
