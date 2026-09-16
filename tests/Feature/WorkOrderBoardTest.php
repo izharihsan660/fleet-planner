@@ -776,7 +776,7 @@ class WorkOrderBoardTest extends TestCase
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->firstOrFail();
 
         $this->actingAs($spv)
-            ->post(route('work-orders.reject', $workOrder))
+            ->post(route('work-orders.reject', $workOrder), ['reason' => 'Belum perlu dikerjakan periode ini.'])
             ->assertRedirect(route('work-orders.index'));
 
         $this->assertSame('cancelled', $workOrder->refresh()->status);

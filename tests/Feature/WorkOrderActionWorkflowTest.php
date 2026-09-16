@@ -13,6 +13,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Database\Seeders\PlanningItemSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 class WorkOrderActionWorkflowTest extends TestCase
@@ -439,7 +440,7 @@ class WorkOrderActionWorkflowTest extends TestCase
         ]);
 
         $this->actingAs($spv)
-            ->post(route('work-orders.reject', $workOrder))
+            ->post(route('work-orders.reject', $workOrder), ['reason' => 'Data pengajuan belum lengkap.'])
             ->assertRedirect(route('work-orders.index'));
 
         $this->assertSame('rejected', $item->refresh()->status);
@@ -647,6 +648,107 @@ class WorkOrderActionWorkflowTest extends TestCase
             ->assertInertia(fn ($page) => $page->has('tasks', 0));
     }
 
+    /**
+     * @return array{WorkOrder, Collection<int, WorkOrderItem>, User}
+     */
+    private function makeWorkOrderWithThreeSubmittedItems(): array
+    {
+        [$site, $unit, $plannings] = $this->makeMultiplePlanningContext(75000, 3);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $spv = User::factory()->create(['role' => UserRole::SpvHo]);
+
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $unit->site_id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+            'submitted_by' => $planner->id,
+            'assigned_mechanic_id' => $mechanic->id,
+        ]);
+
+        $items = collect($plannings)->map(fn (UnitPlanning $planning): WorkOrderItem => WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'replace',
+            'action' => 'replace',
+            'scheduled_date' => today()->addDay()->toDateString(),
+            'submitted_by' => $planner->id,
+            'submitted_at' => now(),
+        ]))->values();
+
+        return [$workOrder, $items, $spv];
+    }
+
+    public function test_spv_approves_only_the_selected_item_and_leaves_the_rest_submitted(): void
+    {
+        [$workOrder, $items, $spv] = $this->makeWorkOrderWithThreeSubmittedItems();
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder), ['item_ids' => [$items[1]->id]])
+            ->assertRedirect(route('work-orders.show', $workOrder));
+
+        $this->assertSame('in_progress', $items[1]->refresh()->status);
+        $this->assertSame('replace', $items[0]->refresh()->status);
+        $this->assertSame('replace', $items[2]->refresh()->status);
+        $this->assertNull($items[0]->approved_at);
+        $this->assertNull($items[2]->approved_at);
+    }
+
+    public function test_spv_rejects_only_the_selected_item_and_records_the_reason(): void
+    {
+        [$workOrder, $items, $spv] = $this->makeWorkOrderWithThreeSubmittedItems();
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.reject', $workOrder), ['item_ids' => [$items[0]->id], 'reason' => 'KM pengajuan tidak cocok dengan odometer.'])
+            ->assertRedirect(route('work-orders.index'));
+
+        $this->assertSame('rejected', $items[0]->refresh()->status);
+        $this->assertSame('KM pengajuan tidak cocok dengan odometer.', $items[0]->notes);
+        $this->assertSame('replace', $items[1]->refresh()->status);
+        $this->assertSame('replace', $items[2]->refresh()->status);
+    }
+
+    public function test_approve_without_item_selection_is_refused_when_several_items_are_submitted(): void
+    {
+        [$workOrder, $items, $spv] = $this->makeWorkOrderWithThreeSubmittedItems();
+
+        $this->actingAs($spv)->post(route('work-orders.approve', $workOrder))->assertStatus(422);
+
+        $items->each(fn (WorkOrderItem $item) => $this->assertSame('replace', $item->refresh()->status));
+    }
+
+    public function test_reject_without_a_reason_is_refused(): void
+    {
+        [$workOrder, $items, $spv] = $this->makeWorkOrderWithThreeSubmittedItems();
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.reject', $workOrder), ['item_ids' => [$items[0]->id]])
+            ->assertSessionHasErrors('reason');
+
+        $this->assertSame('replace', $items[0]->refresh()->status);
+    }
+
+    public function test_approve_refuses_an_item_that_belongs_to_another_work_order(): void
+    {
+        [$workOrder, $items, $spv] = $this->makeWorkOrderWithThreeSubmittedItems();
+
+        $otherWorkOrder = WorkOrder::query()->create([
+            'unit_id' => $workOrder->unit_id,
+            'site_id' => $workOrder->site_id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+        ]);
+        $items[2]->update(['work_order_id' => $otherWorkOrder->id]);
+
+        $this->actingAs($spv)
+            ->post(route('work-orders.approve', $workOrder), ['item_ids' => [$items[2]->id]])
+            ->assertStatus(422);
+
+        $this->assertSame('replace', $items[2]->refresh()->status);
+    }
+
     public function test_spv_approve_work_order_approves_mixed_pending_actions_together(): void
     {
         [$site, $unit, $plannings] = $this->makeMultiplePlanningContext(75000, 3);
@@ -697,7 +799,7 @@ class WorkOrderActionWorkflowTest extends TestCase
         $this->assertSame('postpone', $items[2]->refresh()->status);
 
         $this->actingAs($spv)
-            ->post(route('work-orders.approve', $workOrder))
+            ->post(route('work-orders.approve', $workOrder), ['item_ids' => $items->pluck('id')->all()])
             ->assertRedirect(route('work-orders.show', $workOrder));
 
         $this->assertSame('in_progress', $workOrder->refresh()->status);

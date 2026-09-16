@@ -98,7 +98,7 @@ class ManualFindingWorkOrderTest extends TestCase
         ]);
 
         $workOrder = WorkOrder::query()->where('unit_id', $unit->id)->latest('id')->firstOrFail();
-        $this->actingAs($spv)->post(route('work-orders.approve', $workOrder));
+        $this->actingAs($spv)->post(route('work-orders.approve', $workOrder), ['item_ids' => $workOrder->items()->pluck('id')->all()]);
 
         foreach ($workOrder->items()->get() as $item) {
             $this->actingAs($mechanic)->post(route('work-orders.items.complete', [$workOrder, $item]), [

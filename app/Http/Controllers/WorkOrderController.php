@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
+use App\Http\Requests\ApproveWorkOrderRequest;
 use App\Http\Requests\AssignWorkOrderMechanicRequest;
 use App\Http\Requests\CompleteBaselineWorkOrderItemRequest;
 use App\Http\Requests\CompleteWorkOrderItemRequest;
+use App\Http\Requests\RejectWorkOrderRequest;
 use App\Http\Requests\StoreManualFindingRequest;
 use App\Http\Requests\SubmitPostponeWorkOrderItemRequest;
 use App\Http\Requests\SubmitReplaceWorkOrderItemRequest;
@@ -29,6 +31,7 @@ use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -389,12 +392,12 @@ class WorkOrderController extends Controller
         return back()->with('status', 'Jadwal item berhasil disimpan.');
     }
 
-    public function approve(Request $request, WorkOrder $wo, FleetNotificationService $notifications): RedirectResponse
+    public function approve(ApproveWorkOrderRequest $request, WorkOrder $wo, FleetNotificationService $notifications): RedirectResponse
     {
-        Gate::authorize('approve', $wo);
         $this->abortIfCannotAccessSite($request, $wo);
+        $requestedItemIds = $this->requestedItemIds($request);
 
-        DB::transaction(function () use ($request, $wo, $notifications): void {
+        DB::transaction(function () use ($request, $wo, $notifications, $requestedItemIds): void {
             $wo->load([
                 'items' => fn ($query) => $query->applicable()->with(['unitPlanning', 'planningItem']),
                 'unit',
@@ -404,7 +407,7 @@ class WorkOrderController extends Controller
             // WO hasil trigger otomatis tidak lagi bisa di-approve borongan
             // selagi itemnya masih on_hold, karena item seperti itu belum punya
             // mekanik penanggung jawab maupun rencana jadwal.
-            $submittedCandidates = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
+            $submittedCandidates = $this->selectedSubmittedItems($wo, $requestedItemIds, 'disetujui');
 
             $submittedItems = $submittedCandidates
                 ->reject(fn (WorkOrderItem $item): bool => ($item->unitPlanning?->isBaselineMissing() ?? true)
@@ -471,15 +474,16 @@ class WorkOrderController extends Controller
         return redirect()->route('work-orders.show', $wo)->with('status', 'Work order berhasil disetujui.');
     }
 
-    public function reject(Request $request, WorkOrder $wo): RedirectResponse
+    public function reject(RejectWorkOrderRequest $request, WorkOrder $wo): RedirectResponse
     {
-        Gate::authorize('approve', $wo);
         $this->abortIfCannotAccessSite($request, $wo);
+        $requestedItemIds = $this->requestedItemIds($request);
+        $reason = $request->string('reason')->toString();
 
-        DB::transaction(function () use ($request, $wo): void {
+        DB::transaction(function () use ($request, $wo, $requestedItemIds, $reason): void {
             $wo->load(['items' => fn ($query) => $query->applicable()]);
 
-            $pendingItems = $wo->items->whereIn('status', ['pending_create', 'replace', 'postpone']);
+            $pendingItems = $this->selectedSubmittedItems($wo, $requestedItemIds, 'ditolak');
 
             if ($pendingItems->isEmpty()) {
                 abort(422, 'Work order belum memiliki action yang diajukan.');
@@ -487,6 +491,7 @@ class WorkOrderController extends Controller
 
             $pendingItems->each(fn (WorkOrderItem $item) => $item->update([
                 'status' => 'rejected',
+                'notes' => $reason,
                 'approved_by' => $request->user()->id,
                 'approved_at' => now(),
             ]));
@@ -954,6 +959,48 @@ class WorkOrderController extends Controller
      * Item hanya masuk In Progress kalau unitnya sudah punya penanggung jawab
      * dan item ini sudah punya tanggalnya sendiri.
      */
+    /**
+     * @return array<int, int>|null null berarti pemanggil tidak menyebut item apa pun.
+     */
+    private function requestedItemIds(FormRequest $request): ?array
+    {
+        $itemIds = $request->validated('item_ids');
+
+        return $itemIds === null ? null : array_map('intval', $itemIds);
+    }
+
+    /**
+     * Item yang benar-benar diproses oleh Setujui/Tolak.
+     *
+     * Tanpa daftar item, satu klik dulu menyeret setiap pengajuan di work order
+     * yang sama — SPV tidak bisa menyetujui Brake Pad sambil menahan Accu yang
+     * diajukan bersamaan. Sekarang pengosongan hanya diterima kalau memang cuma
+     * ada satu pengajuan, selebihnya pemanggil wajib menyebutkan pilihannya.
+     *
+     * @param  array<int, int>|null  $requestedItemIds
+     * @return Collection<int, WorkOrderItem>
+     */
+    private function selectedSubmittedItems(WorkOrder $workOrder, ?array $requestedItemIds, string $actionLabel): Collection
+    {
+        $submitted = $workOrder->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
+
+        if ($requestedItemIds === null) {
+            if ($submitted->count() > 1) {
+                abort(422, 'Work order ini punya lebih dari satu item yang diajukan. Pilih item yang ingin '.$actionLabel.'.');
+            }
+
+            return $submitted->values();
+        }
+
+        $selected = $submitted->whereIn('id', $requestedItemIds);
+
+        if ($selected->count() !== count($requestedItemIds)) {
+            abort(422, 'Ada item yang sudah berubah status atau bukan bagian dari work order ini. Muat ulang halaman lalu pilih ulang.');
+        }
+
+        return $selected->values();
+    }
+
     private function approvedItemStatus(WorkOrder $workOrder, WorkOrderItem $item): string
     {
         return $workOrder->assigned_mechanic_id !== null && $item->scheduled_date !== null

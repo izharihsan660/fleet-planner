@@ -11,6 +11,7 @@ import {
 
 type ConfirmDialogProps = {
     show: boolean;
+    children?: React.ReactNode;
     title?: string;
     message: string;
     confirmLabel?: string;
@@ -22,6 +23,7 @@ type ConfirmDialogProps = {
 
 export default function ConfirmDialog({
     show,
+    children,
     title = 'Apakah kamu yakin?',
     message,
     confirmLabel = 'Ya, lanjutkan',
@@ -37,6 +39,8 @@ export default function ConfirmDialog({
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>{message}</DialogDescription>
                 </DialogHeader>
+
+                {children}
 
                 <DialogFooter>
                     <SecondaryButton type="button" onClick={onCancel} disabled={processing}>
