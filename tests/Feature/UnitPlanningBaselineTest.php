@@ -324,6 +324,101 @@ class UnitPlanningBaselineTest extends TestCase
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @return array{Unit, UnitPlanning, User}
+     */
+    private function makeEstimateScenario(): array
+    {
+        $site = Site::query()->create(['name' => 'Site Tebakan', 'region' => 'Kalimantan']);
+        $unit = Unit::withoutEvents(fn () => Unit::query()->create($this->unitPayload($site->id)));
+        $planningItem = PlanningItem::query()->create([
+            'name' => 'Ban Depan Tebakan',
+            'interval_km' => 60000,
+            'interval_days' => 180,
+        ]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+        ]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
+
+        return [$unit, $unitPlanning, $planner];
+    }
+
+    public function test_planner_can_estimate_a_baseline_from_a_guessed_due_date(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeEstimateScenario();
+        $guessedDue = today()->addDays(45)->toDateString();
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_km' => 80000,
+                'next_due_date' => $guessedDue,
+                'is_estimated' => true,
+            ])
+            ->assertRedirect();
+
+        $unitPlanning->refresh();
+
+        $this->assertTrue($unitPlanning->is_estimated);
+        $this->assertSame($guessedDue, $unitPlanning->next_due_date?->toDateString());
+        $this->assertSame(80000 + 60000, $unitPlanning->next_due_km);
+        // Tanggal terakhir diganti dihitung mundur satu interval dari tebakan.
+        $this->assertSame(
+            today()->addDays(45)->subDays(180)->toDateString(),
+            $unitPlanning->last_done_date?->toDateString(),
+        );
+        $this->assertFalse($unitPlanning->isBaselineMissing());
+    }
+
+    public function test_baseline_from_a_known_last_done_date_is_not_marked_as_estimate(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeEstimateScenario();
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_km' => 80000,
+                'last_done_date' => today()->subDays(10)->toDateString(),
+            ])
+            ->assertRedirect();
+
+        $unitPlanning->refresh();
+
+        $this->assertFalse($unitPlanning->is_estimated);
+        $this->assertSame(today()->subDays(10)->addDays(180)->toDateString(), $unitPlanning->next_due_date?->toDateString());
+    }
+
+    public function test_zero_km_is_rejected_instead_of_silently_leaving_the_item_blocked(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeEstimateScenario();
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_km' => 0,
+                'last_done_date' => today()->subDays(10)->toDateString(),
+            ])
+            ->assertSessionHasErrors('last_done_km');
+
+        $this->assertTrue($unitPlanning->refresh()->isBaselineMissing());
+    }
+
+    public function test_both_dates_at_once_are_refused(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeEstimateScenario();
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_km' => 80000,
+                'last_done_date' => today()->subDays(10)->toDateString(),
+                'next_due_date' => today()->addDays(45)->toDateString(),
+            ])
+            ->assertSessionHasErrors('next_due_date');
+
+        $this->assertTrue($unitPlanning->refresh()->isBaselineMissing());
+    }
+
     private function unitPayload(int $siteId): array
     {
         return [

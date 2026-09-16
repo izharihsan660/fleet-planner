@@ -19,12 +19,20 @@ class UnitPlanningBaselineController extends Controller
     ): RedirectResponse {
         abort_unless($unitPlanning->unit_id === $unit->id, 404);
 
+        $lastDoneDate = $request->validated('last_done_date');
+        $targetDueDate = $request->validated('next_due_date');
+        $isEstimated = $request->boolean('is_estimated');
+
         $service->set(
             $unitPlanning,
             $request->integer('last_done_km'),
-            CarbonImmutable::parse($request->validated('last_done_date')),
+            filled($lastDoneDate) ? CarbonImmutable::parse($lastDoneDate) : null,
+            filled($targetDueDate) ? CarbonImmutable::parse($targetDueDate) : null,
+            $isEstimated,
         );
 
-        return back()->with('status', 'Baseline item berhasil disimpan. Perhitungan due sudah diaktifkan.');
+        return back()->with('status', $isEstimated
+            ? 'Perkiraan tersimpan dan ditandai sebagai estimasi. Ganti dengan data asli begitu tersedia.'
+            : 'Baseline item berhasil disimpan. Perhitungan due sudah diaktifkan.');
     }
 }

@@ -16,9 +16,20 @@ class UnitPlanningBaselineService
         private HighUsageService $highUsageService,
     ) {}
 
-    public function set(UnitPlanning $unitPlanning, int $lastDoneKm, CarbonImmutable $lastDoneDate): UnitPlanning
-    {
-        [$unitPlanning, $activeItemUpdated] = DB::transaction(function () use ($unitPlanning, $lastDoneKm, $lastDoneDate): array {
+    /**
+     * @param  CarbonImmutable|null  $targetDueDate  Diisi kalau pengisi hanya punya
+     *                                               perkiraan jatuh tempo; tanggal
+     *                                               terakhir diganti dihitung mundur
+     *                                               dari interval.
+     */
+    public function set(
+        UnitPlanning $unitPlanning,
+        int $lastDoneKm,
+        ?CarbonImmutable $lastDoneDate = null,
+        ?CarbonImmutable $targetDueDate = null,
+        bool $isEstimated = false,
+    ): UnitPlanning {
+        [$unitPlanning, $activeItemUpdated] = DB::transaction(function () use ($unitPlanning, $lastDoneKm, $lastDoneDate, $targetDueDate, $isEstimated): array {
             $unitPlanning = UnitPlanning::query()
                 ->whereKey($unitPlanning->id)
                 ->lockForUpdate()
@@ -27,15 +38,22 @@ class UnitPlanningBaselineService
             $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
             $previousDueKm = $unitPlanning->next_due_km;
             $previousDueDate = $unitPlanning->next_due_date?->toDateString();
+
+            // Satu sumber kebenaran tetap last_done_*; perkiraan jatuh tempo cuma
+            // cara lain memasukkannya, dihitung mundur sebesar satu interval.
+            $lastDoneDate ??= $targetDueDate?->subDays($interval['interval_days']);
+
             $nextDueKm = $lastDoneKm + $interval['interval_km'];
-            $nextDueDate = $lastDoneDate->addDays($interval['interval_days'])->toDateString();
+            $nextDueDate = $targetDueDate !== null
+                ? $targetDueDate->toDateString()
+                : $lastDoneDate->addDays($interval['interval_days'])->toDateString();
 
             $unitPlanning->update([
                 'last_done_km' => $lastDoneKm,
                 'last_done_date' => $lastDoneDate->toDateString(),
                 'next_due_km' => $nextDueKm,
                 'next_due_date' => $nextDueDate,
-                'is_estimated' => false,
+                'is_estimated' => $isEstimated,
                 'due_manually_set' => false,
             ]);
 
