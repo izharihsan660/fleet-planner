@@ -115,7 +115,8 @@ function PlanningItemCard({ unitId, item, canManageExclusion, canSetBaseline }: 
                                 : baselineMissing
                                     ? <StatusBadge tone="neutral">Baseline Belum Diisi</StatusBadge>
                                     : <StatusBadge tone="safe">Aktif</StatusBadge>}
-                            {!baselineMissing && item.is_estimated && <StatusBadge tone="warning">Estimated</StatusBadge>}
+                            {item.is_estimated && <StatusBadge tone="warning" className="text-[11px]">Estimasi</StatusBadge>}
+                            {item.due_manually_set && <StatusBadge tone="info" className="text-[11px]">Due Manual</StatusBadge>}
                         </div>
                     </div>
                     <div className="text-sm text-muted-foreground sm:text-right">

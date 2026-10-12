@@ -10,6 +10,7 @@ use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -319,6 +320,191 @@ class UnitPlanningBaselineTest extends TestCase
         $this->assertTrue($visibleItemIds->contains($activeReplacement->id));
         $this->assertTrue($visibleItemIds->contains($standaloneCancelled->id));
         $this->assertCount(2, $visibleItemIds);
+    }
+
+    public function test_mode_a_calculates_due_from_last_done_date_and_allows_km_to_be_empty(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeBaselineScenario();
+        $lastDoneDate = today()->subDays(10);
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_date' => $lastDoneDate->toDateString(),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $unitPlanning->refresh();
+
+        $this->assertSame(0, $unitPlanning->last_done_km);
+        $this->assertSame($lastDoneDate->toDateString(), $unitPlanning->last_done_date?->toDateString());
+        $this->assertNull($unitPlanning->next_due_km);
+        $this->assertSame($lastDoneDate->addDays(100)->toDateString(), $unitPlanning->next_due_date?->toDateString());
+        $this->assertFalse($unitPlanning->is_estimated);
+        $this->assertFalse($unitPlanning->due_manually_set);
+    }
+
+    public function test_mode_b_reverse_calculates_an_estimated_baseline_from_due_date(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-09-23 12:00:00'));
+        [$unit, $unitPlanning, $planner] = $this->makeBaselineScenario(currentOdometer: 50000);
+        $dueDate = today()->addDays(40);
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'next_due_date' => $dueDate->toDateString(),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $unitPlanning->refresh();
+
+        $this->assertSame(44000, $unitPlanning->last_done_km);
+        $this->assertSame(today()->subDays(60)->toDateString(), $unitPlanning->last_done_date?->toDateString());
+        $this->assertNull($unitPlanning->next_due_km);
+        $this->assertSame($dueDate->toDateString(), $unitPlanning->next_due_date?->toDateString());
+        $this->assertTrue($unitPlanning->is_estimated);
+        $this->assertFalse($unitPlanning->due_manually_set);
+
+        $this->actingAs($planner)
+            ->get(route('units.history', $unit))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('history.planning_items.0.is_estimated', true)
+                ->where('history.planning_items.0.due_manually_set', false));
+    }
+
+    public function test_mode_b_uses_one_as_the_km_sentinel_when_current_odometer_is_unavailable(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeBaselineScenario(
+            currentOdometer: 0,
+            hasOdometerReading: false,
+        );
+        $dueDate = today()->addDays(20);
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'next_due_date' => $dueDate->toDateString(),
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $unitPlanning->refresh();
+
+        $this->assertSame(1, $unitPlanning->last_done_km);
+        $this->assertNull($unitPlanning->next_due_km);
+        $this->assertTrue($unitPlanning->is_estimated);
+    }
+
+    public function test_mode_c_keeps_both_input_dates_and_marks_due_as_manually_set(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeBaselineScenario();
+        $lastDoneDate = today()->subDays(10);
+        $dueDate = today()->addDays(45);
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_km' => 25000,
+                'last_done_date' => $lastDoneDate->toDateString(),
+                'next_due_date' => $dueDate->toDateString(),
+                'unit_status_note' => 'Standby',
+            ])
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
+
+        $unitPlanning->refresh();
+
+        $this->assertSame(25000, $unitPlanning->last_done_km);
+        $this->assertSame($lastDoneDate->toDateString(), $unitPlanning->last_done_date?->toDateString());
+        $this->assertSame(35000, $unitPlanning->next_due_km);
+        $this->assertSame($dueDate->toDateString(), $unitPlanning->next_due_date?->toDateString());
+        $this->assertFalse($unitPlanning->is_estimated);
+        $this->assertTrue($unitPlanning->due_manually_set);
+
+        $this->actingAs($planner)
+            ->get(route('units.history', $unit))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('history.planning_items.0.is_estimated', false)
+                ->where('history.planning_items.0.due_manually_set', true));
+    }
+
+    public function test_setup_awal_frontend_contains_expected_fields_hints_and_badges(): void
+    {
+        $formSource = file_get_contents(resource_path('js/Components/UnitPlanningBaselineForm.tsx'));
+        $historySource = file_get_contents(resource_path('js/Pages/Units/History.tsx'));
+
+        $this->assertStringContainsString('Kapan Terakhir Diganti (Tanggal)', $formSource);
+        $this->assertStringContainsString('KM Saat Diganti (opsional)', $formSource);
+        $this->assertStringContainsString('Due Date', $formSource);
+        $this->assertStringContainsString('Due dihitung otomatis dari interval', $formSource);
+        $this->assertStringContainsString('Tanggal terakhir diganti akan diestimasi sistem', $formSource);
+        $this->assertStringContainsString('Due Date manual akan dipakai (tidak dihitung dari interval)', $formSource);
+        $this->assertStringContainsString('>Estimasi</StatusBadge>', $historySource);
+        $this->assertStringContainsString('>Due Manual</StatusBadge>', $historySource);
+    }
+
+    public function test_baseline_rejects_when_last_done_date_and_due_date_are_both_empty(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeBaselineScenario();
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'last_done_km' => 25000,
+            ])
+            ->assertSessionHasErrors([
+                'last_done_date' => 'Isi Tanggal Terakhir atau Due Date.',
+                'next_due_date' => 'Isi Tanggal Terakhir atau Due Date.',
+            ]);
+
+        $this->assertNull($unitPlanning->refresh()->last_done_date);
+    }
+
+    public function test_baseline_rejects_a_due_date_in_the_past(): void
+    {
+        [$unit, $unitPlanning, $planner] = $this->makeBaselineScenario();
+
+        $this->actingAs($planner)
+            ->patch(route('units.plannings.baseline.update', [$unit, $unitPlanning]), [
+                'next_due_date' => today()->subDay()->toDateString(),
+            ])
+            ->assertSessionHasErrors([
+                'next_due_date' => 'Due Date tidak boleh di masa lalu.',
+            ]);
+
+        $this->assertNull($unitPlanning->refresh()->last_done_date);
+    }
+
+    /**
+     * @return array{Unit, UnitPlanning, User}
+     */
+    private function makeBaselineScenario(
+        int $currentOdometer = 50000,
+        bool $hasOdometerReading = true,
+    ): array {
+        $site = Site::query()->create(['name' => 'Site Mode Baseline', 'region' => 'Sulawesi']);
+        $unit = Unit::withoutEvents(fn () => Unit::query()->create([
+            ...$this->unitPayload($site->id),
+            'current_odo' => $currentOdometer,
+            'has_odometer_reading' => $hasOdometerReading,
+        ]));
+        $planningItem = PlanningItem::query()->create([
+            'name' => 'Item Mode Baseline',
+            'interval_km' => 10000,
+            'interval_days' => 100,
+        ]);
+        $unitPlanning = UnitPlanning::query()->create([
+            'unit_id' => $unit->id,
+            'planning_item_id' => $planningItem->id,
+            'last_done_km' => 0,
+            'last_done_date' => null,
+        ]);
+        $planner = User::factory()->create([
+            'role' => UserRole::PlannerArea,
+            'site_id' => $site->id,
+        ]);
+
+        return [$unit, $unitPlanning, $planner];
     }
 
     /**

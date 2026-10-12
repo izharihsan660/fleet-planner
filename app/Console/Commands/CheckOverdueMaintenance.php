@@ -23,7 +23,7 @@ class CheckOverdueMaintenance extends Command
         $overdueItems = WorkOrderItem::query()
             ->applicable()
             ->with(['workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name', 'planningItem:id,name', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km'])
-            ->whereIn('status', ['on_hold', 'in_progress'])
+            ->where('status', 'on_hold')
             ->withBaseline()
             ->where(function ($query): void {
                 $query
@@ -65,10 +65,11 @@ class CheckOverdueMaintenance extends Command
             return self::SUCCESS;
         }
 
-        DB::transaction(function () use ($overdueItems, $staleOverdueItems, $workOrderProgressService): void {
-            $overdueItems->each(function (WorkOrderItem $item): void {
-                $item->update(['status' => 'overdue']);
-            });
+        $updatedOverdueItems = DB::transaction(function () use ($overdueItems, $staleOverdueItems, $workOrderProgressService): Collection {
+            $updatedOverdueItems = $overdueItems->filter(fn (WorkOrderItem $item): bool => WorkOrderItem::query()
+                ->whereKey($item->id)
+                ->where('status', 'on_hold')
+                ->update(['status' => 'overdue']) === 1);
 
             // Item yang keluar dari overdue dikembalikan ke tahap kerjanya semula.
             // Item yang masih memegang mekanik penanggung jawab dan tanggalnya
@@ -78,7 +79,9 @@ class CheckOverdueMaintenance extends Command
                 $item->update(['status' => $item->isScheduled() ? 'in_progress' : 'on_hold']);
             });
 
-            $this->syncAffectedWorkOrders($overdueItems, $staleOverdueItems, $workOrderProgressService);
+            $this->syncAffectedWorkOrders($updatedOverdueItems, $staleOverdueItems, $workOrderProgressService);
+
+            return $updatedOverdueItems;
         });
 
         WorkOrderItem::query()
@@ -92,7 +95,7 @@ class CheckOverdueMaintenance extends Command
                 $notifications->maintenanceOverdue($items);
             });
 
-        $this->info("{$overdueItems->count()} work order item overdue diproses.");
+        $this->info("{$updatedOverdueItems->count()} work order item overdue diproses.");
         $this->info("{$staleOverdueItems->count()} work order item overdue stale dikembalikan ke on_hold.");
         $this->info("{$restoredCount} di antaranya kembali ke in_progress karena mekanik dan jadwalnya masih ada.");
 

@@ -27,8 +27,19 @@ class UpdateUnitPlanningBaselineRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'last_done_km' => ['required', 'integer', 'min:0'],
-            'last_done_date' => ['required', 'date', 'before_or_equal:today'],
+            'last_done_km' => ['nullable', 'integer', 'min:0'],
+            'last_done_date' => ['nullable', 'required_without:next_due_date', 'date', 'before_or_equal:today'],
+            'next_due_date' => ['nullable', 'required_without:last_done_date', 'date', 'after_or_equal:today'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'last_done_date.required_without' => 'Isi Tanggal Terakhir atau Due Date.',
+            'next_due_date.required_without' => 'Isi Tanggal Terakhir atau Due Date.',
+            'last_done_date.before_or_equal' => 'Tanggal Terakhir tidak boleh di masa depan.',
+            'next_due_date.after_or_equal' => 'Due Date tidak boleh di masa lalu.',
         ];
     }
 }

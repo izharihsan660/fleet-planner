@@ -19,10 +19,15 @@ class UnitPlanningBaselineController extends Controller
     ): RedirectResponse {
         abort_unless($unitPlanning->unit_id === $unit->id, 404);
 
+        $lastDoneKm = $request->validated('last_done_km');
+        $lastDoneDate = $request->validated('last_done_date');
+        $nextDueDate = $request->validated('next_due_date');
+
         $service->set(
             $unitPlanning,
-            $request->integer('last_done_km'),
-            CarbonImmutable::parse($request->validated('last_done_date')),
+            filled($lastDoneKm) ? (int) $lastDoneKm : null,
+            filled($lastDoneDate) ? CarbonImmutable::parse($lastDoneDate) : null,
+            filled($nextDueDate) ? CarbonImmutable::parse($nextDueDate) : null,
         );
 
         return back()->with('status', 'Baseline item berhasil disimpan. Perhitungan due sudah diaktifkan.');

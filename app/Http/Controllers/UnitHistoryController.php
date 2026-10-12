@@ -52,6 +52,7 @@ class UnitHistoryController extends Controller
                     'next_due_km' => $unitPlanning->next_due_km,
                     'next_due_date' => $unitPlanning->next_due_date?->toDateString(),
                     'is_estimated' => $unitPlanning->is_estimated,
+                    'due_manually_set' => $unitPlanning->due_manually_set,
                     'is_excluded' => $unitPlanning->is_excluded,
                     'excluded_reason' => $unitPlanning->excluded_reason,
                 ])->values()->all(),

@@ -299,7 +299,7 @@ class ReportHistoryTest extends TestCase
             'work_order_id' => $secondWorkOrder->id,
             'unit_planning_id' => $firstItem->unit_planning_id,
             'planning_item_id' => $firstItem->planning_item_id,
-            'status' => 'in_progress',
+            'status' => 'on_hold',
         ]);
 
         $this->artisan('maintenance:check-overdue')->assertSuccessful();

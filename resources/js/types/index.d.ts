@@ -111,6 +111,7 @@ export interface UnitPlanning {
     next_due_km: number | null;
     next_due_date: string | null;
     is_estimated: boolean;
+    due_manually_set: boolean;
     is_excluded: boolean;
     excluded_reason: string | null;
     freeze_start: string | null;
@@ -449,6 +450,7 @@ export interface UnitPlanningReference {
     next_due_km: number | null;
     next_due_date: string | null;
     is_estimated: boolean;
+    due_manually_set: boolean;
     is_excluded: boolean;
     excluded_reason: string | null;
 }

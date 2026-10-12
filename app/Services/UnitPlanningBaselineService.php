@@ -7,6 +7,7 @@ use App\Models\UnitPlanning;
 use App\Models\WorkOrderItem;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 class UnitPlanningBaselineService
 {
@@ -16,9 +17,17 @@ class UnitPlanningBaselineService
         private HighUsageService $highUsageService,
     ) {}
 
-    public function set(UnitPlanning $unitPlanning, int $lastDoneKm, CarbonImmutable $lastDoneDate): UnitPlanning
-    {
-        [$unitPlanning, $activeItemUpdated] = DB::transaction(function () use ($unitPlanning, $lastDoneKm, $lastDoneDate): array {
+    public function set(
+        UnitPlanning $unitPlanning,
+        ?int $lastDoneKm,
+        ?CarbonImmutable $lastDoneDate,
+        ?CarbonImmutable $targetDueDate = null,
+    ): UnitPlanning {
+        if ($lastDoneDate === null && $targetDueDate === null) {
+            throw new InvalidArgumentException('Tanggal terakhir atau due date wajib diisi.');
+        }
+
+        [$unitPlanning, $activeItemUpdated] = DB::transaction(function () use ($unitPlanning, $lastDoneKm, $lastDoneDate, $targetDueDate): array {
             $unitPlanning = UnitPlanning::query()
                 ->whereKey($unitPlanning->id)
                 ->lockForUpdate()
@@ -27,16 +36,36 @@ class UnitPlanningBaselineService
             $interval = $this->intervalResolver->resolve($unitPlanning->planningItem, $unitPlanning->unit);
             $previousDueKm = $unitPlanning->next_due_km;
             $previousDueDate = $unitPlanning->next_due_date?->toDateString();
-            $nextDueKm = $lastDoneKm + $interval['interval_km'];
-            $nextDueDate = $lastDoneDate->addDays($interval['interval_days'])->toDateString();
+            $isEstimated = $lastDoneDate === null;
+            $dueManuallySet = $lastDoneDate !== null && $targetDueDate !== null;
+
+            if ($lastDoneDate === null) {
+                if ($targetDueDate === null) {
+                    throw new InvalidArgumentException('Due date wajib diisi untuk baseline estimasi.');
+                }
+
+                $lastDoneDate = $targetDueDate->subDays($interval['interval_days']);
+                $lastDoneKm = $this->estimateLastDoneKm(
+                    $unitPlanning,
+                    $lastDoneDate,
+                    $interval['interval_days'],
+                    $interval['interval_km'],
+                );
+            }
+
+            $storedLastDoneKm = $lastDoneKm ?? 0;
+            $nextDueKm = $isEstimated || $lastDoneKm === null
+                ? null
+                : $lastDoneKm + $interval['interval_km'];
+            $nextDueDate = ($targetDueDate ?? $lastDoneDate->addDays($interval['interval_days']))->toDateString();
 
             $unitPlanning->update([
-                'last_done_km' => $lastDoneKm,
+                'last_done_km' => $storedLastDoneKm,
                 'last_done_date' => $lastDoneDate->toDateString(),
                 'next_due_km' => $nextDueKm,
                 'next_due_date' => $nextDueDate,
-                'is_estimated' => false,
-                'due_manually_set' => false,
+                'is_estimated' => $isEstimated,
+                'due_manually_set' => $dueManuallySet,
             ]);
 
             $activeItem = WorkOrderItem::query()
@@ -47,7 +76,7 @@ class UnitPlanningBaselineService
                 ->first();
 
             $activeItem?->update([
-                'baseline_last_done_km' => $lastDoneKm,
+                'baseline_last_done_km' => $storedLastDoneKm,
                 'baseline_last_done_date' => $lastDoneDate->toDateString(),
                 'previous_due_km' => $previousDueKm,
                 'previous_due_date' => $previousDueDate,
@@ -70,5 +99,25 @@ class UnitPlanningBaselineService
         $this->highUsageService->detect($unitPlanning->unit->refresh());
 
         return $unitPlanning->refresh();
+    }
+
+    private function estimateLastDoneKm(
+        UnitPlanning $unitPlanning,
+        CarbonImmutable $lastDoneDate,
+        int $intervalDays,
+        int $intervalKm,
+    ): int {
+        if (! $unitPlanning->unit->has_odometer_reading || $unitPlanning->unit->current_odo === null) {
+            return 1;
+        }
+
+        $elapsedDays = (int) $lastDoneDate->diffInDays(CarbonImmutable::today(), false);
+        $clampedElapsedDays = max(0, min($elapsedDays, $intervalDays));
+        $proportion = $intervalDays > 0 ? $clampedElapsedDays / $intervalDays : 0;
+        $estimatedLastDoneKm = (int) round(
+            (int) $unitPlanning->unit->current_odo - ($proportion * $intervalKm),
+        );
+
+        return max(1, $estimatedLastDoneKm);
     }
 }

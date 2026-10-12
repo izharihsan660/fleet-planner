@@ -16,24 +16,26 @@ use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 /**
- * maintenance:check-overdue menandai item terlambat setiap malam. Item yang
- * sudah punya mekanik penanggung jawab dan tanggal pengerjaan tidak boleh
- * kehilangan tahap kerjanya karena penandaan itu — kalau hilang, pekerjaannya
- * lenyap dari Tugas Saya mekanik tanpa ada yang memberi tahu siapa pun.
+ * maintenance:check-overdue hanya menandai item on_hold. Item yang sudah
+ * dikerjakan tetap in_progress meskipun melewati due.
  */
 class OverdueScheduleRetentionTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_scheduled_item_marked_overdue_stays_visible_for_the_mechanic(): void
+    public function test_approved_replace_stays_in_progress_after_due_and_shows_overdue_badges(): void
     {
         [$site, $unit, $mechanic, $planner] = $this->fleet();
         $planning = $this->planning($unit, 'Ganti Oli', today()->subDays(3)->toDateString());
         [$workOrder, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'in_progress');
+        $item->update(['action' => 'replace']);
 
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
-        $this->assertSame('overdue', $item->refresh()->status);
+        $this->assertSame('in_progress', $item->refresh()->status);
+        $this->assertNotNull($item->approved_at);
+        $this->assertNull($item->completed_date);
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
 
         $tasks = collect($this->actingAs($mechanic)
             ->get(route('mechanic.tasks'))
@@ -60,8 +62,17 @@ class OverdueScheduleRetentionTest extends TestCase
 
         $this->assertSame('in_progress', $card['phase']);
         $this->assertContains('Sedang dikerjakan', $labels);
-        $this->assertContains('Terlambat 3 hari', $labels);
+        $this->assertContains('Overdue', $labels);
         $this->assertNotContains('Belum ada tindakan', $labels);
+
+        $workListItem = collect($this->actingAs($planner)
+            ->get(route('work-list.index'))
+            ->assertOk()
+            ->inertiaProps('items'))->firstWhere('id', $item->id);
+
+        $this->assertSame('in_progress', $workListItem['status']);
+        $this->assertSame('Sedang dikerjakan', $workListItem['status_label']);
+        $this->assertTrue($workListItem['is_overdue']);
     }
 
     public function test_item_leaving_overdue_returns_to_in_progress_when_schedule_is_intact(): void
@@ -99,7 +110,7 @@ class OverdueScheduleRetentionTest extends TestCase
         $this->assertSame('on_hold', $item->refresh()->status);
     }
 
-    public function test_sweep_syncs_the_parent_work_order_status(): void
+    public function test_on_hold_item_becomes_overdue_and_syncs_parent_work_order(): void
     {
         [$site, $unit, $mechanic, $planner] = $this->fleet();
         $planning = $this->planning($unit, 'Oli Gardan', today()->subDays(2)->toDateString());
@@ -111,21 +122,82 @@ class OverdueScheduleRetentionTest extends TestCase
             'approved_by' => $planner->id,
             'approved_at' => now(),
         ]);
-        WorkOrderItem::query()->create([
+        $item = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id,
             'unit_planning_id' => $planning->id,
             'planning_item_id' => $planning->planning_item_id,
-            'status' => 'in_progress',
+            'status' => 'on_hold',
             'approved_at' => now(),
         ]);
 
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
+        $this->assertSame('overdue', $item->refresh()->status);
         $this->assertSame(
             'open',
             $workOrder->refresh()->status,
             'Status WO ikut dihitung ulang, tidak membeku di nilai lama.',
         );
+    }
+
+    public function test_postponed_complete_and_blocked_items_are_not_marked_overdue(): void
+    {
+        [$site, $unit, $mechanic, $planner] = $this->fleet();
+        $items = [];
+
+        foreach (['postponed', 'complete', 'blocked'] as $status) {
+            $planning = $this->planning($unit, 'Item '.$status, today()->subDays(2)->toDateString());
+            $planning->update(['next_due_km' => $unit->current_odo]);
+            [, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, $status);
+            $items[] = $item;
+        }
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        foreach ($items as $item) {
+            $this->assertSame($item->getOriginal('status'), $item->refresh()->status);
+        }
+    }
+
+    public function test_in_progress_badge_is_computed_from_current_due_date_and_km(): void
+    {
+        [$site, $unit, $mechanic, $planner] = $this->fleet();
+        $planning = $this->planning($unit, 'Filter Udara', today()->addDays(10)->toDateString());
+        $planning->update(['next_due_km' => null]);
+        [, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'in_progress');
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $card = $this->boardSnapshot($planner)['in_progress']->firstWhere('id', $item->id);
+        $this->assertNotContains('Overdue', collect($card['badges'])->pluck('label'));
+        $workListItem = collect($this->actingAs($planner)->get(route('work-list.index'))->assertOk()->inertiaProps('items'))->firstWhere('id', $item->id);
+        $this->assertFalse($workListItem['is_overdue']);
+
+        $planning->update(['next_due_date' => null, 'next_due_km' => $unit->current_odo]);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $this->assertSame('in_progress', $item->refresh()->status);
+        $card = $this->boardSnapshot($planner)['in_progress']->firstWhere('id', $item->id);
+        $this->assertContains('Overdue', collect($card['badges'])->pluck('label'));
+        $workListItem = collect($this->actingAs($planner)->get(route('work-list.index'))->assertOk()->inertiaProps('items'))->firstWhere('id', $item->id);
+        $this->assertTrue($workListItem['is_overdue']);
+    }
+
+    public function test_missing_baseline_never_produces_an_overdue_badge(): void
+    {
+        [$site, $unit, $mechanic, $planner] = $this->fleet();
+        $planning = $this->planning($unit, 'Baseline kosong', today()->subDays(2)->toDateString());
+        $planning->update(['last_done_km' => 0, 'next_due_km' => null]);
+        [, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'in_progress');
+
+        $this->assertTrue((new UnitPlanning(['last_done_km' => null]))->isBaselineMissing());
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+
+        $card = $this->boardSnapshot($planner)['in_progress']->firstWhere('id', $item->id);
+        $this->assertSame('in_progress', $item->refresh()->status);
+        $this->assertNotContains('Overdue', collect($card['badges'])->pluck('label'));
     }
 
     public function test_repair_command_restores_items_stranded_by_the_old_sweep(): void

@@ -26,10 +26,11 @@ type WorkListItem = {
     baseline_incomplete: boolean;
     item_name: string;
     is_priority: boolean;
-    status: 'on_hold' | 'overdue';
+    status: 'on_hold' | 'overdue' | 'in_progress';
     due_date: string | null;
     due_km: number | null;
     late_days: number;
+    is_overdue: boolean;
     baseline_missing: boolean;
     assigned_mechanic_id: number | null;
     assigned_mechanic_name: string | null;
@@ -96,13 +97,13 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
     const [activeBaselineItemId, setActiveBaselineItemId] = useState<number | null>(null);
 
     const selectedItems = useMemo(
-        () => items.filter((item) => selectedIds.includes(item.id) && ! item.is_scheduled),
+        () => items.filter((item) => selectedIds.includes(item.id) && ! item.is_scheduled && item.status !== 'in_progress'),
         [items, selectedIds],
     );
     // Item yang sudah punya mekanik dan tanggal tetap ditampilkan supaya planner
     // melihat gambaran penuh, tapi tidak bisa dipilih: mengajukannya dari sini
     // akan menimpa jadwal yang sudah berjalan.
-    const selectableItems = useMemo(() => items.filter((item) => !item.is_scheduled), [items]);
+    const selectableItems = useMemo(() => items.filter((item) => !item.is_scheduled && item.status !== 'in_progress'), [items]);
 
     const selectedSiteIds = useMemo(
         () => Array.from(new Set(selectedItems.map((item) => item.site_id))),
@@ -296,7 +297,7 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
                             <div>
                                 <h3 className="font-semibold text-foreground">Task Hasil Trigger</h3>
-                                <p className="text-sm text-muted-foreground">{items.length} task Due/Overdue perlu dipantau. {sortDescriptions[sortBy]}</p>
+                                <p className="text-sm text-muted-foreground">{items.length} task perlu dipantau. {sortDescriptions[sortBy]}</p>
                             </div>
                             {selectedItems.length > 0 && <span className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">{selectedItems.length} dipilih</span>}
                         </div>
@@ -319,7 +320,7 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
                                     {items.map((item) => (
                                         <TableRow key={item.id} className={selectedIds.includes(item.id) ? 'bg-primary/10' : item.is_priority ? 'bg-fuchsia-50/40 dark:bg-fuchsia-500/5' : 'bg-card'}>
                                             <TableCell className="px-4 py-4">
-                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id) && ! item.is_scheduled} disabled={item.is_scheduled} onCheckedChange={() => toggleItem(item.id)} />
+                                                <Checkbox aria-label={`Pilih ${item.plate_number} ${item.item_name}`} checked={selectedIds.includes(item.id) && ! item.is_scheduled && item.status !== 'in_progress'} disabled={item.is_scheduled || item.status === 'in_progress'} onCheckedChange={() => toggleItem(item.id)} />
                                             </TableCell>
                                             <TableCell className="px-4 py-4">
                                                 <p className="text-base font-semibold text-foreground">{item.plate_number}</p>
@@ -336,9 +337,12 @@ export default function Index({ auth, items, baselineItems, sites, planningItems
                                             </TableCell>
                                             <TableCell className="px-4 py-4 text-base text-muted-foreground">{item.site_name}</TableCell>
                                             <TableCell className="px-4 py-4">
-                                                <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
-                                                    {item.status_label}
-                                                </span>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className={item.status === 'overdue' ? 'rounded-full border border-red-200 bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200' : 'rounded-full border border-border bg-muted px-3 py-1 text-sm font-semibold text-muted-foreground'}>
+                                                        {item.status_label}
+                                                    </span>
+                                                    {item.is_overdue && <StatusBadge tone="danger">Overdue</StatusBadge>}
+                                                </div>
                                             </TableCell>
                                             <TableCell className="px-4 py-4">
                                                 {item.is_scheduled ? (

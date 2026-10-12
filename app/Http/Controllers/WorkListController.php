@@ -34,9 +34,8 @@ class WorkListController extends Controller
      * Isi Daftar Kerja ditentukan per item, bukan dari status WO induknya.
      * WO bisa berhenti di 'complete' sementara itemnya kembali applicable —
      * misalnya lewat jalur exclude → complete → un-exclude pada planning item —
-     * dan item seperti itu tetap harus dikerjakan. Kedua status di bawah sudah
-     * non-final, jadi item yang sudah selesai/dibatalkan tidak ikut terbawa.
-     * Sama dengan cara Kanban dan Tugas Saya menentukan isinya.
+     * dan item seperti itu tetap harus dikerjakan. Item in_progress juga
+     * ditampilkan untuk pemantauan, tetapi bukan pilihan untuk aksi massal.
      *
      * @var array<int, string>
      */
@@ -67,7 +66,7 @@ class WorkListController extends Controller
                 'workOrder.site:id,name,region,region_id',
                 'workOrder.assignedMechanic:id,name',
             ])
-            ->whereIn('work_order_items.status', self::ACTIONABLE_ITEM_STATUSES)
+            ->whereIn('work_order_items.status', [...self::ACTIONABLE_ITEM_STATUSES, 'in_progress'])
             ->whereHas('workOrder.site', fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
             ->when($filters['site_id'] ?? null, fn (Builder $query, string $siteId) => $query->whereHas('workOrder', fn (Builder $workOrderQuery) => $workOrderQuery->where('site_id', $siteId)))
             ->when($planningItemIds !== [], fn (Builder $query) => $query->whereIn('work_order_items.planning_item_id', $planningItemIds))
@@ -85,6 +84,9 @@ class WorkListController extends Controller
                 $lateDays = $dueDate === null ? 0 : max(0, $today->diffInDays(CarbonImmutable::parse($dueDate), false) * -1);
                 $baselineMissing = $item->unitPlanning?->isBaselineMissing() ?? true;
                 $unit = $item->workOrder->unit;
+                $pastDue = ! $baselineMissing && ($lateDays > 0 || ($item->unitPlanning?->next_due_km !== null
+                    && $unit !== null && $unit->current_odo >= $item->unitPlanning->next_due_km));
+                $isOverdueInProgress = $item->status === 'in_progress' && $pastDue;
 
                 return [
                     'id' => $item->id,
@@ -99,7 +101,8 @@ class WorkListController extends Controller
                     'status' => $item->status,
                     'due_date' => $dueDate?->toDateString(),
                     'due_km' => $item->unitPlanning?->next_due_km,
-                    'late_days' => $item->status === 'overdue' ? $lateDays : 0,
+                    'late_days' => $item->status === 'overdue' || $isOverdueInProgress ? $lateDays : 0,
+                    'is_overdue' => $isOverdueInProgress,
                     'baseline_missing' => $baselineMissing,
                     // Penugasan ikut dikirim supaya item yang sudah punya mekanik
                     // dan tanggal tidak terlihat sama dengan item yang belum
@@ -111,7 +114,7 @@ class WorkListController extends Controller
                     'is_scheduled' => $item->isScheduled(),
                     'status_label' => $baselineMissing
                         ? 'Baseline Belum Diisi'
-                        : ($item->status === 'overdue' ? 'Telat '.$lateDays.' hari' : 'Aman'),
+                        : ($item->status === 'overdue' ? 'Telat '.$lateDays.' hari' : ($item->status === 'in_progress' ? 'Sedang dikerjakan' : 'Aman')),
                 ];
             })
             ->pipe(fn (Collection $items): Collection => $this->sortItems($items, $sortBy));
@@ -120,7 +123,7 @@ class WorkListController extends Controller
 
         return Inertia::render('WorkList/Index', [
             'items' => $items->where('baseline_missing', false)->values(),
-            'baselineItems' => $items->where('baseline_missing', true)->values(),
+            'baselineItems' => $items->where('baseline_missing', true)->whereIn('status', self::ACTIONABLE_ITEM_STATUSES)->values(),
             'sites' => SiteResource::collection(AccessScope::applySiteListScope(Site::query(), $user)->orderBy('name')->get()),
             'planningItems' => PlanningItem::query()->orderBy('name')->get(['id', 'name']),
             'mechanicsBySite' => User::query()

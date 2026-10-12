@@ -1018,9 +1018,11 @@ class WorkOrderController extends Controller
             $badges[] = [
                 'key' => 'late',
                 'tone' => 'danger',
-                'label' => $due['overdue_days'] !== null
-                    ? 'Terlambat '.$due['overdue_days'].' hari'
-                    : 'Lewat '.number_format((int) $due['overdue_km'], 0, ',', '.').' KM',
+                'label' => $item->status === 'in_progress'
+                    ? 'Overdue'
+                    : ($due['overdue_days'] !== null
+                        ? 'Terlambat '.$due['overdue_days'].' hari'
+                        : 'Lewat '.number_format((int) $due['overdue_km'], 0, ',', '.').' KM'),
             ];
         }
 
@@ -1268,7 +1270,7 @@ class WorkOrderController extends Controller
 
         $daysUntilDue = $planning->next_due_date === null ? null : CarbonImmutable::today()->diffInDays(CarbonImmutable::parse($planning->next_due_date), false);
         $kmUntilDue = $planning->next_due_km === null ? null : $planning->next_due_km - $unit->current_odo;
-        $isOverdue = ($daysUntilDue !== null && $daysUntilDue < 0) || ($kmUntilDue !== null && $kmUntilDue < 0);
+        $isOverdue = ($daysUntilDue !== null && $daysUntilDue < 0) || ($kmUntilDue !== null && $kmUntilDue <= 0);
         $isWarning = ($daysUntilDue !== null && $daysUntilDue <= $thresholds['warning_days']) || ($kmUntilDue !== null && $kmUntilDue <= $thresholds['warning_km']);
 
         return [
@@ -1277,7 +1279,7 @@ class WorkOrderController extends Controller
             'level' => $isOverdue ? 'red' : ($isWarning ? 'yellow' : 'green'),
             'label' => $isOverdue ? 'Terlambat '.abs((int) ($daysUntilDue ?? 0)).' hari' : ($isWarning ? 'Peringatan' : 'Aman'),
             'overdue_days' => $daysUntilDue !== null && $daysUntilDue < 0 ? abs((int) $daysUntilDue) : null,
-            'overdue_km' => $kmUntilDue !== null && $kmUntilDue < 0 ? abs((int) $kmUntilDue) : null,
+            'overdue_km' => $kmUntilDue !== null && $kmUntilDue <= 0 ? abs((int) $kmUntilDue) : null,
             'sort_value' => min($daysUntilDue ?? 999999, $kmUntilDue ?? 999999),
         ];
     }
