@@ -56,11 +56,12 @@ class CheckOverdueMaintenance extends Command
         $restoredCount = $staleOverdueItems->filter(
             fn (WorkOrderItem $item): bool => $item->isScheduled()
         )->count();
+        $onHoldCount = $staleOverdueItems->count() - $restoredCount;
 
         if ($isDryRun) {
             $this->info("{$overdueItems->count()} work order item akan ditandai overdue.");
-            $this->info("{$staleOverdueItems->count()} work order item overdue stale akan dikembalikan ke on_hold.");
-            $this->info("{$restoredCount} di antaranya kembali ke in_progress karena mekanik dan jadwalnya masih ada.");
+            $this->info("{$onHoldCount} work order item overdue stale akan dikembalikan ke on_hold.");
+            $this->info("{$restoredCount} work order item overdue stale akan dikembalikan ke in_progress.");
 
             return self::SUCCESS;
         }
@@ -96,8 +97,8 @@ class CheckOverdueMaintenance extends Command
             });
 
         $this->info("{$updatedOverdueItems->count()} work order item overdue diproses.");
-        $this->info("{$staleOverdueItems->count()} work order item overdue stale dikembalikan ke on_hold.");
-        $this->info("{$restoredCount} di antaranya kembali ke in_progress karena mekanik dan jadwalnya masih ada.");
+        $this->info("{$onHoldCount} work order item overdue stale dikembalikan ke on_hold.");
+        $this->info("{$restoredCount} work order item overdue stale dikembalikan ke in_progress.");
 
         return self::SUCCESS;
     }

@@ -80,8 +80,21 @@ class OverdueScheduleRetentionTest extends TestCase
         [$site, $unit, $mechanic, $planner] = $this->fleet();
         $planning = $this->planning($unit, 'Filter Solar', today()->addDays(10)->toDateString());
         [$workOrder, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'overdue');
+        $item->update(['action' => 'replace']);
 
-        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+        $this->assertTrue($item->isScheduled());
+
+        $this->artisan('maintenance:check-overdue --dry-run')
+            ->expectsOutput('0 work order item overdue stale akan dikembalikan ke on_hold.')
+            ->expectsOutput('1 work order item overdue stale akan dikembalikan ke in_progress.')
+            ->assertSuccessful();
+
+        $this->assertSame('overdue', $item->refresh()->status);
+
+        $this->artisan('maintenance:check-overdue')
+            ->expectsOutput('0 work order item overdue stale dikembalikan ke on_hold.')
+            ->expectsOutput('1 work order item overdue stale dikembalikan ke in_progress.')
+            ->assertSuccessful();
 
         $this->assertSame('in_progress', $item->refresh()->status);
         $this->assertSame($mechanic->id, $workOrder->refresh()->assigned_mechanic_id);
@@ -108,6 +121,44 @@ class OverdueScheduleRetentionTest extends TestCase
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
         $this->assertSame('on_hold', $item->refresh()->status);
+    }
+
+    public function test_stale_approved_replace_without_a_schedule_returns_to_on_hold(): void
+    {
+        [$site, $unit, , $planner] = $this->fleet();
+        $planning = $this->planning($unit, 'Filter Kabin', today()->addDays(10)->toDateString());
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+        ]);
+        $item = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planning->planning_item_id,
+            'status' => 'overdue',
+            'action' => 'replace',
+            'approved_by' => $planner->id,
+            'approved_at' => now(),
+        ]);
+
+        $this->assertFalse($item->isScheduled());
+
+        $this->artisan('maintenance:check-overdue --dry-run')
+            ->expectsOutput('1 work order item overdue stale akan dikembalikan ke on_hold.')
+            ->expectsOutput('0 work order item overdue stale akan dikembalikan ke in_progress.')
+            ->assertSuccessful();
+
+        $this->assertSame('overdue', $item->refresh()->status);
+
+        $this->artisan('maintenance:check-overdue')
+            ->expectsOutput('1 work order item overdue stale dikembalikan ke on_hold.')
+            ->expectsOutput('0 work order item overdue stale dikembalikan ke in_progress.')
+            ->assertSuccessful();
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertNull($item->completed_date);
     }
 
     public function test_on_hold_item_becomes_overdue_and_syncs_parent_work_order(): void
@@ -219,8 +270,90 @@ class OverdueScheduleRetentionTest extends TestCase
         $this->assertSame('in_progress', $item->refresh()->status);
 
         $this->artisan('fleet:restore-scheduled-on-hold --execute')
-            ->expectsOutput('Tidak ada item on_hold yang masih memegang mekanik dan jadwal.')
+            ->expectsOutput('Tidak ada item on_hold/overdue yang memenuhi kriteria pemulihan.')
             ->assertSuccessful();
+    }
+
+    public function test_repair_command_restores_scheduled_approved_replace_from_overdue_and_on_hold(): void
+    {
+        [$site, $unit, $mechanic, $planner] = $this->fleet();
+        $planning = $this->planning($unit, 'Filter Solar', today()->subDays(3)->toDateString());
+        [$workOrder, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'overdue');
+        $item->update(['action' => 'replace']);
+
+        $onHoldPlanning = $this->planning($unit, 'Filter Oli', today()->subDays(3)->toDateString());
+        [, $onHoldItem] = $this->scheduledItem($unit, $site, $mechanic, $planner, $onHoldPlanning, 'on_hold');
+        $onHoldItem->update(['action' => 'replace']);
+
+        $completedPlanning = $this->planning($unit, 'Brake Pad', today()->subDays(3)->toDateString());
+        [, $completedItem] = $this->scheduledItem($unit, $site, $mechanic, $planner, $completedPlanning, 'overdue');
+        $completedItem->update(['action' => 'replace', 'completed_date' => today()->toDateString()]);
+
+        $otherActionPlanning = $this->planning($unit, 'Oli Gardan', today()->subDays(3)->toDateString());
+        [, $otherActionItem] = $this->scheduledItem($unit, $site, $mechanic, $planner, $otherActionPlanning, 'overdue');
+        $otherActionItem->update(['action' => 'postpone']);
+
+        $this->artisan('fleet:restore-scheduled-on-hold --dry-run')
+            ->expectsOutput('2 item akan dikembalikan ke in_progress. Tidak ada data yang diubah.')
+            ->assertSuccessful();
+
+        $this->assertSame('overdue', $item->refresh()->status);
+        $this->assertSame('on_hold', $onHoldItem->refresh()->status);
+
+        $this->artisan('fleet:restore-scheduled-on-hold --execute')
+            ->expectsOutput('2 item berhasil dikembalikan ke in_progress.')
+            ->assertSuccessful();
+
+        $this->assertSame('in_progress', $item->refresh()->status);
+        $this->assertSame('in_progress', $onHoldItem->refresh()->status);
+        $this->assertSame('in_progress', $workOrder->refresh()->status);
+        $this->assertSame('overdue', $completedItem->refresh()->status);
+        $this->assertSame('overdue', $otherActionItem->refresh()->status);
+    }
+
+    public function test_repair_command_excludes_approved_replace_waiting_for_assignment(): void
+    {
+        [$site, $unit, $mechanic, $planner] = $this->fleet();
+        $pendingPlanning = $this->planning($unit, 'Filter Kabin', today()->addDays(10)->toDateString());
+        [$pendingWorkOrder, $pendingItem] = $this->scheduledItem($unit, $site, $mechanic, $planner, $pendingPlanning, 'on_hold');
+        $pendingItem->update(['action' => 'replace', 'scheduled_date' => null]);
+        $pendingWorkOrder->update(['assigned_mechanic_id' => null]);
+
+        $overduePlanning = $this->planning($unit, 'Filter Udara', today()->subDays(3)->toDateString());
+        [$overdueWorkOrder, $overdueItem] = $this->scheduledItem($unit, $site, $mechanic, $planner, $overduePlanning, 'on_hold');
+        $overdueItem->update(['action' => 'replace', 'scheduled_date' => null]);
+        $overdueWorkOrder->update(['assigned_mechanic_id' => null]);
+
+        $this->artisan('maintenance:check-overdue')->assertSuccessful();
+        $this->assertSame('overdue', $overdueItem->refresh()->status);
+
+        $this->artisan('fleet:restore-scheduled-on-hold --execute')
+            ->expectsOutput('Tidak ada item on_hold/overdue yang memenuhi kriteria pemulihan.')
+            ->assertSuccessful();
+
+        $this->assertSame('on_hold', $pendingItem->refresh()->status);
+        $this->assertSame('overdue', $overdueItem->refresh()->status);
+    }
+
+    public function test_repair_command_does_not_undo_site_relocation(): void
+    {
+        [$site, $unit, $mechanic, $planner] = $this->fleet();
+        $planning = $this->planning($unit, 'Filter Transmisi', today()->addDays(10)->toDateString());
+        [$workOrder, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'in_progress');
+        $item->update(['action' => 'replace']);
+
+        $newSite = Site::query()->create(['name' => 'Site Tujuan', 'region' => 'Kalimantan']);
+        $unit->update(['site_id' => $newSite->id]);
+
+        $this->assertSame('on_hold', $item->refresh()->status);
+        $this->assertNull($item->scheduled_date);
+        $this->assertNull($workOrder->refresh()->assigned_mechanic_id);
+
+        $this->artisan('fleet:restore-scheduled-on-hold --execute')
+            ->expectsOutput('Tidak ada item on_hold/overdue yang memenuhi kriteria pemulihan.')
+            ->assertSuccessful();
+
+        $this->assertSame('on_hold', $item->refresh()->status);
     }
 
     /**
