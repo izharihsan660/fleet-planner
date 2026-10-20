@@ -262,7 +262,7 @@ export interface HighUsageFlag {
     avg_km_per_day: number;
     estimated_due_days: number;
     flagged_at: string | null;
-    action_taken: 'triggered' | 'deferred' | null;
+    action_taken: 'triggered' | 'deferred' | 'already_active' | null;
     action_taken_at: string | null;
     resolved_at: string | null;
     days_since_flagged: number;
@@ -490,6 +490,7 @@ export type PageProps<
     };
     flash?: {
         status?: string | null;
+        warning?: string | null;
     };
     theme?: {
         preference: ThemePreference;

@@ -839,7 +839,7 @@ class WorkOrderActionWorkflowTest extends TestCase
     public function test_mechanic_my_tasks_excludes_items_with_missing_baseline(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
-        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null, 'next_due_km' => null, 'next_due_date' => null]);
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
         $workOrder = WorkOrder::query()->create([
             'unit_id' => $unit->id,
@@ -867,7 +867,7 @@ class WorkOrderActionWorkflowTest extends TestCase
     public function test_work_order_approval_rejects_item_with_missing_baseline(): void
     {
         [$site, $unit, $planning] = $this->makePlanningContext(75000);
-        $planning->update(['last_done_km' => 0, 'last_done_date' => null]);
+        $planning->update(['last_done_km' => 0, 'last_done_date' => null, 'next_due_km' => null, 'next_due_date' => null]);
         $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $site->id]);
         $spv = User::factory()->create(['role' => UserRole::SpvHo]);
         [$workOrder, $item] = $this->makeWorkOrder($unit, $planning, $planner, 'pending_create');

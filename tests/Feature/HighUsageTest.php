@@ -80,7 +80,9 @@ class HighUsageTest extends TestCase
 
         $this->actingAs($admin)->post(route('high-usage.action', $flag), [
             'action' => 'triggered',
-        ])->assertRedirect();
+        ])->assertRedirect()
+            ->assertSessionHas('success', 'Tindak lanjut High Usage berhasil disimpan.')
+            ->assertSessionMissing('warning');
 
         $this->assertDatabaseHas('work_order_items', [
             'unit_planning_id' => $unitPlanning->id,
@@ -128,7 +130,7 @@ class HighUsageTest extends TestCase
         ]);
     }
 
-    public function test_rejected_item_does_not_block_high_usage_work_order_item(): void
+    public function test_rejected_item_created_after_flag_blocks_high_usage_action(): void
     {
         [$unit, $unitPlanning] = $this->createHighUsageScenario();
         $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
@@ -138,19 +140,61 @@ class HighUsageTest extends TestCase
             'unit_planning_id' => $unitPlanning->id,
             'planning_item_id' => $unitPlanning->planning_item_id,
             'status' => 'rejected',
+            'action' => 'replace',
         ]);
         $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
 
-        $this->actingAs($admin)->post(route('high-usage.action', $flag), [
+        $response = $this->actingAs($admin)->post(route('high-usage.action', $flag), [
             'action' => 'triggered',
-        ])->assertRedirect();
+        ])->assertRedirect()
+            ->assertSessionHas('warning')
+            ->assertSessionMissing('success');
 
-        $this->assertSame(2, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
-        $this->assertDatabaseHas('work_order_items', [
+        $message = $response->baseResponse->getSession()->get('warning');
+        $this->assertStringContainsString($unit->current_plate, $message);
+        $this->assertStringContainsString($unitPlanning->planningItem->name, $message);
+        $this->assertStringContainsString('rejected', $message);
+
+        $this->withoutVite();
+        $this->actingAs($admin)->get(route('high-usage.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('HighUsage/Index')->where('flash.warning', $message)->etc());
+
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+        $this->assertSame(1, WorkOrder::query()->where('unit_id', $unit->id)->count());
+        $this->assertSame('already_active', $flag->refresh()->action_taken);
+        $this->assertNotNull($flag->resolved_at);
+    }
+
+    public function test_schedule_action_does_not_duplicate_item_created_after_flag(): void
+    {
+        [$unit, $unitPlanning] = $this->createHighUsageScenario();
+        $flag = app(HighUsageService::class)->detect($unit->refresh())[0];
+        $workOrder = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $unit->site_id, 'trigger_type' => 'normal', 'status' => 'open']);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
             'unit_planning_id' => $unitPlanning->id,
+            'planning_item_id' => $unitPlanning->planning_item_id,
             'status' => 'on_hold',
-            'triggered_by_high_usage' => true,
         ]);
+        $admin = User::factory()->create(['role' => UserRole::PlannerArea, 'site_id' => $unit->site_id]);
+
+        $response = $this->actingAs($admin)->post(route('high-usage.schedule', $flag), [
+            'available_date' => today()->addDays(2)->toDateString(),
+            'new_due_km' => 5000,
+            'new_due_date' => today()->addDays(30)->toDateString(),
+        ])->assertRedirect()
+            ->assertSessionHas('warning')
+            ->assertSessionMissing('success');
+
+        $message = $response->baseResponse->getSession()->get('warning');
+        $this->assertStringContainsString($unit->current_plate, $message);
+        $this->assertStringContainsString($unitPlanning->planningItem->name, $message);
+        $this->assertStringContainsString('on_hold', $message);
+
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+        $this->assertSame('already_active', $flag->refresh()->action_taken);
+        $this->assertNotNull($flag->resolved_at);
     }
 
     public function test_planner_area_can_defer_and_submit_new_schedule_in_second_window(): void
@@ -174,7 +218,9 @@ class HighUsageTest extends TestCase
             'available_date' => $availableDate,
             'new_due_km' => 2400,
             'new_due_date' => $newDueDate,
-        ])->assertRedirect();
+        ])->assertRedirect()
+            ->assertSessionHas('success', 'Jadwal baru High Usage berhasil diajukan.')
+            ->assertSessionMissing('warning');
 
         $item = WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->firstOrFail();
 

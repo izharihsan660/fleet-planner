@@ -37,7 +37,7 @@ class ApprovalQueueController extends Controller
             ->applicable()
             ->with([
                 'planningItem:id,name',
-                'unitPlanning:id,last_done_km,last_done_date,next_due_date',
+                'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km',
                 'workOrder.unit' => fn ($query) => $query
                     ->select(['id', 'current_plate', 'current_odo', 'has_odometer_reading', 'site_id'])
                     ->with('unitPlannings:id,unit_id,last_done_km'),
@@ -62,7 +62,7 @@ class ApprovalQueueController extends Controller
                 $waitingHours = max(0, (int) $submittedAt->diffInHours($now));
                 $waitingDays = intdiv($waitingHours, 24);
                 $unit = $item->workOrder?->unit;
-                $baselineMissing = $item->unitPlanning?->isBaselineMissing() ?? true;
+                $baselineMissing = ! ($item->unitPlanning?->isDueEligible() ?? false);
                 $currentDueDate = $baselineMissing ? null : $item->unitPlanning?->next_due_date?->toDateString();
 
                 return [
@@ -70,7 +70,7 @@ class ApprovalQueueController extends Controller
                     'work_order_id' => $item->work_order_id,
                     'plate_number' => $item->workOrder?->unit?->current_plate ?? '-',
                     'current_odo' => $unit?->current_odo ?? 0,
-                    'baseline_incomplete' => $unit?->hasIncompletePlanningBaseline() ?? true,
+                    'baseline_incomplete' => $baselineMissing && ($unit?->hasIncompletePlanningBaseline() ?? true),
                     'baseline_missing' => $baselineMissing,
                     'item_name' => $item->planningItem?->name ?? 'Item maintenance',
                     'reason' => $item->reason ?: $item->notes,
@@ -124,7 +124,7 @@ class ApprovalQueueController extends Controller
                     abort(422, 'Ada item yang sudah berubah status. Muat ulang halaman lalu pilih ulang.');
                 }
 
-                if ($item->unitPlanning?->isBaselineMissing() ?? true) {
+                if (! ($item->unitPlanning?->isDueEligible() ?? false)) {
                     abort(422, 'Baseline item belum diisi. Item tidak dapat diproses melalui antrean approval.');
                 }
 

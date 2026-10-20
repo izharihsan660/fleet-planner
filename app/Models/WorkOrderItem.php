@@ -10,6 +10,10 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 
 class WorkOrderItem extends Model
 {
+    public const BLOCKING_STATUSES = ['on_hold', 'overdue', 'pending_create', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'rejected'];
+
+    public const TERMINAL_STATUSES = ['complete', 'postponed', 'cancelled'];
+
     protected $fillable = [
         'work_order_id',
         'unit_planning_id',
@@ -67,6 +71,15 @@ class WorkOrderItem extends Model
     public function scopeApplicable(Builder $query): Builder
     {
         return $query->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->applicable());
+    }
+
+    /**
+     * @param  Builder<WorkOrderItem>  $query
+     * @return Builder<WorkOrderItem>
+     */
+    public function scopeBlocking(Builder $query): Builder
+    {
+        return $query->whereIn($query->qualifyColumn('status'), self::BLOCKING_STATUSES);
     }
 
     /**
@@ -140,7 +153,7 @@ class WorkOrderItem extends Model
 
     public function isBaselineReplaceSubmission(): bool
     {
-        return ($this->unitPlanning?->isBaselineMissing() ?? true)
+        return ! ($this->unitPlanning?->isDueEligible() ?? false)
             && $this->action === 'replace'
             && in_array($this->status, ['replace', 'in_progress'], true);
     }

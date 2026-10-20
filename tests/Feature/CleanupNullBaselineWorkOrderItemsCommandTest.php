@@ -90,7 +90,7 @@ class CleanupNullBaselineWorkOrderItemsCommandTest extends TestCase
             'last_done_km' => 0,
             'last_done_date' => today()->subMonth()->toDateString(),
             'next_due_km' => 5000,
-            'next_due_date' => today()->subDays(83)->toDateString(),
+            'next_due_date' => null,
         ]);
         $skippedPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
@@ -98,7 +98,7 @@ class CleanupNullBaselineWorkOrderItemsCommandTest extends TestCase
             'last_done_km' => 0,
             'last_done_date' => today()->subMonths(2)->toDateString(),
             'next_due_km' => 5000,
-            'next_due_date' => today()->subDays(83)->toDateString(),
+            'next_due_date' => null,
         ]);
 
         $onHoldOnlyParent = WorkOrder::query()->create(['unit_id' => $unit->id, 'site_id' => $site->id, 'trigger_type' => 'normal', 'status' => 'open']);

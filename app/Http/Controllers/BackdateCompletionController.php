@@ -60,7 +60,7 @@ class BackdateCompletionController extends Controller
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
 
         abort_if($item->status === 'complete', 422, 'Item work order ini sudah selesai.');
-        abort_if($item->unitPlanning === null || $item->unitPlanning->isBaselineMissing(), 422, 'Baseline item belum diisi. Isi baseline sebelum mengoreksi tanggal selesai.');
+        abort_unless($item->unitPlanning?->isDueEligible() ?? false, 422, 'Baseline item belum diisi. Isi baseline sebelum mengoreksi tanggal selesai.');
 
         $completedDate = CarbonImmutable::parse($request->validated('completed_date'));
 

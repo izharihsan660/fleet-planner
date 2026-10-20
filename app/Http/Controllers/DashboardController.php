@@ -105,7 +105,7 @@ class DashboardController extends Controller
                 'overdue_count' => WorkOrderItem::query()
                     ->applicable()
                     ->where('status', 'overdue')
-                    ->withBaseline()
+                    ->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->dueEligible())
                     ->whereHas('workOrder', fn (Builder $query) => $query->where('site_id', $site->id))
                     ->count(),
             ];
@@ -177,7 +177,7 @@ class DashboardController extends Controller
 
         return WorkOrderItem::query()
             ->applicable()
-            ->withBaseline()
+            ->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->dueEligible())
             ->whereHas('workOrder', function (Builder $query) use ($user, $regionId): void {
                 AccessScope::applySiteScope($query, $user, 'work_orders.site_id');
 

@@ -27,7 +27,8 @@ class CompleteWorkOrderItemRequest extends FormRequest
     public function rules(): array
     {
         $item = $this->route('item');
-        $minimumCompletedOdometer = $item instanceof WorkOrderItem && $item->isApprovedBaselineReplace() ? 1 : 0;
+        $minimumCompletedOdometer = $item instanceof WorkOrderItem
+            && ($item->isApprovedBaselineReplace() || ($item->unitPlanning?->isBaselineMissing() ?? true)) ? 1 : 0;
 
         return [
             'completed_odo' => ['required', 'integer', 'min:'.$minimumCompletedOdometer],

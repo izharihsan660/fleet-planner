@@ -191,7 +191,7 @@ class ApprovalQueueTest extends TestCase
         $zeroBaselineItem->unitPlanning()->update([
             'last_done_km' => 0,
             'last_done_date' => today()->subMonth()->toDateString(),
-            'next_due_date' => $staleDueDate,
+            'next_due_date' => null,
         ]);
         $postponeBaselineItem->unitPlanning()->update([
             'last_done_km' => 0,
@@ -211,13 +211,13 @@ class ApprovalQueueTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('ApprovalQueue/Index')
                 ->has('items', 2)
-                ->where('items', function (mixed $items) use ($postponeBaselineItem, $zeroBaselineItem): bool {
+                ->where('items', function (mixed $items) use ($postponeBaselineItem, $zeroBaselineItem, $staleDueDate): bool {
                     $itemsById = collect($items)->keyBy('id');
 
                     return data_get($itemsById, $zeroBaselineItem->id.'.baseline_missing') === true
                         && data_get($itemsById, $zeroBaselineItem->id.'.due_date') === null
-                        && data_get($itemsById, $postponeBaselineItem->id.'.baseline_missing') === true
-                        && data_get($itemsById, $postponeBaselineItem->id.'.due_date') === null;
+                        && data_get($itemsById, $postponeBaselineItem->id.'.baseline_missing') === false
+                        && data_get($itemsById, $postponeBaselineItem->id.'.due_date') === $staleDueDate;
                 })
             );
 

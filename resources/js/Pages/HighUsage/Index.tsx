@@ -11,10 +11,11 @@ import { Label } from '@/Components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { HighUsageFlag, PageProps, PaginatedCollection } from '@/types';
-import { Head, router, useForm } from '@inertiajs/react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { FormEvent, useState } from 'react';
 
 export default function Index({ flags, canTakeAction }: PageProps<{ flags: PaginatedCollection<HighUsageFlag>; canTakeAction: boolean }>) {
+    const { flash } = usePage<PageProps>().props;
     const [selectedFlag, setSelectedFlag] = useState<HighUsageFlag | null>(null);
     const [actionConfirmation, setActionConfirmation] = useState<{ flag: HighUsageFlag; action: 'triggered' | 'deferred' } | null>(null);
     const [confirmSchedule, setConfirmSchedule] = useState(false);
@@ -64,6 +65,11 @@ export default function Index({ flags, canTakeAction }: PageProps<{ flags: Pagin
             <Head title="Pemakaian Tinggi" />
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
+                    {flash?.warning && (
+                        <div role="status" aria-live="polite">
+                            <StatusBadge tone="warning" className="whitespace-normal text-left leading-relaxed">{flash.warning}</StatusBadge>
+                        </div>
+                    )}
                     <Card>
                         <CardContent>
                             <div className="overflow-x-auto">

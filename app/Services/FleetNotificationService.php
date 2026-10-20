@@ -31,6 +31,36 @@ class FleetNotificationService
         ), ['url' => route('work-orders.show', $item->workOrder), 'work_order_id' => $item->work_order_id, 'work_order_item_id' => $item->id], $item->workOrder->site_id);
     }
 
+    /**
+     * @param  array<int, int>  $siteIds
+     * @param  array<string, mixed>  $data
+     */
+    public function batchSummary(string $type, string $title, string $message, array $siteIds, array $data = []): void
+    {
+        if ($siteIds === []) {
+            return;
+        }
+
+        $regionIds = Site::query()->whereIn('id', $siteIds)->whereNotNull('region_id')->pluck('region_id')->all();
+
+        User::query()
+            ->where(fn (Builder $query): Builder => $query
+                ->where('role', UserRole::SpvHo->value)
+                ->orWhere(fn (Builder $plannerQuery): Builder => $plannerQuery
+                    ->where('role', UserRole::PlannerArea->value)
+                    ->where(fn (Builder $scopeQuery): Builder => $scopeQuery
+                        ->whereIn('site_id', $siteIds)
+                        ->orWhereIn('region_id', $regionIds))))
+            ->get()
+            ->each(fn (User $user) => Notification::query()->create([
+                'user_id' => $user->id,
+                'type' => $type,
+                'title' => $title,
+                'message' => $message,
+                'data' => $data,
+            ]));
+    }
+
     public function taskSubmitted(WorkOrderItem $item, string $action): void
     {
         $item->loadMissing(['workOrder.unit', 'planningItem']);

@@ -758,6 +758,25 @@ class WorkOrderBoardTest extends TestCase
         );
     }
 
+    public function test_repeated_create_task_request_does_not_create_second_item_or_work_order(): void
+    {
+        $planner = $this->adminSite();
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $planner->site_id]);
+        $unit = $this->unit($planner->site_id, 10000, 100);
+        $planning = $this->planning($unit, 'Engine Oil', 12000, today()->addDays(10)->toDateString());
+        $payload = [
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->addDays(2)->toDateString(),
+        ];
+
+        $this->actingAs($planner)->post(route('unit-plannings.create-work-order', $planning), $payload)->assertRedirect();
+        $this->actingAs($planner)->post(route('unit-plannings.create-work-order', $planning), $payload)
+            ->assertSessionHasErrors(['planning']);
+
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $planning->id)->count());
+        $this->assertSame(1, WorkOrder::query()->where('unit_id', $unit->id)->count());
+    }
+
     public function test_spv_can_reject_preview_task_request_and_preview_returns(): void
     {
         $admin = $this->adminSite();

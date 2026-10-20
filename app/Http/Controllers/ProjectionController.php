@@ -76,7 +76,7 @@ class ProjectionController extends Controller
 
         $items = WorkOrderItem::query()
             ->applicable()
-            ->withBaseline()
+            ->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->dueEligible())
             ->with(['planningItem:id,name', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km', 'workOrder.unit:id,current_plate,current_odo,site_id', 'workOrder.site:id,name,region,region_id'])
             ->whereNotIn('work_order_items.status', ['complete', 'cancelled'])
             ->whereHas('workOrder', fn (Builder $query) => $query->whereNotIn('status', ['complete', 'cancelled']))

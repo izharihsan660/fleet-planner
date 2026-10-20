@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 
 class HighUsageService
 {
+    public function __construct(private WorkOrderItemGuard $workOrderItemGuard) {}
+
     /**
      * @return array<int, HighUsageFlag>
      */
@@ -79,10 +81,10 @@ class HighUsageService
             abort_if($flag->unitPlanning?->isBaselineMissing() ?? true, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses High Usage.');
 
             if ($action === 'triggered') {
-                $this->createWorkOrderItem($flag, $actor, true);
+                $item = $this->createWorkOrderItem($flag, $actor, true);
 
                 $flag->update([
-                    'action_taken' => 'triggered',
+                    'action_taken' => $item === null ? 'already_active' : 'triggered',
                     'action_taken_at' => now(),
                     'action_taken_by' => $actor->id,
                     'resolved_at' => now(),
@@ -103,10 +105,13 @@ class HighUsageService
 
             if ($action === 'scheduled') {
                 $item = $this->createWorkOrderItem($flag, $actor, true, $data);
-                app(FleetNotificationService::class)->taskSubmitted($item, 'postpone');
+
+                if ($item !== null) {
+                    app(FleetNotificationService::class)->taskSubmitted($item, 'postpone');
+                }
 
                 $flag->update([
-                    'action_taken' => 'triggered',
+                    'action_taken' => $item === null ? 'already_active' : 'triggered',
                     'action_taken_at' => now(),
                     'action_taken_by' => $actor->id,
                     'resolved_at' => now(),
@@ -163,44 +168,45 @@ class HighUsageService
     {
         return WorkOrderItem::query()
             ->where('unit_planning_id', $unitPlanning->id)
-            ->whereNotIn('status', ['complete', 'postponed', 'rejected', 'cancelled'])
+            ->blocking()
             ->exists();
     }
 
     /**
      * @param  array{available_date?: string, new_due_km?: int, new_due_date?: string}  $data
      */
-    private function createWorkOrderItem(HighUsageFlag $flag, User $actor, bool $triggeredByHighUsage, array $data = []): WorkOrderItem
+    private function createWorkOrderItem(HighUsageFlag $flag, User $actor, bool $triggeredByHighUsage, array $data = []): ?WorkOrderItem
     {
-        $workOrder = WorkOrderMerger::openWorkOrderFor($flag->unit_id);
+        return $this->workOrderItemGuard->createIfUnblocked($flag->unitPlanning, function () use ($flag, $actor, $triggeredByHighUsage, $data): WorkOrderItem {
+            $workOrder = WorkOrderMerger::openWorkOrderFor($flag->unit_id);
 
-        if (! $workOrder) {
-            $workOrder = WorkOrder::query()->create([
-                'unit_id' => $flag->unit_id,
-                'site_id' => $flag->unit->site_id,
-                'trigger_type' => 'high_usage',
-                'status' => 'open',
+            if (! $workOrder) {
+                $workOrder = WorkOrder::query()->create([
+                    'unit_id' => $flag->unit_id,
+                    'site_id' => $flag->unit->site_id,
+                    'trigger_type' => 'high_usage',
+                    'status' => 'open',
+                    'submitted_by' => $actor->id,
+                ]);
+            }
+
+            return WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $flag->unit_planning_id,
+                'planning_item_id' => $flag->planning_item_id,
+                'status' => empty($data) ? 'on_hold' : 'postpone',
+                'action' => empty($data) ? null : 'postpone',
+                'reason' => empty($data) ? null : 'High Usage Window 2: jadwal baru diajukan.',
+                'previous_due_km' => $flag->unitPlanning?->next_due_km,
+                'previous_due_date' => $flag->unitPlanning?->next_due_date?->toDateString(),
                 'submitted_by' => $actor->id,
+                'submitted_at' => empty($data) ? null : now(),
+                'new_due_km' => $data['new_due_km'] ?? null,
+                'new_due_date' => $data['new_due_date'] ?? null,
+                'available_date' => $data['available_date'] ?? null,
+                'triggered_by_high_usage' => $triggeredByHighUsage,
             ]);
-        }
-
-        return WorkOrderItem::query()->create([
-            'work_order_id' => $workOrder->id,
-            'unit_planning_id' => $flag->unit_planning_id,
-            'planning_item_id' => $flag->planning_item_id,
-            'status' => empty($data) ? 'on_hold' : 'postpone',
-            'action' => empty($data) ? null : 'postpone',
-            'reason' => empty($data) ? null : 'High Usage Window 2: jadwal baru diajukan.',
-            'previous_due_km' => $flag->unitPlanning?->next_due_km,
-            'previous_due_date' => $flag->unitPlanning?->next_due_date?->toDateString(),
-            'submitted_by' => $actor->id,
-            // Item on_hold baru dibuat sistem, belum diajukan ke SPV.
-            'submitted_at' => empty($data) ? null : now(),
-            'new_due_km' => $data['new_due_km'] ?? null,
-            'new_due_date' => $data['new_due_date'] ?? null,
-            'available_date' => $data['available_date'] ?? null,
-            'triggered_by_high_usage' => $triggeredByHighUsage,
-        ]);
+        });
     }
 
     private function thresholdValue(string $key, int $default): int

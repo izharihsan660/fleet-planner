@@ -70,7 +70,9 @@ class WorkListController extends Controller
             ->whereHas('workOrder.site', fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
             ->when($filters['site_id'] ?? null, fn (Builder $query, string $siteId) => $query->whereHas('workOrder', fn (Builder $workOrderQuery) => $workOrderQuery->where('site_id', $siteId)))
             ->when($planningItemIds !== [], fn (Builder $query) => $query->whereIn('work_order_items.planning_item_id', $planningItemIds))
-            ->when(! $includeIncompleteBaseline, fn (Builder $query) => $query->whereHas('workOrder.unit', fn (Builder $unitQuery): Builder => $this->applyCompleteUnitBaselineScope($unitQuery)))
+            ->when(! $includeIncompleteBaseline, fn (Builder $query): Builder => $query->where(fn (Builder $baselineQuery): Builder => $baselineQuery
+                ->whereHas('workOrder.unit', fn (Builder $unitQuery): Builder => $this->applyCompleteUnitBaselineScope($unitQuery))
+                ->orWhereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->missingBaseline()->dueByDate())))
             ->when($filters['search'] ?? null, function (Builder $query, string $search): void {
                 $query->where(function (Builder $searchQuery) use ($search): void {
                     $searchQuery
@@ -82,9 +84,9 @@ class WorkListController extends Controller
             ->map(function (WorkOrderItem $item) use ($today): array {
                 $dueDate = $item->unitPlanning?->next_due_date;
                 $lateDays = $dueDate === null ? 0 : max(0, $today->diffInDays(CarbonImmutable::parse($dueDate), false) * -1);
-                $baselineMissing = $item->unitPlanning?->isBaselineMissing() ?? true;
+                $baselineMissing = ! ($item->unitPlanning?->isDueEligible() ?? false);
                 $unit = $item->workOrder->unit;
-                $pastDue = ! $baselineMissing && ($lateDays > 0 || ($item->unitPlanning?->next_due_km !== null
+                $pastDue = ! $baselineMissing && ($lateDays > 0 || (($item->unitPlanning?->isDueByKm() ?? false)
                     && $unit !== null && $unit->current_odo >= $item->unitPlanning->next_due_km));
                 $isOverdueInProgress = $item->status === 'in_progress' && $pastDue;
 
@@ -95,7 +97,7 @@ class WorkListController extends Controller
                     'site_name' => $item->workOrder->site?->name ?? '-',
                     'plate_number' => $item->workOrder->unit?->current_plate ?? '-',
                     'current_odo' => $unit?->current_odo ?? 0,
-                    'baseline_incomplete' => $unit?->hasIncompletePlanningBaseline() ?? true,
+                    'baseline_incomplete' => $baselineMissing && ($unit?->hasIncompletePlanningBaseline() ?? true),
                     'item_name' => $item->planningItem?->name ?? 'Item maintenance',
                     'is_priority' => in_array($item->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true),
                     'status' => $item->status,
@@ -221,7 +223,7 @@ class WorkListController extends Controller
                         abort(422, 'Item ini sudah dijadwalkan ke mekanik. Ubah penugasannya lewat halaman Perintah Kerja.');
                     }
 
-                    if ($item->unitPlanning?->isBaselineMissing() ?? true) {
+                    if (! ($item->unitPlanning?->isDueEligible() ?? false)) {
                         abort(422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
                     }
 
@@ -277,7 +279,7 @@ class WorkListController extends Controller
             'reason' => 'Ditunda dari Daftar Kerja.',
             'previous_due_km' => $item->unitPlanning?->next_due_km,
             'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
-            'new_due_km' => $item->unitPlanning?->next_due_km ?? 0,
+            'new_due_km' => $item->unitPlanning?->next_due_km,
             'new_due_date' => $group['scheduled_date'],
             'submitted_by' => $user->id,
             'submitted_at' => now(),

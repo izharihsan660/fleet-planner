@@ -8,6 +8,7 @@ use App\Http\Requests\TakeHighUsageActionRequest;
 use App\Http\Resources\HighUsageFlagResource;
 use App\Models\HighUsageFlag;
 use App\Services\HighUsageService;
+use App\Services\WorkOrderItemGuard;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,17 +41,35 @@ class HighUsageController extends Controller
         ]);
     }
 
-    public function takeAction(TakeHighUsageActionRequest $request, HighUsageFlag $flag, HighUsageService $service): RedirectResponse
+    public function takeAction(TakeHighUsageActionRequest $request, HighUsageFlag $flag, HighUsageService $service, WorkOrderItemGuard $guard): RedirectResponse
     {
         $service->takeAction($flag, $request->user(), $request->validated('action'));
 
-        return back()->with('success', 'Tindak lanjut High Usage berhasil disimpan.');
+        return $this->actionResponse($flag, $guard, 'Tindak lanjut High Usage berhasil disimpan.');
     }
 
-    public function submitSchedule(SubmitHighUsageScheduleRequest $request, HighUsageFlag $flag, HighUsageService $service): RedirectResponse
+    public function submitSchedule(SubmitHighUsageScheduleRequest $request, HighUsageFlag $flag, HighUsageService $service, WorkOrderItemGuard $guard): RedirectResponse
     {
         $service->takeAction($flag, $request->user(), 'scheduled', $request->validated());
 
-        return back()->with('success', 'Jadwal baru High Usage berhasil diajukan.');
+        return $this->actionResponse($flag, $guard, 'Jadwal baru High Usage berhasil diajukan.');
+    }
+
+    private function actionResponse(HighUsageFlag $flag, WorkOrderItemGuard $guard, string $successMessage): RedirectResponse
+    {
+        if ($flag->refresh()->action_taken !== 'already_active') {
+            return back()->with('success', $successMessage);
+        }
+
+        $flag->loadMissing('unit', 'planningItem', 'unitPlanning');
+        $blockingItem = $guard->findBlockingItem($flag->unitPlanning);
+        $message = sprintf(
+            'Tidak ada task baru dibuat: %s pada %s sudah punya task aktif (status: %s). Flag High Usage ditandai selesai.',
+            $flag->planningItem->name,
+            $flag->unit->current_plate,
+            $blockingItem?->status ?? 'tidak diketahui',
+        );
+
+        return back()->with('warning', $message);
     }
 }

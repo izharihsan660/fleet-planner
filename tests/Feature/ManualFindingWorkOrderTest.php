@@ -11,6 +11,7 @@ use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
+use App\Models\WorkOrderItem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -60,6 +61,55 @@ class ManualFindingWorkOrderTest extends TestCase
         $this->assertSame('complete', $workOrder->refresh()->status);
         $this->assertSame(70250, $planning->refresh()->next_due_km);
         $this->assertSame(now()->addDays(30)->toDateString(), $planning->next_due_date->toDateString());
+    }
+
+    public function test_manual_finding_reports_blocked_item_and_processes_other_items(): void
+    {
+        [$region, $site, $unit, $planningItem, $planning] = $this->maintenanceContext();
+        $otherItem = PlanningItem::query()->create(['name' => 'Filter Oli', 'interval_km' => 5000, 'interval_days' => 30]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => $region->id, 'site_id' => null]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id,
+            'site_id' => $site->id,
+            'trigger_type' => 'normal',
+            'status' => 'open',
+        ]);
+        WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id,
+            'unit_planning_id' => $planning->id,
+            'planning_item_id' => $planningItem->id,
+            'status' => 'on_hold',
+        ]);
+        $payload = [
+            'reason' => 'Temuan saat inspeksi.',
+            'assigned_mechanic_id' => $mechanic->id,
+            'scheduled_date' => today()->toDateString(),
+        ];
+
+        $this->actingAs($planner)->post(route('units.manual-findings.store', $unit), [
+            ...$payload,
+            'planning_item_ids' => [$planningItem->id],
+        ])->assertSessionHasErrors(['planning_item_ids']);
+
+        $this->assertSame(1, WorkOrder::query()->count());
+        $this->assertSame(1, WorkOrderItem::query()->count());
+
+        $this->actingAs($planner)->post(route('units.manual-findings.store', $unit), [
+            ...$payload,
+            'planning_item_ids' => [$planningItem->id, $otherItem->id],
+        ])->assertSessionHasErrors(['planning_item_ids']);
+
+        $error = session('errors')->first('planning_item_ids');
+        $this->assertStringContainsString($unit->current_plate, $error);
+        $this->assertStringContainsString($planningItem->name, $error);
+        $this->assertStringContainsString('on_hold', $error);
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $planning->id)->count());
+        $this->assertDatabaseHas('work_order_items', [
+            'planning_item_id' => $otherItem->id,
+            'status' => 'replace',
+        ]);
+        $this->assertSame(2, WorkOrderItem::query()->count());
     }
 
     public function test_manual_finding_rbac_follows_region_and_site_scope(): void

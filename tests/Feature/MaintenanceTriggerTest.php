@@ -12,6 +12,7 @@ use App\Models\UnitPlanning;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
+use App\Services\MaintenanceTriggerService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
@@ -63,7 +64,7 @@ class MaintenanceTriggerTest extends TestCase
             );
     }
 
-    public function test_daily_km_input_skips_due_items_with_zero_baseline_km_even_when_date_exists(): void
+    public function test_daily_km_input_creates_date_due_item_with_zero_baseline_km(): void
     {
         $this->seedThresholds();
 
@@ -97,7 +98,7 @@ class MaintenanceTriggerTest extends TestCase
         ])->assertRedirect(route('inspections.create'));
 
         $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $validPlanning->id)->count());
-        $this->assertSame(0, WorkOrderItem::query()->where('unit_planning_id', $missingPlanning->id)->count());
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $missingPlanning->id)->count());
     }
 
     public function test_overdue_scheduler_evaluates_each_item_baseline_independently(): void
@@ -132,7 +133,7 @@ class MaintenanceTriggerTest extends TestCase
         $this->artisan('maintenance:check-overdue')->assertSuccessful();
 
         $this->assertSame('overdue', $validItem->refresh()->status);
-        $this->assertSame('on_hold', $missingItem->refresh()->status);
+        $this->assertSame('overdue', $missingItem->refresh()->status);
     }
 
     public function test_trigger_reuses_open_work_order_and_does_not_duplicate_active_item(): void
@@ -334,7 +335,50 @@ class MaintenanceTriggerTest extends TestCase
         $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
     }
 
-    public function test_rejected_item_does_not_block_future_maintenance_trigger(): void
+    public function test_trigger_twice_keeps_one_on_hold_item_for_same_planning(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+        $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+        $planning = $this->createPlanning($unit, 'Ganti Oli', 1200);
+        $trigger = app(MaintenanceTriggerService::class);
+
+        $this->assertCount(1, $trigger->checkAndTrigger($unit));
+        $this->assertCount(0, $trigger->checkAndTrigger($unit));
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $planning->id)->count());
+        $this->assertSame(1, WorkOrder::query()->where('unit_id', $unit->id)->count());
+    }
+
+    public function test_terminal_items_allow_a_new_maintenance_trigger(): void
+    {
+        $this->seedThresholds();
+
+        $site = Site::query()->create(['name' => 'Site Test', 'region' => 'Region Test']);
+
+        foreach (WorkOrderItem::TERMINAL_STATUSES as $terminalStatus) {
+            $unit = Unit::query()->create($this->unitPayload($site->id, 1000));
+            $planning = $this->createPlanning($unit, 'Ganti Oli '.$terminalStatus, 1200);
+            $workOrder = WorkOrder::query()->create([
+                'unit_id' => $unit->id,
+                'site_id' => $site->id,
+                'trigger_type' => 'normal',
+                'status' => 'open',
+            ]);
+            WorkOrderItem::query()->create([
+                'work_order_id' => $workOrder->id,
+                'unit_planning_id' => $planning->id,
+                'planning_item_id' => $planning->planning_item_id,
+                'status' => $terminalStatus,
+            ]);
+
+            $this->assertCount(1, app(MaintenanceTriggerService::class)->checkAndTrigger($unit), $terminalStatus);
+            $this->assertSame(2, WorkOrderItem::query()->where('unit_planning_id', $planning->id)->count(), $terminalStatus);
+            $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $planning->id)->where('status', 'on_hold')->count(), $terminalStatus);
+        }
+    }
+
+    public function test_rejected_item_blocks_future_maintenance_trigger(): void
     {
         $this->seedThresholds();
 
@@ -355,6 +399,7 @@ class MaintenanceTriggerTest extends TestCase
             'unit_planning_id' => $unitPlanning->id,
             'planning_item_id' => $planningItem->id,
             'status' => 'rejected',
+            'action' => 'replace',
         ]);
         $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
 
@@ -364,8 +409,8 @@ class MaintenanceTriggerTest extends TestCase
             'odometer' => 1600,
         ])->assertRedirect(route('inspections.create'));
 
-        $this->assertSame(2, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
-        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->where('status', 'on_hold')->count());
+        $this->assertSame(1, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->count());
+        $this->assertSame(0, WorkOrderItem::query()->where('unit_planning_id', $unitPlanning->id)->where('status', 'on_hold')->count());
     }
 
     private function seedThresholds(): void

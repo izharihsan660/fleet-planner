@@ -75,14 +75,9 @@ class UnitPlanningBaselineService
                 ->lockForUpdate()
                 ->first();
 
-            $activeItem?->update([
-                'baseline_last_done_km' => $storedLastDoneKm,
-                'baseline_last_done_date' => $lastDoneDate->toDateString(),
-                'previous_due_km' => $previousDueKm,
-                'previous_due_date' => $previousDueDate,
-                'new_due_km' => $nextDueKm,
-                'new_due_date' => $nextDueDate,
-            ]);
+            if ($activeItem !== null) {
+                $this->updateItemSnapshot($activeItem, $unitPlanning, $previousDueKm, $previousDueDate);
+            }
 
             HighUsageFlag::query()
                 ->where('unit_planning_id', $unitPlanning->id)
@@ -99,6 +94,18 @@ class UnitPlanningBaselineService
         $this->highUsageService->detect($unitPlanning->unit->refresh());
 
         return $unitPlanning->refresh();
+    }
+
+    public function updateItemSnapshot(WorkOrderItem $item, UnitPlanning $planning, ?int $previousDueKm, ?string $previousDueDate): void
+    {
+        $item->update([
+            'baseline_last_done_km' => $planning->last_done_km,
+            'baseline_last_done_date' => $planning->last_done_date?->toDateString(),
+            'previous_due_km' => $previousDueKm,
+            'previous_due_date' => $previousDueDate,
+            'new_due_km' => $planning->next_due_km,
+            'new_due_date' => $planning->next_due_date?->toDateString(),
+        ]);
     }
 
     private function estimateLastDoneKm(

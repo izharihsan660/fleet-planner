@@ -662,7 +662,7 @@ class ProjectionTest extends TestCase
                 ->where('calendar.items.0.due_date', '2026-07-25')
                 ->where('calendar.items.0.is_high_usage', true)
                 ->where('calendar.items.0.status_label', 'Ditunda')
-                ->where('calendar.items', fn ($items) => collect($items)->doesntContain('item_name', 'Service Tanpa Baseline'))
+                ->where('calendar.items', fn ($items) => collect($items)->contains('item_name', 'Service Tanpa Baseline'))
             );
     }
 

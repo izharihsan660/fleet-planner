@@ -25,6 +25,7 @@ use App\Services\CompletionBackdatePolicy;
 use App\Services\FleetNotificationService;
 use App\Services\PlanningIntervalResolver;
 use App\Services\WorkOrderItemCompletionService;
+use App\Services\WorkOrderItemGuard;
 use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
@@ -35,6 +36,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -105,6 +107,7 @@ class WorkOrderController extends Controller
     public function __construct(
         private PlanningIntervalResolver $intervalResolver,
         private WorkOrderProgressService $workOrderProgressService,
+        private WorkOrderItemGuard $workOrderItemGuard,
     ) {}
 
     public function myTasks(Request $request): Response
@@ -121,7 +124,7 @@ class WorkOrderController extends Controller
             ->whereIn('work_order_items.status', self::MECHANIC_TASK_ITEM_STATUSES)
             ->where(function (Builder $query): void {
                 $query
-                    ->withBaseline()
+                    ->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->dueEligible())
                     ->orWhere(function (Builder $baselineReplaceQuery): void {
                         $baselineReplaceQuery
                             ->missingBaseline()
@@ -248,37 +251,39 @@ class WorkOrderController extends Controller
             return back()->withErrors(['planning' => 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.']);
         }
 
-        if ($planning->isBaselineMissing()) {
+        if (! $planning->isDueEligible()) {
             return back()->withErrors(['planning' => 'Baseline item belum diisi. Isi baseline sebelum membuat task dari planning.']);
-        }
-
-        if ($this->hasActiveItem($planning)) {
-            return back()->withErrors(['planning' => 'Planning item ini sudah memiliki WO aktif.']);
         }
 
         $assignment = $this->assignmentPayload($request, $planning->unit->site_id);
 
         DB::transaction(function () use ($request, $planning, $notifications, $assignment): void {
-            $workOrder = WorkOrder::query()->create([
-                'unit_id' => $planning->unit_id,
-                'site_id' => $planning->unit->site_id,
-                'trigger_type' => 'manual',
-                'status' => 'open',
-                'submitted_by' => $request->user()->id,
-                'notes' => 'Dibuat lebih awal dari preview Upcoming/Ancang-ancang.',
-                ...$assignment['work_order'],
-            ]);
+            $item = $this->workOrderItemGuard->createIfUnblocked($planning, function () use ($request, $planning, $assignment): WorkOrderItem {
+                $workOrder = WorkOrder::query()->create([
+                    'unit_id' => $planning->unit_id,
+                    'site_id' => $planning->unit->site_id,
+                    'trigger_type' => 'manual',
+                    'status' => 'open',
+                    'submitted_by' => $request->user()->id,
+                    'notes' => 'Dibuat lebih awal dari preview Upcoming/Ancang-ancang.',
+                    ...$assignment['work_order'],
+                ]);
 
-            $item = WorkOrderItem::query()->create([
-                'work_order_id' => $workOrder->id,
-                'unit_planning_id' => $planning->id,
-                'planning_item_id' => $planning->planning_item_id,
-                'status' => 'pending_create',
-                'action' => 'create_task',
-                'submitted_by' => $request->user()->id,
-                'submitted_at' => now(),
-                ...$assignment['item'],
-            ]);
+                return WorkOrderItem::query()->create([
+                    'work_order_id' => $workOrder->id,
+                    'unit_planning_id' => $planning->id,
+                    'planning_item_id' => $planning->planning_item_id,
+                    'status' => 'pending_create',
+                    'action' => 'create_task',
+                    'submitted_by' => $request->user()->id,
+                    'submitted_at' => now(),
+                    ...$assignment['item'],
+                ]);
+            });
+
+            if ($item === null) {
+                throw ValidationException::withMessages(['planning' => 'Planning item ini sudah memiliki WO aktif.']);
+            }
 
             $notifications->taskCreationRequested($item);
         });
@@ -310,16 +315,9 @@ class WorkOrderController extends Controller
         }
         $assignment = $this->assignmentPayload($request, $unit->site_id);
 
-        DB::transaction(function () use ($request, $unit, $planningItems, $notifications, $assignment): void {
-            $workOrder = WorkOrder::query()->create([
-                'unit_id' => $unit->id,
-                'site_id' => $unit->site_id,
-                'trigger_type' => 'manual',
-                'status' => 'open',
-                'submitted_by' => $request->user()->id,
-                'notes' => $request->string('reason')->toString(),
-                ...$assignment['work_order'],
-            ]);
+        $blockedItems = DB::transaction(function () use ($request, $unit, $planningItems, $notifications, $assignment): array {
+            $workOrder = null;
+            $blockedItems = [];
 
             foreach ($request->validated('planning_item_ids') as $planningItemId) {
                 $planning = UnitPlanning::query()->firstOrCreate(
@@ -332,25 +330,50 @@ class WorkOrderController extends Controller
 
                 abort_if($planning->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
 
-                $item = WorkOrderItem::query()->create([
-                    'work_order_id' => $workOrder->id,
-                    'unit_planning_id' => $planning->id,
-                    'planning_item_id' => $planningItemId,
-                    'status' => 'replace',
-                    'action' => 'replace',
-                    'reason' => $request->string('reason')->toString(),
-                    'previous_due_km' => $planning->next_due_km,
-                    'previous_due_date' => $planning->next_due_date?->toDateString(),
-                    'submitted_by' => $request->user()->id,
-                    'submitted_at' => now(),
-                    ...$assignment['item'],
-                ]);
+                $item = $this->workOrderItemGuard->createIfUnblocked($planning, function () use ($request, $unit, $planning, $planningItemId, $assignment, &$workOrder): WorkOrderItem {
+                    $workOrder ??= WorkOrder::query()->create([
+                        'unit_id' => $unit->id,
+                        'site_id' => $unit->site_id,
+                        'trigger_type' => 'manual',
+                        'status' => 'open',
+                        'submitted_by' => $request->user()->id,
+                        'notes' => $request->string('reason')->toString(),
+                        ...$assignment['work_order'],
+                    ]);
+
+                    return WorkOrderItem::query()->create([
+                        'work_order_id' => $workOrder->id,
+                        'unit_planning_id' => $planning->id,
+                        'planning_item_id' => $planningItemId,
+                        'status' => 'replace',
+                        'action' => 'replace',
+                        'reason' => $request->string('reason')->toString(),
+                        'previous_due_km' => $planning->next_due_km,
+                        'previous_due_date' => $planning->next_due_date?->toDateString(),
+                        'submitted_by' => $request->user()->id,
+                        'submitted_at' => now(),
+                        ...$assignment['item'],
+                    ]);
+                });
+
+                if ($item === null) {
+                    $blockingItem = $this->workOrderItemGuard->findBlockingItem($planning);
+                    $blockedItems[] = $unit->current_plate.' - '.$planningItems->get($planningItemId)->name.' ('.($blockingItem?->status ?? 'aktif').')';
+
+                    continue;
+                }
 
                 $item->setRelation('planningItem', $planningItems->get($planningItemId));
                 $item->setRelation('workOrder', $workOrder);
                 $notifications->taskSubmitted($item, 'replace');
             }
+
+            return $blockedItems;
         });
+
+        if ($blockedItems !== []) {
+            return back()->withErrors(['planning_item_ids' => 'Task aktif sudah ada untuk: '.implode(', ', $blockedItems).'. Item lain tetap diproses.']);
+        }
 
         return redirect()->route('work-orders.index')->with('status', 'Lapor Temuan berhasil diajukan untuk approval SPV.');
     }
@@ -407,7 +430,7 @@ class WorkOrderController extends Controller
             $submittedCandidates = $wo->items->whereIn('status', ['replace', 'postpone', 'pending_create']);
 
             $submittedItems = $submittedCandidates
-                ->reject(fn (WorkOrderItem $item): bool => ($item->unitPlanning?->isBaselineMissing() ?? true)
+                ->reject(fn (WorkOrderItem $item): bool => ! ($item->unitPlanning?->isDueEligible() ?? false)
                     && ! $item->isBaselineReplaceSubmission())
                 ->values();
 
@@ -566,7 +589,7 @@ class WorkOrderController extends Controller
                 'reason' => $request->string('reason')->toString(),
                 'previous_due_km' => $item->unitPlanning?->next_due_km,
                 'previous_due_date' => $item->unitPlanning?->next_due_date?->toDateString(),
-                'new_due_km' => $request->integer('new_due_km'),
+                'new_due_km' => $request->filled('new_due_km') ? $request->integer('new_due_km') : null,
                 'new_due_date' => $request->date('new_due_date')->toDateString(),
                 'submitted_by' => $request->user()->id,
                 'submitted_at' => now(),
@@ -615,7 +638,7 @@ class WorkOrderController extends Controller
         $this->abortIfItemDoesNotBelongToWorkOrder($wo, $item);
         $this->abortIfPlanningIsExcluded($item);
 
-        abort_unless($item->unitPlanning !== null && $item->unitPlanning->isBaselineMissing(), 422, 'Baseline item ini sudah diisi. Gunakan aksi work order normal.');
+        abort_unless($item->unitPlanning !== null && ! $item->unitPlanning->isDueEligible(), 422, 'Baseline item ini sudah diisi. Gunakan aksi work order normal.');
         abort_if($item->status === 'complete', 422, 'Item work order ini sudah selesai.');
 
         $completionService->complete(
@@ -727,7 +750,8 @@ class WorkOrderController extends Controller
             ->when($filters['unit_id'] ?? null, fn (Builder $query, string $unitId): Builder => $query->where('work_orders.unit_id', $unitId))
             ->when($filters['assignee_id'] ?? null, fn (Builder $query, string $assigneeId): Builder => $query->where('work_orders.assigned_mechanic_id', $assigneeId))
             ->when($planningItemIds !== [], fn (Builder $query): Builder => $query->whereIn('work_order_items.planning_item_id', $planningItemIds))
-            ->when(! $includeIncompleteBaseline, fn (Builder $query) => $this->applyJoinedCompleteBaselineScope($query))
+            ->when(! $includeIncompleteBaseline, fn (Builder $query): Builder => $query->where(fn (Builder $baselineQuery): Builder => $this->applyJoinedCompleteBaselineScope($baselineQuery)
+                ->orWhereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->missingBaseline()->dueByDate())))
             ->when($this->searchTerm($request) !== '', fn (Builder $query) => $this->applySearchScope($query, $this->searchTerm($request)))
             ->tap(fn (Builder $query) => $this->applyBoardItemColumnScope($query, $column));
 
@@ -991,7 +1015,7 @@ class WorkOrderController extends Controller
             'is_priority' => in_array($item->planningItem?->name, self::PRIORITY_PLANNING_ITEM_NAMES, true),
             'status' => $item->status,
             'action' => $item->action,
-            'baseline_missing' => $item->unitPlanning?->isBaselineMissing() ?? true,
+            'baseline_missing' => ! ($item->unitPlanning?->isDueEligible() ?? false),
             'unit_breakdown' => $unit?->status === 'breakdown',
             'unit_current_odo' => (int) ($unit?->current_odo ?? 0),
             'reason' => $item->reason,
@@ -1026,7 +1050,7 @@ class WorkOrderController extends Controller
             ];
         }
 
-        if ($item->unitPlanning?->isBaselineMissing() ?? true) {
+        if (! ($item->unitPlanning?->isDueEligible() ?? false)) {
             $badges[] = ['key' => 'baseline_missing', 'tone' => 'neutral', 'label' => 'Data awal belum diisi'];
         }
 
@@ -1264,12 +1288,12 @@ class WorkOrderController extends Controller
 
     private function dueMeta(?Unit $unit, ?UnitPlanning $planning, array $thresholds): ?array
     {
-        if ($unit === null || $planning === null || $planning->isBaselineMissing()) {
+        if ($unit === null || $planning === null || ! $planning->isDueEligible()) {
             return null;
         }
 
         $daysUntilDue = $planning->next_due_date === null ? null : CarbonImmutable::today()->diffInDays(CarbonImmutable::parse($planning->next_due_date), false);
-        $kmUntilDue = $planning->next_due_km === null ? null : $planning->next_due_km - $unit->current_odo;
+        $kmUntilDue = ! $planning->isDueByKm() ? null : $planning->next_due_km - $unit->current_odo;
         $isOverdue = ($daysUntilDue !== null && $daysUntilDue < 0) || ($kmUntilDue !== null && $kmUntilDue <= 0);
         $isWarning = ($daysUntilDue !== null && $daysUntilDue <= $thresholds['warning_days']) || ($kmUntilDue !== null && $kmUntilDue <= $thresholds['warning_km']);
 
@@ -1282,26 +1306,6 @@ class WorkOrderController extends Controller
             'overdue_km' => $kmUntilDue !== null && $kmUntilDue <= 0 ? abs((int) $kmUntilDue) : null,
             'sort_value' => min($daysUntilDue ?? 999999, $kmUntilDue ?? 999999),
         ];
-    }
-
-    private function hasActiveItem(UnitPlanning $planning): bool
-    {
-        return $planning->workOrderItems()
-            ->where(fn (Builder $query): Builder => $this->applyActiveWorkOrderItemScope($query))
-            ->exists();
-    }
-
-    /**
-     * @param  Builder<WorkOrderItem>  $query
-     * @return Builder<WorkOrderItem>
-     */
-    private function applyActiveWorkOrderItemScope(Builder $query): Builder
-    {
-        return $query->where(fn (Builder $activeQuery): Builder => $activeQuery
-            ->whereIn('status', ['on_hold', 'pending_create', 'replace', 'postpone', 'in_progress', 'blocked', 'breakdown', 'overdue'])
-            ->orWhere(fn (Builder $rejectedQuery): Builder => $rejectedQuery
-                ->where('status', 'rejected')
-                ->whereIn('action', ['replace', 'postpone'])));
     }
 
     /**
@@ -1419,14 +1423,14 @@ class WorkOrderController extends Controller
 
     private function abortIfPlanningIsExcluded(WorkOrderItem $item): void
     {
-        $item->loadMissing('unitPlanning:id,is_excluded,last_done_km,last_done_date');
+        $item->loadMissing('unitPlanning:id,is_excluded,last_done_km,last_done_date,next_due_km,next_due_date');
 
         abort_if($item->unitPlanning?->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
     }
 
     private function abortIfBaselineIsMissing(WorkOrderItem $item): void
     {
-        abort_if($item->unitPlanning?->isBaselineMissing() ?? true, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
+        abort_unless($item->unitPlanning?->isDueEligible() ?? false, 422, 'Baseline item belum diisi. Isi baseline sebelum memproses task ini.');
     }
 
     private function unitIsStillBreakdown(WorkOrder $workOrder): bool

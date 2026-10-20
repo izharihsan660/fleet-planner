@@ -6,6 +6,7 @@ use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\WorkOrderProgressService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -60,7 +61,7 @@ class CleanupNullBaselineWorkOrderItems extends Command
                 $deletedItemCount = WorkOrderItem::query()
                     ->whereKey($itemsToDelete->pluck('id'))
                     ->where('status', 'on_hold')
-                    ->missingBaseline()
+                    ->whereHas('unitPlanning', fn (Builder $query): Builder => $query->missingBaseline()->whereNull('next_due_date'))
                     ->delete();
 
                 $deletedParents = WorkOrder::query()
@@ -90,7 +91,7 @@ class CleanupNullBaselineWorkOrderItems extends Command
     {
         return WorkOrderItem::query()
             ->with(['workOrder.unit:id,current_plate', 'planningItem:id,name'])
-            ->missingBaseline()
+            ->whereHas('unitPlanning', fn (Builder $query): Builder => $query->missingBaseline()->whereNull('next_due_date'))
             ->orderBy('work_order_id')
             ->orderBy('id')
             ->get();

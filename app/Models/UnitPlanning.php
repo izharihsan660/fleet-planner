@@ -74,6 +74,51 @@ class UnitPlanning extends Model
     }
 
     /**
+     * @param  Builder<UnitPlanning>  $query
+     * @return Builder<UnitPlanning>
+     */
+    public function scopeDueByDate(Builder $query): Builder
+    {
+        return $query->whereNotNull($query->qualifyColumn('next_due_date'));
+    }
+
+    /**
+     * @param  Builder<UnitPlanning>  $query
+     * @return Builder<UnitPlanning>
+     */
+    public function scopeDueByKm(Builder $query): Builder
+    {
+        return $query->where($query->qualifyColumn('last_done_km'), '>', 0)
+            ->whereNotNull($query->qualifyColumn('next_due_km'));
+    }
+
+    /**
+     * @param  Builder<UnitPlanning>  $query
+     * @return Builder<UnitPlanning>
+     */
+    public function scopeDueEligible(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $dueQuery): Builder => $dueQuery
+            ->dueByDate()
+            ->orWhere(fn (Builder $kmQuery): Builder => $kmQuery->dueByKm()));
+    }
+
+    public function isDueByDate(): bool
+    {
+        return $this->next_due_date !== null;
+    }
+
+    public function isDueByKm(): bool
+    {
+        return $this->last_done_km !== null && (int) $this->last_done_km > 0 && $this->next_due_km !== null;
+    }
+
+    public function isDueEligible(): bool
+    {
+        return $this->isDueByDate() || $this->isDueByKm();
+    }
+
+    /**
      * @return BelongsTo<Unit, $this>
      */
     public function unit(): BelongsTo

@@ -36,8 +36,11 @@ class BackdateWorkOrderItemRequest extends FormRequest
      */
     public function rules(): array
     {
+        $item = $this->route('item');
+        $minimumOdometer = $item instanceof WorkOrderItem && ($item->unitPlanning?->isBaselineMissing() ?? true) ? 1 : 0;
+
         return [
-            'completed_odo' => ['required', 'integer', 'min:0'],
+            'completed_odo' => ['required', 'integer', 'min:'.$minimumOdometer],
             'completed_date' => ['required', 'date', 'before_or_equal:today'],
             'notes' => ['required', 'string', 'min:'.CompletionBackdatePolicy::EXTENDED_NOTE_MIN_LENGTH],
         ];

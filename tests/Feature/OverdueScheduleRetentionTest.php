@@ -239,7 +239,7 @@ class OverdueScheduleRetentionTest extends TestCase
     {
         [$site, $unit, $mechanic, $planner] = $this->fleet();
         $planning = $this->planning($unit, 'Baseline kosong', today()->subDays(2)->toDateString());
-        $planning->update(['last_done_km' => 0, 'next_due_km' => null]);
+        $planning->update(['last_done_km' => 0, 'next_due_km' => null, 'next_due_date' => null]);
         [, $item] = $this->scheduledItem($unit, $site, $mechanic, $planner, $planning, 'in_progress');
 
         $this->assertTrue((new UnitPlanning(['last_done_km' => null]))->isBaselineMissing());

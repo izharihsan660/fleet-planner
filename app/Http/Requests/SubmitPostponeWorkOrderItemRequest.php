@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Enums\UserRole;
+use App\Models\WorkOrderItem;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -25,9 +26,14 @@ class SubmitPostponeWorkOrderItemRequest extends FormRequest
      */
     public function rules(): array
     {
+        $item = $this->route('item');
+        $dateOnly = $item instanceof WorkOrderItem
+            && ($item->unitPlanning?->isDueByDate() ?? false)
+            && ! ($item->unitPlanning?->isDueByKm() ?? false);
+
         return [
             'reason' => ['required', 'string', 'max:1000'],
-            'new_due_km' => ['required', 'integer', 'min:0'],
+            'new_due_km' => [$dateOnly ? 'nullable' : 'required', 'integer', 'min:0'],
             'new_due_date' => ['required', 'date', 'after_or_equal:today'],
         ];
     }

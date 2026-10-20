@@ -38,7 +38,7 @@ class ReportController extends Controller
                 'total_complete' => $this->visibleWorkOrderItems($request)->where('status', 'complete')->count(),
                 'total_overdue' => $this->visibleWorkOrderItems($request)
                     ->where('status', 'overdue')
-                    ->withBaseline()
+                    ->whereHas('unitPlanning', fn (Builder $planningQuery): Builder => $planningQuery->dueEligible())
                     ->count(),
             ])->resolve(),
             'woSummary' => Gate::allows('view-reports.wo-summary') ? $this->paginatedReport($this->woSummaryData($request, $filters)) : $this->emptyReportPage(),
@@ -180,7 +180,7 @@ class ReportController extends Controller
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND unit_plannings.last_done_km IS NOT NULL AND unit_plannings.last_done_km <> 0 THEN 1 ELSE 0 END) as overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.next_due_date IS NOT NULL OR (unit_plannings.last_done_km > 0 AND unit_plannings.next_due_km IS NOT NULL)) THEN 1 ELSE 0 END) as overdue")
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -212,7 +212,7 @@ class ReportController extends Controller
             ->selectRaw('planning_items.name as item')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND unit_plannings.last_done_km IS NOT NULL AND unit_plannings.last_done_km <> 0 THEN 1 ELSE 0 END) as total_overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.next_due_date IS NOT NULL OR (unit_plannings.last_done_km > 0 AND unit_plannings.next_due_km IS NOT NULL)) THEN 1 ELSE 0 END) as total_overdue")
             ->selectRaw("ROUND(AVG(CASE WHEN work_order_items.status = 'complete' AND work_order_items.completed_date IS NOT NULL THEN {$this->completionDaysExpression()} END), 1) as avg_hari_penyelesaian")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
@@ -256,7 +256,7 @@ class ReportController extends Controller
             ->selectRaw('sites.name as site')
             ->selectRaw('COUNT(work_order_items.id) as total_item')
             ->selectRaw("SUM(CASE WHEN work_order_items.status = 'complete' THEN 1 ELSE 0 END) as total_complete")
-            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND unit_plannings.last_done_km IS NOT NULL AND unit_plannings.last_done_km <> 0 THEN 1 ELSE 0 END) as total_overdue")
+            ->selectRaw("SUM(CASE WHEN work_order_items.status = 'overdue' AND (unit_plannings.next_due_date IS NOT NULL OR (unit_plannings.last_done_km > 0 AND unit_plannings.next_due_km IS NOT NULL)) THEN 1 ELSE 0 END) as total_overdue")
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])
             ->where('unit_plannings.is_excluded', false)
@@ -291,8 +291,10 @@ class ReportController extends Controller
             ->where('work_order_items.status', 'overdue')
             ->where(function (Builder $query): void {
                 $query
-                    ->whereNotNull('unit_plannings.last_done_km')
-                    ->where('unit_plannings.last_done_km', '!=', 0);
+                    ->whereNotNull('unit_plannings.next_due_date')
+                    ->orWhere(fn (Builder $kmQuery): Builder => $kmQuery
+                        ->where('unit_plannings.last_done_km', '>', 0)
+                        ->whereNotNull('unit_plannings.next_due_km'));
             })
             ->whereMonth('work_orders.created_at', $filters['month'])
             ->whereYear('work_orders.created_at', $filters['year'])

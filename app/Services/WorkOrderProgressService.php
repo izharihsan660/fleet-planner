@@ -119,7 +119,7 @@ class WorkOrderProgressService
     public function activeItemBreakdown(Collection $items): array
     {
         $groupedItems = $this->activeItems($items)->groupBy(
-            fn (WorkOrderItem $item): string => ($item->unitPlanning?->isBaselineMissing() ?? true)
+            fn (WorkOrderItem $item): string => ! ($item->unitPlanning?->isDueEligible() ?? false)
                 ? 'baseline_incomplete'
                 : $item->status
         );
@@ -161,7 +161,7 @@ class WorkOrderProgressService
 
         return $activeItems->isNotEmpty()
             && $activeItems->every(fn (WorkOrderItem $item): bool => $item->status === 'in_progress'
-                && ! ($item->unitPlanning?->isBaselineMissing() ?? true));
+                && ($item->unitPlanning?->isDueEligible() ?? false));
     }
 
     public function sync(WorkOrder $workOrder): void

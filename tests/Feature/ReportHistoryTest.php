@@ -47,7 +47,7 @@ class ReportHistoryTest extends TestCase
             );
     }
 
-    public function test_overdue_reports_exclude_items_with_missing_baseline(): void
+    public function test_overdue_reports_include_date_due_items_without_km_baseline(): void
     {
         [$site, $unit] = $this->createReportScenario();
         $knownPlanning = UnitPlanning::query()->where('unit_id', $unit->id)->firstOrFail();
@@ -82,12 +82,12 @@ class ReportHistoryTest extends TestCase
             ]))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('summary.total_overdue', 1)
-                ->where('woSummary.data.0.overdue', 1)
-                ->where('byItem.data', fn (Collection $rows): bool => $rows->sum('total_overdue') === 1)
-                ->where('byUnit.data.0.total_overdue', 1)
-                ->where('overdueByArea.data.0.total_overdue', 1)
-                ->where('overdueByArea.data.0.items', fn (Collection $items): bool => ! $items->contains('Baseline Kosong'))
+                ->where('summary.total_overdue', 2)
+                ->where('woSummary.data.0.overdue', 2)
+                ->where('byItem.data', fn (Collection $rows): bool => $rows->sum('total_overdue') === 2)
+                ->where('byUnit.data.0.total_overdue', 2)
+                ->where('overdueByArea.data.0.total_overdue', 2)
+                ->where('overdueByArea.data.0.items', fn (Collection $items): bool => $items->contains('Baseline Kosong'))
             );
     }
 

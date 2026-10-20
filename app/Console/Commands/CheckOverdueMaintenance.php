@@ -2,11 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Models\UnitPlanning;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use App\Services\FleetNotificationService;
 use App\Services\WorkOrderProgressService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -24,33 +26,14 @@ class CheckOverdueMaintenance extends Command
             ->applicable()
             ->with(['workOrder.unit:id,current_plate,current_odo', 'workOrder.site:id,name', 'planningItem:id,name', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km'])
             ->where('status', 'on_hold')
-            ->withBaseline()
-            ->where(function ($query): void {
-                $query
-                    ->whereHas('unitPlanning', fn ($unitPlanningQuery) => $unitPlanningQuery
-                        ->whereNotNull('next_due_date')
-                        ->whereDate('next_due_date', '<', now()->toDateString()))
-                    ->orWhereHas('unitPlanning.unit', function ($unitQuery): void {
-                        $unitQuery
-                            ->whereNotNull('unit_plannings.next_due_km')
-                            ->whereColumn('units.current_odo', '>=', 'unit_plannings.next_due_km');
-                    });
-            })
+            ->whereHas('unitPlanning', fn (Builder $query): Builder => $this->overduePlanning($query))
             ->get();
 
         $staleOverdueItems = WorkOrderItem::query()
             ->applicable()
             ->with(['workOrder.unit:id,current_plate,current_odo', 'unitPlanning:id,last_done_km,last_done_date,next_due_date,next_due_km'])
             ->where('status', 'overdue')
-            ->whereDoesntHave('unitPlanning', fn ($unitPlanningQuery) => $unitPlanningQuery
-                ->withBaseline()
-                ->where(fn ($dueQuery) => $dueQuery
-                    ->where(fn ($dateQuery) => $dateQuery
-                        ->whereNotNull('next_due_date')
-                        ->whereDate('next_due_date', '<', now()->toDateString()))
-                    ->orWhereHas('unit', fn ($unitQuery) => $unitQuery
-                        ->whereNotNull('unit_plannings.next_due_km')
-                        ->whereColumn('units.current_odo', '>=', 'unit_plannings.next_due_km'))))
+            ->whereDoesntHave('unitPlanning', fn (Builder $query): Builder => $this->overduePlanning($query))
             ->get();
 
         $restoredCount = $staleOverdueItems->filter(
@@ -85,12 +68,8 @@ class CheckOverdueMaintenance extends Command
             return $updatedOverdueItems;
         });
 
-        WorkOrderItem::query()
-            ->applicable()
-            ->with(['workOrder.unit', 'workOrder.site', 'planningItem'])
-            ->where('status', 'overdue')
-            ->withBaseline()
-            ->get()
+        $updatedOverdueItems
+            ->load(['workOrder.unit', 'workOrder.site', 'planningItem'])
             ->groupBy(fn (WorkOrderItem $item): string => $item->workOrder->unit_id.'-'.$item->planning_item_id)
             ->each(function (Collection $items) use ($notifications): void {
                 $notifications->maintenanceOverdue($items);
@@ -101,6 +80,22 @@ class CheckOverdueMaintenance extends Command
         $this->info("{$restoredCount} work order item overdue stale dikembalikan ke in_progress.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @param  Builder<UnitPlanning>  $query
+     * @return Builder<UnitPlanning>
+     */
+    private function overduePlanning(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $dueQuery): Builder => $dueQuery
+            ->where(fn (Builder $dateQuery): Builder => $dateQuery
+                ->dueByDate()
+                ->whereDate('unit_plannings.next_due_date', '<', now()->toDateString()))
+            ->orWhere(fn (Builder $kmQuery): Builder => $kmQuery
+                ->dueByKm()
+                ->whereHas('unit', fn (Builder $unitQuery): Builder => $unitQuery
+                    ->whereColumn('units.current_odo', '>=', 'unit_plannings.next_due_km'))));
     }
 
     /**
