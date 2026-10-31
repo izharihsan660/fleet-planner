@@ -284,6 +284,8 @@ export interface ProjectionLine {
     estimated_due_date: string | null;
     estimated_due_km: number | null;
     estimated_quantity: number;
+    trigger: 'km' | 'date' | 'both';
+    baseline_km_missing: boolean;
     insufficient_data: boolean;
     data_status_message: string | null;
 }
@@ -334,6 +336,7 @@ export interface ProjectionResult {
     period_months: number;
     period_days: number;
     period_end: string;
+    excluded_date_without_source_count: number;
     by_unit: PaginatedCollection<ProjectionUnit>;
     by_item: PaginatedCollection<ProjectionItem>;
     by_part: PaginatedCollection<ProjectionPart>;

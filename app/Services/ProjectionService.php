@@ -51,7 +51,7 @@ class ProjectionService
     }
 
     /**
-     * @return array{period_months: int, period_days: int, period_end: string, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
+     * @return array{period_months: int, period_days: int, period_end: string, excluded_date_without_source_count: int, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
      */
     public function calculate(int $months, ?int $siteId = null, ?int $regionId = null): array
     {
@@ -82,6 +82,7 @@ class ProjectionService
         $byUnit = [];
         $flatItems = collect();
         $warnings = [];
+        $excludedDateWithoutSourceCount = 0;
 
         foreach ($units as $unit) {
             $inspectionCount = $unit->inspectionLogs->count();
@@ -92,15 +93,24 @@ class ProjectionService
             $unitItems = collect();
 
             foreach ($unit->unitPlannings as $unitPlanning) {
-                if ($unitPlanning->isBaselineMissing()) {
+                $baselineKmMissing = $unitPlanning->isBaselineMissing();
+                $kmPathAllowed = $hasProjectionOdometerData && $unitPlanning->isDueByKm();
+                $datePathAllowed = $unitPlanning->isDueByDate()
+                    && (! $baselineKmMissing || $this->hasDateSource($unitPlanning));
+                $dueByKm = $kmPathAllowed && $unitPlanning->next_due_km <= $estimatedPeriodOdometer;
+                $dateDueInPeriod = $unitPlanning->isDueByDate()
+                    && CarbonImmutable::parse($unitPlanning->next_due_date)->lessThanOrEqualTo($periodEnd);
+                $dueByDate = $datePathAllowed && $dateDueInPeriod;
+
+                if ($dateDueInPeriod && ! $datePathAllowed) {
+                    $excludedDateWithoutSourceCount++;
+                }
+
+                if (! $dueByKm && ! $dueByDate) {
                     continue;
                 }
 
-                if (! $this->isDueInPeriod($unitPlanning, $estimatedPeriodOdometer, $periodEnd, $hasProjectionOdometerData)) {
-                    continue;
-                }
-
-                $estimatedDueDate = $this->estimatedDueDate($unitPlanning, $unit->current_odo, $averageKmPerDay, $periodEnd);
+                $estimatedDueDate = $this->estimatedDueDate($unitPlanning, $unit->current_odo, $averageKmPerDay, $periodEnd, $kmPathAllowed);
                 $estimatedDueKm = $unitPlanning->next_due_km ?? $estimatedPeriodOdometer;
 
                 $projectionItem = [
@@ -114,6 +124,8 @@ class ProjectionService
                     'estimated_due_date' => $estimatedDueDate,
                     'estimated_due_km' => $estimatedDueKm,
                     'estimated_quantity' => 1,
+                    'trigger' => $dueByKm && $dueByDate ? 'both' : ($dueByKm ? 'km' : 'date'),
+                    'baseline_km_missing' => $baselineKmMissing,
                     'insufficient_data' => $insufficientData,
                     'data_status_message' => $insufficientData ? $this->insufficientDataMessage() : null,
                 ];
@@ -154,6 +166,7 @@ class ProjectionService
             'period_months' => $months,
             'period_days' => $remainingDays,
             'period_end' => $periodEnd->toDateString(),
+            'excluded_date_without_source_count' => $excludedDateWithoutSourceCount,
             'by_unit' => $byUnit,
             'by_item' => $this->groupByPlanningItem($flatItems),
             'by_part' => $this->groupByPlanningItem($flatItems),
@@ -252,19 +265,18 @@ class ProjectionService
         return $days;
     }
 
-    private function isDueInPeriod(UnitPlanning $unitPlanning, int $estimatedPeriodOdometer, CarbonImmutable $periodEnd, bool $canUseOdometerProjection): bool
+    private function hasDateSource(UnitPlanning $unitPlanning): bool
     {
-        $dueByKm = $canUseOdometerProjection && $unitPlanning->next_due_km !== null && $unitPlanning->next_due_km <= $estimatedPeriodOdometer;
-        $dueByDate = $unitPlanning->next_due_date !== null && CarbonImmutable::parse($unitPlanning->next_due_date)->lessThanOrEqualTo($periodEnd);
-
-        return $dueByKm || $dueByDate;
+        return $unitPlanning->last_done_date !== null
+            || $unitPlanning->due_manually_set === true
+            || $unitPlanning->is_estimated === true;
     }
 
-    private function estimatedDueDate(UnitPlanning $unitPlanning, int $currentOdometer, float $averageKmPerDay, CarbonImmutable $periodEnd): ?string
+    private function estimatedDueDate(UnitPlanning $unitPlanning, int $currentOdometer, float $averageKmPerDay, CarbonImmutable $periodEnd, bool $kmPathAllowed): ?string
     {
         $dateByKm = null;
 
-        if ($unitPlanning->next_due_km !== null && $averageKmPerDay > 0) {
+        if ($kmPathAllowed && $unitPlanning->next_due_km !== null && $averageKmPerDay > 0) {
             $remainingKm = max(0, $unitPlanning->next_due_km - $currentOdometer);
             $dateByKm = CarbonImmutable::today()->addDays((int) ceil($remainingKm / $averageKmPerDay));
         }

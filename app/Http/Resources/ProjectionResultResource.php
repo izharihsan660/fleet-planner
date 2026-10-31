@@ -18,6 +18,7 @@ class ProjectionResultResource extends JsonResource
             'period_months' => $this->resource['period_months'],
             'period_days' => $this->resource['period_days'],
             'period_end' => $this->resource['period_end'],
+            'excluded_date_without_source_count' => $this->resource['excluded_date_without_source_count'],
             'by_unit' => $this->paginateArray($request, $this->resource['by_unit'], 'unit_page'),
             'by_item' => $this->paginateArray($request, $this->resource['by_item'], 'item_page'),
             'by_part' => $this->paginateArray($request, $this->resource['by_part'], 'part_page'),

@@ -45,15 +45,357 @@ class ProjectionTest extends TestCase
         $this->assertCount(1, $result['warnings']);
     }
 
-    public function test_projection_excludes_items_with_zero_baseline_km_even_when_date_exists(): void
+    public function test_projection_includes_items_with_zero_baseline_km_when_date_is_due(): void
     {
-        [$unit, $planningItem] = $this->createProjectionScenario();
-        UnitPlanning::query()
-            ->where('unit_id', $unit->id)
-            ->where('planning_item_id', $planningItem->id)
-            ->update(['last_done_km' => 0, 'last_done_date' => now()->subDays(20)->toDateString()]);
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        $unitPlanning->update([
+            'last_done_km' => 0,
+            'last_done_date' => now()->subDays(20)->toDateString(),
+            'next_due_km' => 2000,
+            'due_manually_set' => false,
+            'is_estimated' => false,
+        ]);
 
-        $result = app(ProjectionService::class)->calculate(3);
+        $result = app(ProjectionService::class)->calculate(1);
+
+        $this->assertSame(0, $result['excluded_date_without_source_count']);
+
+        foreach (['by_unit', 'by_item', 'by_part'] as $group) {
+            $this->assertCount(1, $result[$group]);
+            $item = $result[$group][0]['items'][0];
+            $this->assertSame('date', $item['trigger']);
+            $this->assertTrue($item['baseline_km_missing']);
+            $this->assertSame(now()->addDays(20)->toDateString(), $item['estimated_due_date']);
+        }
+    }
+
+    public function test_projection_includes_manually_set_date_at_period_end_without_baseline_km(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+
+        foreach ([0, null] as $lastDoneKm) {
+            $unitPlanning->update([
+                'last_done_km' => $lastDoneKm,
+                'last_done_date' => null,
+                'next_due_km' => null,
+                'next_due_date' => now()->addDays(30)->toDateString(),
+                'due_manually_set' => true,
+                'is_estimated' => false,
+            ]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertCount(1, $result['by_unit']);
+            $item = $result['by_unit'][0]['items'][0];
+            $this->assertSame('date', $item['trigger']);
+            $this->assertTrue($item['baseline_km_missing']);
+            $this->assertTrue($item['insufficient_data']);
+            $this->assertSame($result['period_end'], $item['estimated_due_date']);
+            $this->assertSame(0, $result['excluded_date_without_source_count']);
+        }
+    }
+
+    public function test_projection_excludes_and_counts_dates_without_source_when_km_baseline_is_missing(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+
+        foreach ([0, null] as $lastDoneKm) {
+            $unitPlanning->update([
+                'last_done_km' => $lastDoneKm,
+                'last_done_date' => null,
+                'next_due_km' => 5000,
+                'next_due_date' => now()->addDays(20)->toDateString(),
+                'due_manually_set' => false,
+                'is_estimated' => false,
+            ]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertSame([], $result['by_unit']);
+            $this->assertSame([], $result['by_item']);
+            $this->assertSame([], $result['by_part']);
+            $this->assertSame(1, $result['excluded_date_without_source_count']);
+        }
+    }
+
+    public function test_projection_accepts_estimated_date_source_without_km_baseline(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+
+        foreach ([0, null] as $lastDoneKm) {
+            $unitPlanning->update([
+                'last_done_km' => $lastDoneKm,
+                'last_done_date' => null,
+                'next_due_km' => 5000,
+                'next_due_date' => now()->addDays(20)->toDateString(),
+                'due_manually_set' => false,
+                'is_estimated' => true,
+            ]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertCount(1, $result['by_unit']);
+            $item = $result['by_unit'][0]['items'][0];
+            $this->assertSame('date', $item['trigger']);
+            $this->assertTrue($item['baseline_km_missing']);
+            $this->assertSame(now()->addDays(20)->toDateString(), $item['estimated_due_date']);
+            $this->assertSame(0, $result['excluded_date_without_source_count']);
+        }
+    }
+
+    public function test_projection_preserves_positive_km_baseline_dates_without_date_source(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+
+        foreach ([[null, 'date', 20], [4200, 'both', 6]] as [$nextDueKm, $trigger, $estimatedDateOffset]) {
+            $unitPlanning->update([
+                'last_done_km' => 1000,
+                'last_done_date' => null,
+                'next_due_km' => $nextDueKm,
+                'next_due_date' => now()->addDays(20)->toDateString(),
+                'due_manually_set' => false,
+                'is_estimated' => false,
+            ]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertCount(1, $result['by_unit']);
+            $item = $result['by_unit'][0]['items'][0];
+            $this->assertSame($trigger, $item['trigger']);
+            $this->assertFalse($item['baseline_km_missing']);
+            $this->assertSame(now()->addDays($estimatedDateOffset)->toDateString(), $item['estimated_due_date']);
+            $this->assertSame(0, $result['excluded_date_without_source_count']);
+        }
+    }
+
+    public function test_projection_exclusion_summary_uses_site_region_and_period_filters_and_ignores_excluded_items(): void
+    {
+        [$firstUnit, , $firstPlanning] = $this->createProjectionScenario('First Site', 'KT 8404 YR');
+        [$secondUnit, , $secondPlanning] = $this->createProjectionScenario('Second Site', 'KT 8620 YR');
+        $firstRegion = Region::query()->create(['name' => 'First Region']);
+        $secondRegion = Region::query()->create(['name' => 'Second Region']);
+        $firstUnit->site->update(['region_id' => $firstRegion->id]);
+        $secondUnit->site->update(['region_id' => $secondRegion->id]);
+
+        foreach ([$firstPlanning, $secondPlanning] as $unitPlanning) {
+            $unitPlanning->update([
+                'last_done_km' => 0,
+                'last_done_date' => null,
+                'next_due_km' => null,
+                'next_due_date' => now()->addDays(20)->toDateString(),
+                'due_manually_set' => false,
+                'is_estimated' => false,
+            ]);
+        }
+
+        foreach ([[31, false], [20, true], [null, false]] as $scenarioIndex => [$dateOffset, $isExcluded]) {
+            $planningItem = PlanningItem::query()->create([
+                'name' => 'Excluded date scope '.$scenarioIndex,
+                'interval_km' => 1000,
+                'interval_days' => 30,
+            ]);
+            UnitPlanning::query()->create([
+                'unit_id' => $firstUnit->id,
+                'planning_item_id' => $planningItem->id,
+                'last_done_km' => null,
+                'last_done_date' => null,
+                'next_due_km' => null,
+                'next_due_date' => $dateOffset === null ? null : now()->addDays($dateOffset)->toDateString(),
+                'due_manually_set' => false,
+                'is_estimated' => false,
+                'is_excluded' => $isExcluded,
+            ]);
+        }
+
+        $service = app(ProjectionService::class);
+
+        $this->assertSame(2, $service->calculate(1)['excluded_date_without_source_count']);
+        $this->assertSame(1, $service->calculate(1, siteId: $firstUnit->site_id)['excluded_date_without_source_count']);
+        $this->assertSame(1, $service->calculate(1, regionId: $firstRegion->id)['excluded_date_without_source_count']);
+        $this->assertSame(1, $service->calculate(1, regionId: $secondRegion->id)['excluded_date_without_source_count']);
+        $this->assertSame(0, $service->calculate(1, siteId: $firstUnit->site_id, regionId: $secondRegion->id)['excluded_date_without_source_count']);
+        $this->assertSame(2, $service->calculate(2, siteId: $firstUnit->site_id)['excluded_date_without_source_count']);
+
+        $admin = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        $this->actingAs($admin)->get(route('projections.index', ['site_id' => $firstUnit->site_id]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('projection.excluded_date_without_source_count', 1)
+                ->where('filters.site_id', (string) $firstUnit->site_id)
+            );
+    }
+
+    public function test_projection_excludes_missing_baseline_when_date_is_outside_period(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        $unitPlanning->update([
+            'last_done_km' => null,
+            'next_due_km' => 2000,
+            'next_due_date' => now()->addDays(31)->toDateString(),
+            'due_manually_set' => false,
+        ]);
+
+        $result = app(ProjectionService::class)->calculate(1);
+
+        $this->assertSame([], $result['by_unit']);
+        $this->assertSame([], $result['by_item']);
+        $this->assertSame([], $result['by_part']);
+    }
+
+    public function test_projection_does_not_use_unconfirmed_km_due_without_baseline(): void
+    {
+        [$unit, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        $unit->update(['current_odo' => 150000]);
+        $unitPlanning->update([
+            'last_done_km' => 0,
+            'next_due_km' => 10000,
+            'next_due_date' => null,
+            'due_manually_set' => false,
+        ]);
+
+        $result = app(ProjectionService::class)->calculate(1);
+
+        $this->assertSame([], $result['by_unit']);
+        $this->assertSame([], $result['by_item']);
+        $this->assertSame([], $result['by_part']);
+        $this->assertSame([], $result['warnings']);
+    }
+
+    public function test_projection_excludes_zero_baseline_with_unconfirmed_km_and_date_outside_period(): void
+    {
+        [$unit, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        $unit->update(['current_odo' => 150000]);
+        $unitPlanning->update([
+            'last_done_km' => 0,
+            'next_due_km' => 5000,
+            'next_due_date' => now()->addDays(31)->toDateString(),
+            'due_manually_set' => false,
+        ]);
+
+        $result = app(ProjectionService::class)->calculate(1);
+
+        $this->assertSame([], $result['by_unit']);
+        $this->assertSame([], $result['by_item']);
+        $this->assertSame([], $result['by_part']);
+        $this->assertSame([], $result['warnings']);
+    }
+
+    public function test_projection_manual_due_km_does_not_override_shared_km_baseline_guard(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        $unitPlanning->update([
+            'last_done_km' => null,
+            'last_done_date' => null,
+            'next_due_km' => 13800,
+            'next_due_date' => null,
+            'due_manually_set' => true,
+        ]);
+
+        $result = app(ProjectionService::class)->calculate(1);
+
+        $this->assertSame([], $result['by_unit']);
+        $this->assertSame([], $result['by_item']);
+        $this->assertSame([], $result['by_part']);
+        $this->assertSame([], $result['warnings']);
+        $this->assertSame(0, $result['excluded_date_without_source_count']);
+    }
+
+    public function test_projection_rejects_missing_or_non_positive_manually_set_due_km(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+
+        foreach ([null, 0, -100] as $nextDueKm) {
+            $unitPlanning->update([
+                'last_done_km' => null,
+                'next_due_km' => $nextDueKm,
+                'next_due_date' => null,
+                'due_manually_set' => true,
+            ]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertSame([], $result['by_unit']);
+            $this->assertSame([], $result['by_item']);
+            $this->assertSame([], $result['by_part']);
+        }
+    }
+
+    public function test_projection_km_path_requires_odometer_data_but_keeps_valid_dates(): void
+    {
+        [$unit, , $unitPlanning] = $this->createProjectionScenario();
+        $unitPlanning->update([
+            'last_done_km' => 1000,
+            'next_due_km' => 1000,
+            'next_due_date' => null,
+            'due_manually_set' => true,
+        ]);
+
+        foreach ([[true, 4], [false, 3]] as [$hasOdometerReading, $minimumInspectionData]) {
+            $unit->update(['has_odometer_reading' => $hasOdometerReading]);
+            SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => (string) $minimumInspectionData]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertSame([], $result['by_unit']);
+            $this->assertCount(1, $result['warnings']);
+
+            $unitPlanning->update(['next_due_date' => now()->addDays(20)->toDateString()]);
+
+            $dateResult = app(ProjectionService::class)->calculate(1);
+
+            $this->assertCount(1, $dateResult['by_unit']);
+            $this->assertSame(0.0, $dateResult['by_unit'][0]['avg_km_per_day']);
+            $this->assertSame($unit->current_odo, $dateResult['by_unit'][0]['estimated_period_odo']);
+            $item = $dateResult['by_unit'][0]['items'][0];
+            $this->assertSame('date', $item['trigger']);
+            $this->assertFalse($item['baseline_km_missing']);
+            $this->assertSame(now()->addDays(20)->toDateString(), $item['estimated_due_date']);
+
+            $unitPlanning->update(['next_due_date' => null]);
+        }
+    }
+
+    public function test_projection_preserves_normal_baseline_triggers_and_earliest_due_date(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+
+        foreach ([[4200, null, 'km', 6], [15000, 20, 'date', 20], [4200, 20, 'both', 6]] as [$nextDueKm, $dueDateOffset, $trigger, $estimatedDateOffset]) {
+            $unitPlanning->update([
+                'next_due_km' => $nextDueKm,
+                'next_due_date' => $dueDateOffset === null ? null : now()->addDays($dueDateOffset)->toDateString(),
+            ]);
+
+            $result = app(ProjectionService::class)->calculate(1);
+
+            $this->assertCount(1, $result['by_unit']);
+            $this->assertSame(400.0, $result['by_unit'][0]['avg_km_per_day']);
+            $this->assertSame(13800, $result['by_unit'][0]['estimated_period_odo']);
+            $item = $result['by_unit'][0]['items'][0];
+            $this->assertSame($trigger, $item['trigger']);
+            $this->assertFalse($item['baseline_km_missing']);
+            $this->assertSame(now()->addDays($estimatedDateOffset)->toDateString(), $item['estimated_due_date']);
+        }
+    }
+
+    public function test_projection_still_excludes_excluded_items_with_date_due_and_missing_baseline(): void
+    {
+        [, , $unitPlanning] = $this->createProjectionScenario();
+        $unitPlanning->update([
+            'last_done_km' => null,
+            'due_manually_set' => true,
+            'is_excluded' => true,
+        ]);
+
+        $result = app(ProjectionService::class)->calculate(1);
 
         $this->assertSame([], $result['by_unit']);
         $this->assertSame([], $result['by_item']);
@@ -75,6 +417,9 @@ class ProjectionTest extends TestCase
                 ->assertInertia(fn ($page) => $page
                     ->component('Projections/Index')
                     ->has('projection.by_unit.data')
+                    ->where('projection.by_unit.data.0.items.0.trigger', 'date')
+                    ->where('projection.by_unit.data.0.items.0.baseline_km_missing', false)
+                    ->where('projection.excluded_date_without_source_count', 0)
                     ->where('projection.by_unit.meta.per_page', 25)
                     ->where('filters.months', 1)
                 );
@@ -116,6 +461,23 @@ class ProjectionTest extends TestCase
         $this->assertStringNotContainsString('Lanjutkan', $projectionSource);
         $this->assertStringContainsString("label: 'Proyeksi'", $layoutSource);
         $this->assertStringNotContainsString("label: 'Projections'", $layoutSource);
+    }
+
+    public function test_projection_page_displays_baseline_km_badges_and_trigger_labels(): void
+    {
+        $projectionSource = file_get_contents(resource_path('js/Pages/Projections/Index.tsx'));
+
+        $this->assertStringContainsString("import { Badge } from '@/Components/ui/badge'", $projectionSource);
+        $this->assertStringContainsString('variant="outline"', $projectionSource);
+        $this->assertStringContainsString('Baseline KM Kosong', $projectionSource);
+        $this->assertStringContainsString('item.baseline_km_missing', $projectionSource);
+        $this->assertStringContainsString('<TableHead>Pemicu</TableHead>', $projectionSource);
+        $this->assertStringContainsString("km: 'KM'", $projectionSource);
+        $this->assertStringContainsString("date: 'Tanggal'", $projectionSource);
+        $this->assertStringContainsString("both: 'KM & Tanggal'", $projectionSource);
+        $this->assertStringContainsString('projectionTriggerLabels[item.trigger]', $projectionSource);
+        $this->assertStringContainsString('projection.excluded_date_without_source_count', $projectionSource);
+        $this->assertStringContainsString('item dikecualikan karena tanggal jatuh tempo tanpa dasar', $projectionSource);
     }
 
     public function test_mechanic_cannot_access_projection_page(): void
@@ -669,6 +1031,9 @@ class ProjectionTest extends TestCase
     /**
      * @return array{0: Unit, 1: PlanningItem}
      */
+    /**
+     * @return array{Unit, PlanningItem, UnitPlanning}
+     */
     private function createProjectionScenario(string $siteName = 'Site Test', string $plateNumber = 'KT 8404 YR', ?array $logs = null): array
     {
         SystemThreshold::query()->updateOrCreate(['key' => 'min_inspection_data'], ['value' => '4']);
@@ -692,7 +1057,7 @@ class ProjectionTest extends TestCase
             'interval_days' => 30,
         ]);
 
-        UnitPlanning::query()->create([
+        $unitPlanning = UnitPlanning::query()->create([
             'unit_id' => $unit->id,
             'planning_item_id' => $planningItem->id,
             'last_done_km' => 1000,
@@ -712,6 +1077,6 @@ class ProjectionTest extends TestCase
             'odometer' => $log[1],
         ]));
 
-        return [$unit, $planningItem];
+        return [$unit, $planningItem, $unitPlanning];
     }
 }

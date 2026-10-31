@@ -1,5 +1,6 @@
 import PaginationLinks from '@/Components/PaginationLinks';
 import StatusBadge from '@/Components/StatusBadge';
+import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Label } from '@/Components/ui/label';
@@ -118,6 +119,24 @@ const todayMonth = (): string => {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 };
 
+const projectionTriggerLabels: Record<ProjectionLine['trigger'], string> = {
+    km: 'KM',
+    date: 'Tanggal',
+    both: 'KM & Tanggal',
+};
+
+function BaselineKmBadge({ missing }: { missing: boolean }) {
+    if (!missing) {
+        return null;
+    }
+
+    return (
+        <Badge variant="outline" className="ml-2 border-amber-400 text-amber-700 dark:border-amber-500/60 dark:text-amber-300">
+            Baseline KM Kosong
+        </Badge>
+    );
+}
+
 function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem?: boolean }) {
     return (
         <TableBody>
@@ -126,11 +145,13 @@ function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem
                     <TableCell className="font-medium text-foreground">
                         {item.plate_number}
                         {item.insufficient_data && <span className="ml-2 text-amber-500" title={item.data_status_message ?? 'Data inspeksi belum cukup'}>⚠</span>}
+                        <BaselineKmBadge missing={item.baseline_km_missing} />
                     </TableCell>
                     <TableCell>{item.site_name}</TableCell>
                     {showItem && <TableCell>{item.planning_item_name}</TableCell>}
                     <TableCell>{formatDate(item.estimated_due_date)}</TableCell>
                     <TableCell>{formatKm(item.estimated_due_km)}</TableCell>
+                    <TableCell>{projectionTriggerLabels[item.trigger]}</TableCell>
                 </TableRow>
             ))}
         </TableBody>
@@ -148,6 +169,7 @@ function DueTable({ items, showItem = true }: { items: ProjectionLine[]; showIte
                         {showItem && <TableHead>Item</TableHead>}
                         <TableHead>Est. Jatuh Tempo</TableHead>
                         <TableHead>Est. KM Jatuh Tempo</TableHead>
+                        <TableHead>Pemicu</TableHead>
                     </TableRow>
                 </TableHeader>
                 <DueRows items={items} showItem={showItem} />
@@ -266,6 +288,10 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                             </div>
                         </CardHeader>
                     </Card>
+
+                    <p className="text-xs text-muted-foreground" role="status">
+                        {projection.excluded_date_without_source_count.toLocaleString('id-ID')} item dikecualikan karena tanggal jatuh tempo tanpa dasar pada filter dan periode ini.
+                    </p>
 
                     {projection.warnings.length > 0 && (
                         <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
@@ -435,9 +461,9 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                             <CardContent className="space-y-2">
                                                 {part.items.map((item) => (
                                                     <div key={item.unit_planning_id} className="grid gap-1 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground sm:grid-cols-4 sm:items-center">
-                                                        <span className="font-medium text-foreground">{item.plate_number}</span>
+                                                        <span className="font-medium text-foreground">{item.plate_number}<BaselineKmBadge missing={item.baseline_km_missing} /></span>
                                                         <span>{item.site_name}</span>
-                                                        <span>Jatuh Tempo: {formatDate(item.estimated_due_date)}</span>
+                                                        <span>Jatuh Tempo: {formatDate(item.estimated_due_date)}<span className="block text-xs">Pemicu: {projectionTriggerLabels[item.trigger]}</span></span>
                                                         <span>Est. qty: {item.estimated_quantity}</span>
                                                     </div>
                                                 ))}
