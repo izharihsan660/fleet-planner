@@ -228,8 +228,128 @@ class ProjectionTest extends TestCase
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->where('projection.excluded_date_without_source_count', 1)
-                ->where('filters.site_id', (string) $firstUnit->site_id)
+                ->where('filters.site_id', $firstUnit->site_id)
             );
+    }
+
+    public function test_superadmin_and_spv_ho_can_filter_by_region_or_site_with_site_taking_priority(): void
+    {
+        [$firstUnit] = $this->createProjectionScenario('Zulu Site', 'KT 1001 AA');
+        [$secondUnit] = $this->createProjectionScenario('Alpha Site', 'KT 1002 AA');
+        [$outsideUnit] = $this->createProjectionScenario('Beta Site', 'KT 1003 AA');
+        $region = Region::query()->create(['name' => 'Zulu Region']);
+        $outsideRegion = Region::query()->create(['name' => 'Alpha Region']);
+        $firstUnit->site->update(['region_id' => $region->id]);
+        $secondUnit->site->update(['region_id' => $region->id]);
+        $outsideUnit->site->update(['region_id' => $outsideRegion->id]);
+
+        $scenarios = [
+            [[], [$firstUnit->id, $secondUnit->id, $outsideUnit->id], null, null],
+            [['region_id' => $region->id], [$firstUnit->id, $secondUnit->id], $region->id, null],
+            [['site_id' => $secondUnit->site_id], [$secondUnit->id], null, $secondUnit->site_id],
+            [['region_id' => $region->id, 'site_id' => $outsideUnit->site_id], [$outsideUnit->id], null, $outsideUnit->site_id],
+            [['region_id' => 'not-a-region', 'site_id' => $outsideUnit->site_id], [$outsideUnit->id], null, $outsideUnit->site_id],
+        ];
+
+        foreach ([UserRole::Superadmin, UserRole::SpvHo] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+
+            foreach ($scenarios as [$filters, $expectedUnitIds, $regionId, $siteId]) {
+                $this->actingAs($user)->get(route('projections.index', $filters))
+                    ->assertOk()
+                    ->assertInertia(fn ($page) => $page
+                        ->where('filters.region_id', $regionId)
+                        ->where('filters.site_id', $siteId)
+                        ->where('projection.by_unit.data', fn ($units) => collect($units)->pluck('unit_id')->all() === $expectedUnitIds)
+                        ->has('projection.warnings', count($expectedUnitIds))
+                        ->has('regions.data', 2)
+                        ->where('regions.data.0.id', $outsideRegion->id)
+                        ->where('regions.data.1.id', $region->id)
+                        ->has('sites.data', 3)
+                        ->where('sites.data.0.id', $secondUnit->site_id)
+                        ->where('sites.data.1.id', $outsideUnit->site_id)
+                        ->where('sites.data.2.id', $firstUnit->site_id)
+                        ->where('today', CarbonImmutable::today()->toDateString())
+                    );
+            }
+        }
+    }
+
+    public function test_planner_region_is_forced_before_validation_and_dropdowns_only_contain_own_scope(): void
+    {
+        [$firstUnit] = $this->createProjectionScenario('Zulu Site', 'KT 1001 AA');
+        [$secondUnit] = $this->createProjectionScenario('Alpha Site', 'KT 1002 AA');
+        [$outsideUnit] = $this->createProjectionScenario('Outside Site', 'KT 1003 AA');
+        $region = Region::query()->create(['name' => 'Own Region']);
+        $outsideRegion = Region::query()->create(['name' => 'Outside Region']);
+        $firstUnit->site->update(['region_id' => $region->id]);
+        $secondUnit->site->update(['region_id' => $region->id]);
+        $outsideUnit->site->update(['region_id' => $outsideRegion->id]);
+        $planner = User::factory()->create(['role' => UserRole::PlannerArea, 'region_id' => $region->id]);
+
+        foreach ([[], ['region_id' => $outsideRegion->id], ['region_id' => 'not-a-region']] as $filters) {
+            $this->actingAs($planner)->get(route('projections.index', $filters))
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->where('filters.region_id', $region->id)
+                    ->where('filters.site_id', null)
+                    ->where('projection.by_unit.data', fn ($units) => collect($units)->pluck('unit_id')->all() === [$firstUnit->id, $secondUnit->id])
+                    ->has('regions.data', 1)
+                    ->where('regions.data.0.id', $region->id)
+                    ->has('sites.data', 2)
+                    ->where('sites.data.0.id', $secondUnit->site_id)
+                    ->where('sites.data.1.id', $firstUnit->site_id)
+                );
+        }
+
+        foreach ([[$secondUnit, 1], [$outsideUnit, 0]] as [$unit, $expectedCount]) {
+            $this->actingAs($planner)->get(route('projections.index', ['region_id' => $outsideRegion->id, 'site_id' => $unit->site_id]))
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->where('filters.region_id', null)
+                    ->where('filters.site_id', $unit->site_id)
+                    ->has('projection.by_unit.data', $expectedCount)
+                    ->has('projection.warnings', $expectedCount)
+                );
+        }
+    }
+
+    public function test_projection_region_filter_scopes_exclusion_summary_and_km_warning_banner(): void
+    {
+        [$ownUnit, , $ownPlanning] = $this->createProjectionScenario('Own Site', 'KT 1001 AA');
+        [$outsideUnit, , $outsidePlanning] = $this->createProjectionScenario('Outside Site', 'KT 1002 AA');
+        $region = Region::query()->create(['name' => 'Own Region']);
+        $outsideRegion = Region::query()->create(['name' => 'Outside Region']);
+        $ownUnit->site->update(['region_id' => $region->id]);
+        $outsideUnit->site->update(['region_id' => $outsideRegion->id]);
+        UnitPlanning::query()->whereNotIn('id', [$ownPlanning->id, $outsidePlanning->id])->update(['is_excluded' => true]);
+
+        foreach ([$ownPlanning, $outsidePlanning] as $planning) {
+            $planning->update(['last_done_km' => 0, 'last_done_date' => null, 'due_manually_set' => false, 'is_estimated' => false]);
+        }
+
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        foreach ([[$region->id, 1], [null, 2]] as [$regionId, $expectedCount]) {
+            $this->actingAs($user)->get(route('projections.index', ['region_id' => $regionId]))
+                ->assertOk()
+                ->assertInertia(fn ($page) => $page
+                    ->where('projection.excluded_date_without_source_count', $expectedCount)
+                    ->has('projection.warnings', $expectedCount)
+                    ->has('projection.by_unit.data', 0)
+                );
+        }
+    }
+
+    public function test_projection_rejects_invalid_region_and_site_filters(): void
+    {
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        foreach ([['region_id' => 999], ['region_id' => 'invalid'], ['site_id' => 999], ['site_id' => 'invalid']] as $filters) {
+            $this->actingAs($user)->getJson(route('projections.index', $filters))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors(array_keys($filters));
+        }
     }
 
     public function test_projection_excludes_missing_baseline_when_date_is_outside_period(): void
@@ -454,7 +574,12 @@ class ProjectionTest extends TestCase
         foreach (['(30 hari)', '(60 hari)', '(90 hari)', '30/60/90', 'Kebutuhan 1-3 Bulan'] as $hardcoded) {
             $this->assertStringNotContainsString($hardcoded, $projectionSource, 'Jumlah hari periode tidak boleh ditulis literal di frontend.');
         }
-        $this->assertStringContainsString('Filter Lokasi', $projectionSource);
+        $this->assertStringContainsString('Filter Wilayah / Lokasi', $projectionSource);
+        $this->assertStringContainsString('<SelectGroup>', $projectionSource);
+        $this->assertStringContainsString('<SelectLabel>Wilayah</SelectLabel>', $projectionSource);
+        $this->assertStringContainsString('<SelectLabel>Lokasi</SelectLabel>', $projectionSource);
+        $this->assertStringContainsString('value={`region:${region.id}`}', $projectionSource);
+        $this->assertStringContainsString('value={`site:${site.id}`}', $projectionSource);
         $this->assertStringContainsString('Semua Lokasi', $projectionSource);
         $this->assertStringContainsString('Proyeksi Perawatan', $projectionSource);
         $this->assertStringContainsString('Est. Jatuh Tempo', $projectionSource);
@@ -479,6 +604,11 @@ class ProjectionTest extends TestCase
         $this->assertStringContainsString('variant="outline"', $projectionSource);
         $this->assertStringContainsString('Baseline KM Kosong', $projectionSource);
         $this->assertStringContainsString('item.baseline_km_missing', $projectionSource);
+        $this->assertStringContainsString("item.baseline_km_missing ? '—' : formatKm(item.estimated_due_km)", $projectionSource);
+        $this->assertStringContainsString('date < today', $projectionSource);
+        $this->assertStringContainsString('variant="destructive"', $projectionSource);
+        $this->assertStringContainsString('Lewat jatuh tempo', $projectionSource);
+        $this->assertSame(2, substr_count($projectionSource, '<EstimatedDueDate date={item.estimated_due_date} today={today} />'));
         $this->assertStringContainsString('<TableHead>Pemicu</TableHead>', $projectionSource);
         $this->assertStringContainsString("km: 'KM'", $projectionSource);
         $this->assertStringContainsString("date: 'Tanggal'", $projectionSource);

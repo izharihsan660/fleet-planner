@@ -78,6 +78,7 @@ class ProjectionExport extends DefaultValueBinder implements WithCustomValueBind
                     'region_name' => $unit?->site?->area?->name ?? $unit?->site?->region ?? '-',
                     'bucket' => $dueDate === null ? 'undated' : ($overdue ? 'overdue' : $dueDate->format('Y-m')),
                     'bucket_label' => $dueDate === null ? 'Tanpa Tanggal' : ($overdue ? 'Lewat Due' : $dueDate->locale('id')->isoFormat('MMM YYYY')),
+                    'days_late' => $overdue ? (int) $dueDate->diffInDays($this->periodStart) : null,
                 ];
             })
             ->sortBy([
@@ -94,7 +95,7 @@ class ProjectionExport extends DefaultValueBinder implements WithCustomValueBind
             new ProjectionSummarySheet($items, $this->calendarMonths($periodEnd), [
                 'Periode: '.$this->periodStart->locale('id')->isoFormat('D MMM YYYY')." \u{2013} ".$periodEnd->locale('id')->isoFormat('D MMM YYYY').' | Filter: '.$this->filterLabel,
                 $this->projection['excluded_date_without_source_count'].' item tidak diproyeksikan (tanggal due tanpa data terakhir ganti)',
-                'Angka = jumlah unit, bukan jumlah part.',
+                "Angka per item = jumlah unit. Subtotal = jumlah kebutuhan (unit \u{00D7} item).",
             ]),
             new ProjectionDetailSheet($items),
         ];

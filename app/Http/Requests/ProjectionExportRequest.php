@@ -14,11 +14,4 @@ class ProjectionExportRequest extends ProjectionIndexRequest
             && $user->can('view-projections')
             && (! $user->hasRole(UserRole::PlannerArea) || $user->region_id !== null);
     }
-
-    protected function prepareForValidation(): void
-    {
-        if ($this->user()?->hasRole(UserRole::PlannerArea)) {
-            $this->merge(['region_id' => $this->user()->region_id]);
-        }
-    }
 }

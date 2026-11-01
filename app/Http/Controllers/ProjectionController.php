@@ -37,14 +37,15 @@ class ProjectionController extends Controller
             $siteId !== null ? (int) $siteId : null,
             $regionId !== null ? (int) $regionId : null,
         );
-        $regionName = $regionId !== null ? Region::query()->whereKey($regionId)->value('name') : 'Semua';
-        $siteName = $siteId !== null ? Site::query()->whereKey($siteId)->value('name') : 'Semua Site';
-        $filterLabel = ($regionId !== null ? $regionName : 'Semua Region').' / '.$siteName;
-        $filenameRegion = preg_replace('/[^A-Za-z0-9 _-]/', '_', Str::ascii($regionName));
+        $site = $siteId !== null ? Site::query()->with('area:id,name')->find($siteId) : null;
+        $regionName = $regionId !== null ? Region::query()->whereKey($regionId)->value('name') : $site?->area?->name;
+        $siteName = $site?->name ?? 'Semua Site';
+        $filterLabel = ($regionName ?? 'Semua Region').' / '.$siteName;
+        $filenameLocation = preg_replace('/[^A-Za-z0-9 _-]/', '_', Str::ascii($site?->name ?? $regionName ?? 'Semua'));
 
         return Excel::download(
             new ProjectionExport($result, $service->unitsForExport(array_column($result['by_unit'], 'unit_id')), $periodStart, $filterLabel),
-            sprintf('Proyeksi_%dbln_%s_%s.xlsx', $months, $filenameRegion, $periodStart->format('Ymd')),
+            sprintf('Proyeksi_%dbln_%s_%s.xlsx', $months, $filenameLocation, $periodStart->format('Ymd')),
             \Maatwebsite\Excel\Excel::XLSX,
         );
     }
@@ -62,23 +63,27 @@ class ProjectionController extends Controller
         $regionId = $canFilterRegion ? ($requestedRegionId ? (int) $requestedRegionId : null) : $user->region_id;
         $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]);
         $siteId = $user->hasRole(UserRole::Mekanik) || ($user->hasRole(UserRole::PlannerArea) && $user->region_id === null) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
-        $result = $service->calculate($months, $siteId !== null ? (int) $siteId : null, $regionId);
-        $calendar = $this->buildCalendar($user, $month, $siteId !== null ? (int) $siteId : null, $regionId);
+        $siteId = $siteId !== null ? (int) $siteId : null;
+        $result = $service->calculate($months, $siteId, $regionId);
+        $calendar = $this->buildCalendar($user, $month, $siteId, $regionId);
 
         return Inertia::render('Projections/Index', [
             'projection' => ProjectionResultResource::make($result)->resolve(),
             'sites' => SiteResource::collection(Site::query()
                 ->tap(fn (Builder $query) => AccessScope::applySiteListScope($query, $user))
-                ->when($regionId, fn (Builder $query, int $selectedRegionId) => $query->where('region_id', $selectedRegionId))
                 ->orderBy('name')
                 ->get()),
-            'regions' => RegionResource::collection(Region::query()->orderBy('name')->get()),
+            'regions' => RegionResource::collection(Region::query()
+                ->when(! $canFilterRegion, fn (Builder $query) => $query->whereKey($user->region_id))
+                ->orderBy('name')
+                ->get()),
             'filters' => [
                 'months' => $months,
                 'site_id' => $siteId,
                 'month' => $month->format('Y-m'),
-                'region_id' => $regionId,
+                'region_id' => $siteId === null ? $regionId : null,
             ],
+            'today' => CarbonImmutable::today()->toDateString(),
             'calendar' => $calendar,
             'period_options' => $service->periodOptions(),
             'permissions' => [

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Enums\UserRole;
 use App\Services\ProjectionService;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -11,6 +12,15 @@ class ProjectionIndexRequest extends FormRequest
     public function authorize(): bool
     {
         return true;
+    }
+
+    protected function prepareForValidation(): void
+    {
+        if ($this->user()?->hasRole(UserRole::PlannerArea)) {
+            $this->merge(['region_id' => $this->user()->region_id]);
+        } elseif ($this->filled('site_id')) {
+            $this->merge(['region_id' => null]);
+        }
     }
 
     /**

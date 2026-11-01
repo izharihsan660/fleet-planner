@@ -20,6 +20,7 @@ use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -60,7 +61,7 @@ class ProjectionExportTest extends TestCase
         $spreadsheet = $this->download(User::factory()->create(['role' => UserRole::SpvHo]), [], 'Proyeksi_1bln_Semua_20261031.xlsx');
 
         $this->assertSame(['Rekap', 'Detail'], $spreadsheet->getSheetNames());
-        $this->assertEqualsCanonicalizing(['Kalimantan', 'Sulawesi'], array_column($this->detailRows($spreadsheet), 3));
+        $this->assertEqualsCanonicalizing(['Kalimantan', 'Sulawesi'], array_column($this->detailRows($spreadsheet), 2));
         $this->assertStringContainsString('Filter: Semua Region / Semua Site', $spreadsheet->getSheetByName('Rekap')->getCell('A1')->getValue());
         $this->assertSame(2, $this->grandTotal($spreadsheet));
     }
@@ -78,12 +79,61 @@ class ProjectionExportTest extends TestCase
 
         $user = User::factory()->create(['role' => UserRole::Superadmin]);
         $filters = ['months' => 2, 'region_id' => $selectedSite->region_id, 'site_id' => $selectedSite->id];
-        $spreadsheet = $this->download($user, $filters, 'Proyeksi_2bln_Kalimantan_20261031.xlsx');
+        $spreadsheet = $this->download($user, $filters, 'Proyeksi_2bln_Site A_20261031.xlsx');
 
-        $this->assertSame(['KT 1001 AA'], array_column($this->detailRows($spreadsheet), 2));
+        $this->assertSame(['KT 1001 AA'], array_column($this->detailRows($spreadsheet), 1));
         $this->assertStringContainsString('Periode: 31 Okt 2026', $spreadsheet->getSheetByName('Rekap')->getCell('A1')->getValue());
         $this->assertStringContainsString('Filter: Kalimantan / Site A', $spreadsheet->getSheetByName('Rekap')->getCell('A1')->getValue());
         $this->assertSame([], $this->detailRows($this->download($user, [...$filters, 'months' => 1])));
+    }
+
+    public function test_region_and_site_exports_match_the_selected_scope_and_filename(): void
+    {
+        $firstSite = $this->createSite('Kalimantan', 'Site A');
+        $secondSite = $this->createSite('Kalimantan', 'Site B');
+        $outsideSite = $this->createSite('Sulawesi', 'Site C');
+        $item = $this->createItem('Filter Oli');
+
+        foreach ([[$firstSite, 'KT 1001 AA'], [$secondSite, 'KT 1002 AA'], [$outsideSite, 'DD 1003 AA']] as [$site, $plate]) {
+            $this->createPlanning($this->createUnit($site, $plate), $item, '2026-11-10');
+        }
+
+        $scenarios = [
+            [['region_id' => $firstSite->region_id], ['KT 1001 AA', 'KT 1002 AA'], 'Kalimantan'],
+            [['site_id' => $secondSite->id], ['KT 1002 AA'], 'Site B'],
+            [['region_id' => $firstSite->region_id, 'site_id' => $outsideSite->id], ['DD 1003 AA'], 'Site C'],
+            [['region_id' => 'invalid', 'site_id' => $outsideSite->id], ['DD 1003 AA'], 'Site C'],
+        ];
+
+        foreach ([UserRole::Superadmin, UserRole::SpvHo] as $role) {
+            $user = User::factory()->create(['role' => $role]);
+
+            foreach ($scenarios as [$filters, $expectedPlates, $filenameLocation]) {
+                $spreadsheet = $this->download($user, $filters, 'Proyeksi_1bln_'.$filenameLocation.'_20261031.xlsx');
+                $this->assertSame($expectedPlates, array_column($this->detailRows($spreadsheet), 1));
+                $this->assertSame(count($expectedPlates), $this->grandTotal($spreadsheet));
+            }
+        }
+    }
+
+    public function test_export_exclusion_summary_obeys_region_filter(): void
+    {
+        $ownSite = $this->createSite('Kalimantan', 'Own Site');
+        $outsideSite = $this->createSite('Sulawesi', 'Outside Site');
+        $item = $this->createItem('Tanpa Sumber');
+
+        foreach ([[$ownSite, 'KT 1001 AA'], [$outsideSite, 'DD 1002 AA']] as [$site, $plate]) {
+            $this->createPlanning($this->createUnit($site, $plate), $item, '2026-11-10', [
+                'last_done_km' => 0, 'last_done_date' => null, 'due_manually_set' => false, 'is_estimated' => false,
+            ]);
+        }
+
+        $user = User::factory()->create(['role' => UserRole::Superadmin]);
+
+        foreach ([[$ownSite->region_id, 1], [null, 2]] as [$regionId, $expectedCount]) {
+            $spreadsheet = $this->download($user, ['region_id' => $regionId]);
+            $this->assertSame($expectedCount.' item tidak diproyeksikan (tanggal due tanpa data terakhir ganti)', $spreadsheet->getSheetByName('Rekap')->getCell('A2')->getValue());
+        }
     }
 
     public function test_planner_area_cannot_override_their_region_even_with_an_invalid_region_parameter(): void
@@ -97,12 +147,15 @@ class ProjectionExportTest extends TestCase
 
         foreach ([$outsideSite->region_id, 'not-a-region'] as $regionParameter) {
             $spreadsheet = $this->download($planner, ['region_id' => $regionParameter], 'Proyeksi_1bln_Kalimantan_20261031.xlsx');
-            $this->assertSame(['KT 1001 AA'], array_column($this->detailRows($spreadsheet), 2));
+            $this->assertSame(['KT 1001 AA'], array_column($this->detailRows($spreadsheet), 1));
             $this->assertSame(1, $this->grandTotal($spreadsheet));
         }
 
         $spreadsheet = $this->download($planner, ['region_id' => $outsideSite->region_id, 'site_id' => $outsideSite->id]);
         $this->assertSame([], $this->detailRows($spreadsheet));
+
+        $spreadsheet = $this->download($planner, ['region_id' => $outsideSite->region_id, 'site_id' => $ownSite->id], 'Proyeksi_1bln_Own Site_20261031.xlsx');
+        $this->assertSame(['KT 1001 AA'], array_column($this->detailRows($spreadsheet), 1));
     }
 
     public function test_mechanic_and_planner_without_a_region_are_forbidden(): void
@@ -137,7 +190,7 @@ class ProjectionExportTest extends TestCase
         $summary = $spreadsheet->getSheetByName('Rekap');
         $this->assertSame(['Kelompok Model', 'Item', 'Lewat Due', 'Tanpa Tanggal', 'Okt 2026 (31 Okt)', 'Nov 2026', 'Des 2026', 'Jan 2027 (s/d 29 Jan)', 'Total'], $summary->rangeToArray('A5:I5')[0]);
         $this->assertSame(['HILUX 2.4 DC', 'Filter Oli', 1, null, 1, 1, 1, 1, 5], $summary->rangeToArray('A6:I6', null, false, false)[0]);
-        $this->assertSame(['Lewat Due', 'Okt 2026', 'Nov 2026', 'Des 2026', 'Jan 2027'], array_column($this->detailRows($spreadsheet), 7));
+        $this->assertSame(['Lewat Due', 'Okt 2026', 'Nov 2026', 'Des 2026', 'Jan 2027'], array_column($this->detailRows($spreadsheet), 6));
         $this->assertSame(count($this->detailRows($spreadsheet)), $this->grandTotal($spreadsheet));
     }
 
@@ -182,8 +235,8 @@ class ProjectionExportTest extends TestCase
 
         $this->assertSame(2, $sourceResult['excluded_date_without_source_count']);
         $this->assertSame('2 item tidak diproyeksikan (tanggal due tanpa data terakhir ganti)', $summary->getCell('A2')->getValue());
-        $this->assertSame('Angka = jumlah unit, bukan jumlah part.', $summary->getCell('A3')->getValue());
-        $this->assertEqualsCanonicalizing(['due_manually_set', 'is_estimated', 'last_done_date'], array_column($details, 5));
+        $this->assertSame('Angka per item = jumlah unit. Subtotal = jumlah kebutuhan (unit × item).', $summary->getCell('A3')->getValue());
+        $this->assertEqualsCanonicalizing(['due_manually_set', 'is_estimated', 'last_done_date'], array_column($details, 4));
         $this->assertStringNotContainsString('Tanpa Sumber', json_encode($summary->toArray()));
         $this->assertStringNotContainsString('Dikecualikan', json_encode($summary->toArray()));
         $this->assertSame([null, null, null], array_column($details, 9));
@@ -232,11 +285,11 @@ class ProjectionExportTest extends TestCase
         $this->assertSame('BELUM DIKELOMPOKKAN', $summary->getCell('A11')->getValue());
         $this->assertSame(['BELUM DIKELOMPOKKAN', 'Z Item Pertama', null, 1, null, 1, 2], $summary->rangeToArray('A11:G11', null, false, false)[0]);
         $this->assertSame('TIDAK DIKETAHUI', $summary->getCell('A14')->getValue());
-        $this->assertSame(['KT 1004 AA', 'KT 1001 AA', 'KT 1002 AA', 'KT 1002 AA', 'KT 1005 AA', 'KT 1005 AA', 'KT 1006 AA', 'KT 1003 AA'], array_column($details, 2));
-        $this->assertSame(['A Item Kedua', 'Z Item Pertama'], array_column(array_slice($details, 2, 2), 5));
-        $this->assertSame($originalType, $details[2][1]);
-        $this->assertSame('  ', $details[7][1]);
-        $this->assertSame('Tanpa Tanggal', $details[6][7]);
+        $this->assertSame(['KT 1004 AA', 'KT 1001 AA', 'KT 1002 AA', 'KT 1002 AA', 'KT 1005 AA', 'KT 1005 AA', 'KT 1006 AA', 'KT 1003 AA'], array_column($details, 1));
+        $this->assertSame(['A Item Kedua', 'Z Item Pertama'], array_column(array_slice($details, 2, 2), 4));
+        $this->assertSame($originalType, $details[2][11]);
+        $this->assertSame('  ', $details[7][11]);
+        $this->assertSame('Tanpa Tanggal', $details[6][6]);
         $this->assertSame(8, $this->grandTotal($spreadsheet));
         $this->assertSame(count($details), $this->grandTotal($spreadsheet));
     }
@@ -270,7 +323,7 @@ class ProjectionExportTest extends TestCase
 
         $this->assertSame('CUSTOM GROUP', $spreadsheet->getSheetByName('Rekap')->getCell('A6')->getValue());
         $this->assertSame('CUSTOM GROUP', $this->detailRows($spreadsheet)[0][0]);
-        $this->assertSame($originalType, $this->detailRows($spreadsheet)[0][1]);
+        $this->assertSame($originalType, $this->detailRows($spreadsheet)[0][11]);
         $this->assertNull($spreadsheet->getSheetByName('Rekap')->getCell('A4')->getValue());
     }
 
@@ -291,27 +344,88 @@ class ProjectionExportTest extends TestCase
         $this->createPlanning($unit, $this->createItem('KM Zero'), null, ['next_due_km' => 0]);
         $spreadsheet = $this->download(User::factory()->create(['role' => UserRole::SpvHo]));
         $detail = $spreadsheet->getSheetByName('Detail');
-        $rows = array_column($this->detailRows($spreadsheet), null, 5);
+        $rows = array_column($this->detailRows($spreadsheet), null, 4);
 
-        $this->assertSame(['Kelompok Model', 'Type Unit', 'No Polisi', 'Region', 'Site', 'Item', 'Est. Jatuh Tempo', 'Bucket', 'Pemicu', 'Est. KM Jatuh Tempo', 'Baseline KM Kosong'], $detail->rangeToArray('A1:K1')[0]);
+        $this->assertSame(['Kelompok Model', 'No Polisi', 'Region', 'Site', 'Item', 'Est. Jatuh Tempo', 'Bucket', 'Hari Terlambat', 'Pemicu', 'Est. KM Jatuh Tempo', 'Baseline KM Kosong', 'Type Unit'], $detail->rangeToArray('A1:L1')[0]);
         $this->assertSame('KM', $rows['KM Only'][8]);
         $this->assertSame('KM & Tanggal', $rows['Both'][8]);
         $this->assertSame('Tanggal', $rows['Date Only'][8]);
-        $this->assertSame((float) Date::dateTimeToExcel(CarbonImmutable::parse('2026-11-02')), (float) $rows['Both'][6]);
+        $this->assertSame((float) Date::dateTimeToExcel(CarbonImmutable::parse('2026-11-02')), (float) $rows['Both'][5]);
         $this->assertSame(1500, $rows['KM Only'][9]);
         $this->assertNull($rows['Date Only'][9]);
         $this->assertSame(0, $rows['KM Zero'][9]);
-        $this->assertSame(DataType::TYPE_NUMERIC, $detail->getCell('G2')->getDataType());
-        $this->assertSame('31/10/2026', $detail->getCell('G2')->getFormattedValue());
-        $this->assertSame('dd/mm/yyyy', $detail->getStyle('G2')->getNumberFormat()->getFormatCode());
+        $this->assertSame(DataType::TYPE_NUMERIC, $detail->getCell('F2')->getDataType());
+        $this->assertSame('31/10/2026', $detail->getCell('F2')->getFormattedValue());
+        $this->assertSame('dd/mm/yyyy', $detail->getStyle('F2')->getNumberFormat()->getFormatCode());
+        $this->assertSame('0', $detail->getStyle('H2')->getNumberFormat()->getFormatCode());
         $this->assertSame('#,##0', $detail->getStyle('J2')->getNumberFormat()->getFormatCode());
-        $this->assertSame('A2', $detail->getFreezePane());
-        $this->assertSame('A1:K5', $detail->getAutoFilter()->getRange());
+        $this->assertSame('C2', $detail->getFreezePane());
+        $this->assertSame('A1:L5', $detail->getAutoFilter()->getRange());
         $this->assertTrue($detail->getStyle('A1')->getFont()->getBold());
+        $this->assertTrue($detail->getStyle('L1')->getFont()->getBold());
+        $this->assertSame('1E3A5F', $detail->getStyle('L1')->getFill()->getStartColor()->getRGB());
         $this->assertGreaterThan(10, $detail->getColumnDimension('A')->getWidth());
         $this->assertSame('C6', $spreadsheet->getSheetByName('Rekap')->getFreezePane());
         $this->assertTrue($spreadsheet->getSheetByName('Rekap')->getStyle('A5')->getFont()->getBold());
         $this->assertGreaterThan(4, $spreadsheet->getSheetByName('Rekap')->getColumnDimension('B')->getWidth());
+    }
+
+    public function test_detail_counts_integer_days_late_and_highlights_only_overdue_rows(): void
+    {
+        $site = $this->createSite();
+        $item = $this->createItem('Filter Oli');
+        $daysLateScenarios = [1, 180, 181, 400, 0, -1, null];
+
+        foreach ($daysLateScenarios as $index => $daysLate) {
+            $unit = $this->createUnit($site, 'KT 500'.$index.' AA', ['has_odometer_reading' => $daysLate === null]);
+            $dueDate = $daysLate !== null ? CarbonImmutable::today()->subDays($daysLate)->toDateString() : null;
+            $this->createPlanning($unit, $item, $dueDate, ['next_due_km' => $daysLate === null ? 1200 : 10000]);
+        }
+
+        $spreadsheet = $this->download(User::factory()->create(['role' => UserRole::SpvHo]));
+        $detail = $spreadsheet->getSheetByName('Detail');
+        $this->assertCount(count($daysLateScenarios), $this->detailRows($spreadsheet));
+
+        foreach ($daysLateScenarios as $index => $daysLate) {
+            $row = $index + 2;
+            $isOverdue = $daysLate !== null && $daysLate > 0;
+            $cell = $detail->getCell('H'.$row);
+            $this->assertSame($isOverdue ? $daysLate : null, $cell->getValue());
+            $this->assertSame($isOverdue, $detail->getCell('G'.$row)->getValue() === 'Lewat Due');
+            $this->assertSame('0', $detail->getStyle('H'.$row)->getNumberFormat()->getFormatCode());
+
+            if ($isOverdue) {
+                $this->assertIsInt($cell->getValue());
+                $this->assertSame(DataType::TYPE_NUMERIC, $cell->getDataType());
+            }
+
+            foreach (range('A', 'L') as $column) {
+                $fill = $detail->getStyle($column.$row)->getFill();
+                $this->assertSame($isOverdue, $fill->getStartColor()->getRGB() === 'FDE2E2');
+
+                if ($isOverdue) {
+                    $this->assertSame(Fill::FILL_SOLID, $fill->getFillType());
+                }
+            }
+
+            $font = $detail->getStyle('H'.$row)->getFont();
+            $this->assertSame($isOverdue && $daysLate > 180, $font->getBold());
+            $this->assertSame($isOverdue && $daysLate > 180, $font->getColor()->getRGB() === 'FF0000');
+        }
+    }
+
+    public function test_detail_days_late_counts_calendar_days_across_year_and_leap_day_boundaries(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2028-03-01 23:59:59'));
+        $site = $this->createSite();
+        $item = $this->createItem('Filter Oli');
+
+        foreach (['2028-02-29', '2028-02-28', '2027-12-31'] as $index => $dueDate) {
+            $this->createPlanning($this->createUnit($site, 'KT 600'.$index.' AA'), $item, $dueDate);
+        }
+
+        $spreadsheet = $this->download(User::factory()->create(['role' => UserRole::SpvHo]));
+        $this->assertSame([1, 2, 61], array_column($this->detailRows($spreadsheet), 7));
     }
 
     public function test_km_projection_without_an_estimated_date_uses_the_undated_bucket_without_fabricating_a_date(): void
@@ -322,8 +436,9 @@ class ProjectionExportTest extends TestCase
         $row = $this->detailRows($spreadsheet)[0];
         $summary = $spreadsheet->getSheetByName('Rekap');
 
-        $this->assertNull($row[6]);
-        $this->assertSame('Tanpa Tanggal', $row[7]);
+        $this->assertNull($row[5]);
+        $this->assertSame('Tanpa Tanggal', $row[6]);
+        $this->assertNull($row[7]);
         $this->assertSame('KM', $row[8]);
         $this->assertSame(['HILUX 2.4 DC', 'KM Only', null, 1, null, null, 1], $summary->rangeToArray('A6:G6', null, false, false)[0]);
         $this->assertSame(1, $this->grandTotal($spreadsheet));
@@ -385,10 +500,12 @@ class ProjectionExportTest extends TestCase
         $this->assertSame(30, $this->grandTotal($spreadsheet));
         $this->assertSame(DataType::TYPE_STRING, $detail->getCell('A2')->getDataType());
         $this->assertSame(DataType::TYPE_STRING, $detail->getCell('B2')->getDataType());
-        $this->assertSame(DataType::TYPE_STRING, $detail->getCell('F2')->getDataType());
+        $this->assertSame(DataType::TYPE_STRING, $detail->getCell('L2')->getDataType());
+        $this->assertSame(DataType::TYPE_STRING, $detail->getCell('E2')->getDataType());
         $this->assertSame('BELUM DIKELOMPOKKAN', $detail->getCell('A2')->getValue());
-        $this->assertSame('=2+2', $detail->getCell('B2')->getValue());
-        $this->assertSame('=1+1', $detail->getCell('F2')->getValue());
+        $this->assertSame('KT 0 AA', $detail->getCell('B2')->getValue());
+        $this->assertSame('=2+2', $detail->getCell('L2')->getValue());
+        $this->assertSame('=1+1', $detail->getCell('E2')->getValue());
     }
 
     public function test_frontend_download_uses_an_anchor_with_active_filters_not_an_inertia_visit(): void
@@ -398,6 +515,7 @@ class ProjectionExportTest extends TestCase
         $this->assertStringContainsString('months: filters.months', $source);
         $this->assertStringContainsString('region_id: filters.region_id', $source);
         $this->assertStringContainsString('site_id: filters.site_id', $source);
+        $this->assertStringContainsString('filters.site_id !== null ? { site_id: filters.site_id } :', $source);
         $this->assertStringContainsString('<Button asChild variant="outline"', $source);
         $this->assertStringContainsString('<a href={exportUrl}>', $source);
         $this->assertStringContainsString('<Download ', $source);

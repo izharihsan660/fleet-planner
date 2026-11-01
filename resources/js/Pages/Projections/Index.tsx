@@ -4,7 +4,7 @@ import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Label } from '@/Components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -48,6 +48,7 @@ interface ProjectionIndexProps extends PageProps {
         region_id: number | null;
     };
     period_options: ProjectionPeriodOption[];
+    today: string;
     permissions: {
         can_filter_site: boolean;
         can_filter_region: boolean;
@@ -100,7 +101,7 @@ const projectionUrl = (months: number, siteId: number | null, month: string, reg
         params.set('month', month);
     }
 
-    if (regionId) {
+    if (regionId && !siteId) {
         params.set('region_id', String(regionId));
     }
 
@@ -138,7 +139,16 @@ function BaselineKmBadge({ missing }: { missing: boolean }) {
     );
 }
 
-function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem?: boolean }) {
+function EstimatedDueDate({ date, today }: { date: string | null; today: string }) {
+    return (
+        <>
+            {formatDate(date)}
+            {date !== null && date < today && <Badge variant="destructive" className="ml-2 text-[10px]">Lewat jatuh tempo</Badge>}
+        </>
+    );
+}
+
+function DueRows({ items, today, showItem = true }: { items: ProjectionLine[]; today: string; showItem?: boolean }) {
     return (
         <TableBody>
             {items.map((item) => (
@@ -150,8 +160,8 @@ function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem
                     </TableCell>
                     <TableCell>{item.site_name}</TableCell>
                     {showItem && <TableCell>{item.planning_item_name}</TableCell>}
-                    <TableCell>{formatDate(item.estimated_due_date)}</TableCell>
-                    <TableCell>{formatKm(item.estimated_due_km)}</TableCell>
+                    <TableCell><EstimatedDueDate date={item.estimated_due_date} today={today} /></TableCell>
+                    <TableCell>{item.baseline_km_missing ? '—' : formatKm(item.estimated_due_km)}</TableCell>
                     <TableCell>{projectionTriggerLabels[item.trigger]}</TableCell>
                 </TableRow>
             ))}
@@ -159,7 +169,7 @@ function DueRows({ items, showItem = true }: { items: ProjectionLine[]; showItem
     );
 }
 
-function DueTable({ items, showItem = true }: { items: ProjectionLine[]; showItem?: boolean }) {
+function DueTable({ items, today, showItem = true }: { items: ProjectionLine[]; today: string; showItem?: boolean }) {
     return (
         <div className="overflow-x-auto">
             <Table>
@@ -173,7 +183,7 @@ function DueTable({ items, showItem = true }: { items: ProjectionLine[]; showIte
                         <TableHead>Pemicu</TableHead>
                     </TableRow>
                 </TableHeader>
-                <DueRows items={items} showItem={showItem} />
+                <DueRows items={items} today={today} showItem={showItem} />
             </Table>
         </div>
     );
@@ -236,7 +246,7 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
     );
 }
 
-export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, permissions }: ProjectionIndexProps) {
+export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, today, permissions }: ProjectionIndexProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(permissions.default_tab);
     const [showWarningList, setShowWarningList] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -250,8 +260,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
     const selectedItems = useMemo(() => calendar.items.filter((item) => item.due_date === selectedDate), [calendar.items, selectedDate]);
     const exportUrl = route('projections.export', {
         months: filters.months,
-        ...(filters.region_id !== null ? { region_id: filters.region_id } : {}),
-        ...(filters.site_id !== null ? { site_id: filters.site_id } : {}),
+        ...(filters.site_id !== null ? { site_id: filters.site_id } : filters.region_id !== null ? { region_id: filters.region_id } : {}),
     });
     const navigateProjection = (nextFilters: Partial<ProjectionIndexProps['filters']>) => {
         const next = { ...filters, ...nextFilters };
@@ -287,12 +296,32 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                 </div>
                                 {permissions.can_filter_site && (
                                     <div className="space-y-2">
-                                        <Label>Filter Lokasi</Label>
-                                        <Select value={filters.site_id ? String(filters.site_id) : 'all'} onValueChange={(value) => navigateProjection({ site_id: value === 'all' ? null : Number(value) })}>
-                                            <SelectTrigger className="min-w-48"><SelectValue /></SelectTrigger>
+                                        <Label htmlFor="projection-location">Filter Wilayah / Lokasi</Label>
+                                        <Select
+                                            value={filters.site_id ? `site:${filters.site_id}` : filters.region_id ? `region:${filters.region_id}` : 'all'}
+                                            onValueChange={(value) => {
+                                                const [kind, locationId] = value.split(':');
+                                                navigateProjection({
+                                                    region_id: kind === 'region' ? Number(locationId) : null,
+                                                    site_id: kind === 'site' ? Number(locationId) : null,
+                                                });
+                                            }}
+                                        >
+                                            <SelectTrigger id="projection-location" className="min-w-48"><SelectValue /></SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="all">Semua Lokasi</SelectItem>
-                                                {sites.data.map((site) => <SelectItem key={site.id} value={String(site.id)}>{site.name}</SelectItem>)}
+                                                <SelectGroup>
+                                                    <SelectItem value="all">Semua Lokasi</SelectItem>
+                                                </SelectGroup>
+                                                <SelectSeparator />
+                                                <SelectGroup>
+                                                    <SelectLabel>Wilayah</SelectLabel>
+                                                    {regions.data.map((region) => <SelectItem key={region.id} value={`region:${region.id}`}>{region.name}</SelectItem>)}
+                                                </SelectGroup>
+                                                <SelectSeparator />
+                                                <SelectGroup>
+                                                    <SelectLabel>Lokasi</SelectLabel>
+                                                    {sites.data.map((site) => <SelectItem key={site.id} value={`site:${site.id}`}>{site.name}</SelectItem>)}
+                                                </SelectGroup>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -357,7 +386,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                 </div>
                                                 <StatusBadge>{unit.items.length} item</StatusBadge>
                                             </CardHeader>
-                                            <CardContent><DueTable items={unit.items} /></CardContent>
+                                            <CardContent><DueTable items={unit.items} today={today} /></CardContent>
                                         </Card>
                                     ))}
                                     <PaginationLinks meta={projection.by_unit.meta} />
@@ -366,7 +395,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     {projection.by_item.data.map((item: ProjectionItem) => (
                                         <Card key={item.planning_item_id} className="shadow-xs">
                                             <CardHeader className="bg-muted/30"><CardTitle className="text-base">{item.planning_item_name}</CardTitle></CardHeader>
-                                            <CardContent><DueTable items={item.items} showItem={false} /></CardContent>
+                                            <CardContent><DueTable items={item.items} today={today} showItem={false} /></CardContent>
                                         </Card>
                                     ))}
                                     {projection.by_item.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item jatuh tempo pada periode ini.</p>}
@@ -394,7 +423,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                             {permissions.can_filter_site && (
                                                 <div className="space-y-2">
                                                     <Label>Lokasi</Label>
-                                                    <Select value={filters.site_id ? String(filters.site_id) : 'all'} onValueChange={(value) => navigateProjection({ site_id: value === 'all' ? null : Number(value) })}>
+                                                    <Select value={filters.site_id ? String(filters.site_id) : 'all'} onValueChange={(value) => navigateProjection({ site_id: value === 'all' ? null : Number(value), region_id: null })}>
                                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                                         <SelectContent>
                                                             <SelectItem value="all">Semua Lokasi</SelectItem>
@@ -475,7 +504,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                     <div key={item.unit_planning_id} className="grid gap-1 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground sm:grid-cols-4 sm:items-center">
                                                         <span className="font-medium text-foreground">{item.plate_number}<BaselineKmBadge missing={item.baseline_km_missing} /></span>
                                                         <span>{item.site_name}</span>
-                                                        <span>Jatuh Tempo: {formatDate(item.estimated_due_date)}<span className="block text-xs">Pemicu: {projectionTriggerLabels[item.trigger]}</span></span>
+                                                        <span>Jatuh Tempo: <EstimatedDueDate date={item.estimated_due_date} today={today} /><span className="block text-xs">Pemicu: {projectionTriggerLabels[item.trigger]}</span></span>
                                                         <span>Est. qty: {item.estimated_quantity}</span>
                                                     </div>
                                                 ))}
