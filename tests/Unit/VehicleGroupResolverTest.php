@@ -22,12 +22,14 @@ class VehicleGroupResolverTest extends TestCase
     {
         return [
             'hilux dc' => ['TOYOTA HILUX DC', 'HILUX 2.4 DC'],
+            'hilux dc white 2021' => ['TOYOTA ALL NEW HILUX 2,393 CC E DC 4X4 M/T / PUTIH 2021', 'HILUX 2.4 DC'],
             'hilux sc' => ['TOYOTA HILUX SC', 'HILUX 2.4 SC'],
             'hilux rangga' => ['TOYOTA HILUX RANGGA PICK UP 2,0 STD M', 'HILUX RANGGA 2.0'],
             'innova reborn 2.4' => ['TOYOTA ALL NEW INNOVA 2,4G M', 'INNOVA REBORN 2.4'],
             'innova reborn unknown cc' => ['TOYOTA INNOVA REBORN', 'INNOVA REBORN (CC TIDAK JELAS)'],
             'innova 2.0' => ['TOYOTA ALL NEW INNOVA 2,0 G A', 'INNOVA 2.0'],
             'innova zenix' => ['TOYOTA KIJANG INNOVA ZENIX 2,0G CVT', 'INNOVA ZENIX 2.0'],
+            'innova unknown type' => ['INNOVA', 'INNOVA (TIPE TIDAK JELAS)'],
             'avanza' => ['T. NEW AVANZA 1.3 G M', 'AVANZA 1.3'],
             'all new veloz' => ['TOYOTA ALL NEW AVANZA 1,5 VELOZ M', 'VELOZ 1.5 (ALL NEW)'],
             'new veloz' => ['TOYOTA NEW AVANZA VELOZ 1,5 M', 'VELOZ 1.5 (NEW)'],
@@ -42,12 +44,15 @@ class VehicleGroupResolverTest extends TestCase
             'canter unknown type' => ['MITSUBISHI CANTER', 'CANTER (TIPE TIDAK JELAS)'],
             'gran max pickup' => ['DAIHATSU GRAN MAX PU AC PS 1.5', 'GRAN MAX PU 1.5'],
             'gran max van' => ['DAIHATSU GRAN MAX 1.3 BLIND VAN ACS401RV-BMREJJ', 'GRAN MAX BV 1.3'],
+            'gran max van unknown cc' => ['GRAND MAX BLINDFAN', 'GRAN MAX BV (CC TIDAK JELAS)'],
             'terios' => ['DAIHATSU NEW TERIOS 1,5 R A', 'TERIOS 1.5'],
             'dmax' => ['ISUZU D-MAX RODEO DC VGS 4X4 M', 'D-MAX DC'],
             'elf' => ['ISUZU ELF NLR 55B LX', 'ELF NLR 55'],
             'elf mikrobus' => ['ISUZU NLR 55B LX MIKROBUS 2,771 (20 SEAT + AC)', 'ELF NLR 55 MIKROBUS'],
             'nqr' => ['ISUZU NQR 71 EC E2-1 5,0 BUS', 'NQR 71'],
             'scorpio' => ['MAHINDRA SCORPIO PIKUP DC E11 WD 2,2 4X4 M', 'SCORPIO PU DC'],
+            'scorpio e11 white 2022' => ['MAHINDRA SCORPIO PIKUP DC E11 WD 4X4 M/T / PUTIH 2022', 'SCORPIO PU DC'],
+            'scorpio 2179 white 2022' => ['MAHINDRA SCORPIO PIKUP 2,179 DC 4X4 M/T / PUTIH 2022', 'SCORPIO PU DC'],
             'xtrail' => ['NEW NISSAN X-TRAIL 2,5 ST A', 'X-TRAIL 2.5'],
             'picanto' => ['KIA NEW PICANTO SE 1,1L M', 'PICANTO 1.1'],
             'mercedes' => ['MERC BENZ C200 CGI AT', 'MERCEDES C200'],
@@ -59,7 +64,7 @@ class VehicleGroupResolverTest extends TestCase
         $resolver = new VehicleGroupResolver;
         $seen = [];
         $groups = config('vehicle_groups');
-        $this->assertCount(30, $groups);
+        $this->assertCount(32, $groups);
 
         foreach ($groups as $group => $types) {
             foreach ($types as $type) {
@@ -70,7 +75,7 @@ class VehicleGroupResolverTest extends TestCase
             }
         }
 
-        $this->assertCount(67, $seen);
+        $this->assertCount(72, $seen);
     }
 
     public function test_normalizes_case_and_whitespace_in_both_type_and_config_aliases(): void
