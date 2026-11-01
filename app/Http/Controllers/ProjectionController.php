@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
+use App\Exports\ProjectionExport;
+use App\Http\Requests\ProjectionExportRequest;
 use App\Http\Requests\ProjectionIndexRequest;
 use App\Http\Resources\ProjectionResultResource;
 use App\Http\Resources\RegionResource;
@@ -16,11 +18,37 @@ use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ProjectionController extends Controller
 {
+    public function export(ProjectionExportRequest $request, ProjectionService $service): BinaryFileResponse
+    {
+        $months = (int) ($request->validated('months') ?? 1);
+        $regionId = $request->validated('region_id');
+        $siteId = $request->validated('site_id');
+        $periodStart = CarbonImmutable::today();
+        $result = $service->calculate(
+            $months,
+            $siteId !== null ? (int) $siteId : null,
+            $regionId !== null ? (int) $regionId : null,
+        );
+        $regionName = $regionId !== null ? Region::query()->whereKey($regionId)->value('name') : 'Semua';
+        $siteName = $siteId !== null ? Site::query()->whereKey($siteId)->value('name') : 'Semua Site';
+        $filterLabel = ($regionId !== null ? $regionName : 'Semua Region').' / '.$siteName;
+        $filenameRegion = preg_replace('/[^A-Za-z0-9 _-]/', '_', Str::ascii($regionName));
+
+        return Excel::download(
+            new ProjectionExport($result, $service->unitsForExport(array_column($result['by_unit'], 'unit_id')), $periodStart, $filterLabel),
+            sprintf('Proyeksi_%dbln_%s_%s.xlsx', $months, $filenameRegion, $periodStart->format('Ymd')),
+            \Maatwebsite\Excel\Excel::XLSX,
+        );
+    }
+
     public function index(ProjectionIndexRequest $request, ProjectionService $service): Response
     {
         Gate::authorize('view-projections');

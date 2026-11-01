@@ -51,6 +51,19 @@ class ProjectionService
     }
 
     /**
+     * @param  array<int, int>  $unitIds
+     * @return Collection<int, Unit>
+     */
+    public function unitsForExport(array $unitIds): Collection
+    {
+        return Unit::query()
+            ->with(['site:id,name,region,region_id', 'site.area:id,name'])
+            ->whereKey($unitIds)
+            ->get(['id', 'brand', 'type', 'site_id'])
+            ->keyBy('id');
+    }
+
+    /**
      * @return array{period_months: int, period_days: int, period_end: string, excluded_date_without_source_count: int, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
      */
     public function calculate(int $months, ?int $siteId = null, ?int $regionId = null): array

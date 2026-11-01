@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps, ProjectionItem, ProjectionLine, ProjectionPart, ProjectionPeriodOption, ProjectionResult, Region, Site } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
+import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
 type TabKey = 'unit' | 'item' | 'calendar' | 'part';
@@ -247,6 +248,11 @@ export default function Index({ projection, sites, regions, calendar, filters, p
     ].filter(Boolean) as { key: TabKey; label: string }[], [permissions]);
 
     const selectedItems = useMemo(() => calendar.items.filter((item) => item.due_date === selectedDate), [calendar.items, selectedDate]);
+    const exportUrl = route('projections.export', {
+        months: filters.months,
+        ...(filters.region_id !== null ? { region_id: filters.region_id } : {}),
+        ...(filters.site_id !== null ? { site_id: filters.site_id } : {}),
+    });
     const navigateProjection = (nextFilters: Partial<ProjectionIndexProps['filters']>) => {
         const next = { ...filters, ...nextFilters };
         router.get(projectionUrl(next.months, next.site_id, next.month, next.region_id), {}, { preserveScroll: true, preserveState: true, replace: true });
@@ -262,6 +268,12 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                             <div>
                                 <CardTitle>Kebutuhan {periodRangeLabel(periodOptions)}</CardTitle>
                                 <CardDescription>Periode berakhir pada {formatDate(projection.period_end)}.</CardDescription>
+                                <Button asChild variant="outline" className="mt-3">
+                                    <a href={exportUrl}>
+                                        <Download data-icon="inline-start" aria-hidden="true" />
+                                        Export Excel
+                                    </a>
+                                </Button>
                             </div>
                             <div className="grid gap-3 sm:grid-cols-2">
                                 <div className="space-y-2">

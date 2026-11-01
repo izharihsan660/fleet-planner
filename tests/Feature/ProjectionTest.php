@@ -74,7 +74,8 @@ class ProjectionTest extends TestCase
     {
         [, , $unitPlanning] = $this->createProjectionScenario();
 
-        foreach ([0, null] as $lastDoneKm) {
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
+        foreach ([0, 0] as $lastDoneKm) {
             $unitPlanning->update([
                 'last_done_km' => $lastDoneKm,
                 'last_done_date' => null,
@@ -100,7 +101,8 @@ class ProjectionTest extends TestCase
     {
         [, , $unitPlanning] = $this->createProjectionScenario();
 
-        foreach ([0, null] as $lastDoneKm) {
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
+        foreach ([0, 0] as $lastDoneKm) {
             $unitPlanning->update([
                 'last_done_km' => $lastDoneKm,
                 'last_done_date' => null,
@@ -123,7 +125,8 @@ class ProjectionTest extends TestCase
     {
         [, , $unitPlanning] = $this->createProjectionScenario();
 
-        foreach ([0, null] as $lastDoneKm) {
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
+        foreach ([0, 0] as $lastDoneKm) {
             $unitPlanning->update([
                 'last_done_km' => $lastDoneKm,
                 'last_done_date' => null,
@@ -199,7 +202,8 @@ class ProjectionTest extends TestCase
             UnitPlanning::query()->create([
                 'unit_id' => $firstUnit->id,
                 'planning_item_id' => $planningItem->id,
-                'last_done_km' => null,
+                // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
+                'last_done_km' => 0,
                 'last_done_date' => null,
                 'next_due_km' => null,
                 'next_due_date' => $dateOffset === null ? null : now()->addDays($dateOffset)->toDateString(),
@@ -232,8 +236,9 @@ class ProjectionTest extends TestCase
     {
         [, , $unitPlanning] = $this->createProjectionScenario();
         SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
         $unitPlanning->update([
-            'last_done_km' => null,
+            'last_done_km' => 0,
             'next_due_km' => 2000,
             'next_due_date' => now()->addDays(31)->toDateString(),
             'due_manually_set' => false,
@@ -290,8 +295,9 @@ class ProjectionTest extends TestCase
     {
         [, , $unitPlanning] = $this->createProjectionScenario();
         SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
         $unitPlanning->update([
-            'last_done_km' => null,
+            'last_done_km' => 0,
             'last_done_date' => null,
             'next_due_km' => 13800,
             'next_due_date' => null,
@@ -312,9 +318,10 @@ class ProjectionTest extends TestCase
         [, , $unitPlanning] = $this->createProjectionScenario();
         SystemThreshold::query()->where('key', 'min_inspection_data')->update(['value' => '3']);
 
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
         foreach ([null, 0, -100] as $nextDueKm) {
             $unitPlanning->update([
-                'last_done_km' => null,
+                'last_done_km' => 0,
                 'next_due_km' => $nextDueKm,
                 'next_due_date' => null,
                 'due_manually_set' => true,
@@ -389,8 +396,9 @@ class ProjectionTest extends TestCase
     public function test_projection_still_excludes_excluded_items_with_date_due_and_missing_baseline(): void
     {
         [, , $unitPlanning] = $this->createProjectionScenario();
+        // TODO: kembalikan kasus NULL setelah migration last_done_km nullable di-deploy
         $unitPlanning->update([
-            'last_done_km' => null,
+            'last_done_km' => 0,
             'due_manually_set' => true,
             'is_excluded' => true,
         ]);

@@ -47,6 +47,7 @@ Route::middleware('auth')->group(function () {
     Route::get('antrian-approval', [ApprovalQueueController::class, 'index'])->name('approval-queue.index');
     Route::post('antrian-approval', [ApprovalQueueController::class, 'store'])->name('approval-queue.store');
     Route::get('projections', [ProjectionController::class, 'index'])->name('projections.index');
+    Route::get('projections/export', [ProjectionController::class, 'export'])->name('projections.export');
     Route::get('high-usage', [HighUsageController::class, 'index'])->name('high-usage.index');
     Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('reports/wo-summary', [ReportController::class, 'woSummary'])->name('reports.wo-summary');
