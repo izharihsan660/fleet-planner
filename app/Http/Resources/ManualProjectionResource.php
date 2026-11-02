@@ -14,11 +14,26 @@ class ManualProjectionResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $task = $this->workOrderItem;
+
         return [
             'id' => $this->id,
             'unit_id' => $this->unit_id,
             'planning_item_id' => $this->planning_item_id,
             'unit_planning_id' => $this->unit_planning_id,
+            'work_order_item_id' => $this->work_order_item_id,
+            'work_order_id' => $task?->work_order_id,
+            'task_status' => $task?->status,
+            'task_status_label' => $task === null ? null : match ($task->status) {
+                'complete' => 'Selesai',
+                'rejected' => 'Ditolak',
+                'cancelled' => 'Dibatalkan',
+                'in_progress' => $task->workHasStarted() ? 'Dikerjakan' : 'Disetujui',
+                'pending_create', 'replace', 'postpone' => 'Menunggu Approval',
+                default => $task->approved_at !== null ? 'Disetujui' : 'Menunggu Approval',
+            },
+            'assigned_mechanic_id' => $this->assigned_mechanic_id,
+            'assigned_mechanic_name' => $this->assignedMechanic?->name,
             'plate_number' => $this->unit->current_plate,
             'site_name' => $this->unit->site?->name ?? '-',
             'planning_item_name' => $this->planningItem->name,

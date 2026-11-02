@@ -98,12 +98,20 @@ class ProjectionController extends Controller
                     $query->when($regionId !== null, fn (Builder $query) => $query->whereHas('site', fn (Builder $query) => $query->where('region_id', $regionId)))
                         ->when($siteId !== null, fn (Builder $query) => $query->where('site_id', $siteId));
                 })
-                ->with(['unit.site:id,name,region_id', 'planningItem:id,name', 'createdBy:id,name'])
+                ->with(['unit.site:id,name,region_id', 'planningItem:id,name', 'createdBy:id,name', 'assignedMechanic:id,name', 'workOrderItem.workOrder'])
                 ->orderBy('target_date')->orderBy('id')
                 ->paginate(25, ['*'], 'manual_page')->withQueryString()),
             'manual_units' => Unit::query()
+                ->with('site:id,name')
                 ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $user))
-                ->orderBy('current_plate')->get(['id', 'current_plate']),
+                ->orderBy('current_plate')->get(['id', 'current_plate', 'site_id'])
+                ->map(fn (Unit $unit): array => [
+                    'id' => $unit->id, 'current_plate' => $unit->current_plate,
+                    'site_id' => $unit->site_id, 'site_name' => $unit->site?->name ?? '-',
+                ]),
+            'manual_mechanics' => User::query()->where('role', UserRole::Mekanik->value)
+                ->whereIn('site_id', Site::query()->select('id')->tap(fn (Builder $query) => AccessScope::applySiteListScope($query, $user)))
+                ->orderBy('name')->get(['id', 'name', 'site_id']),
             'manual_items' => PlanningItem::query()->orderBy('id')->get(['id', 'name']),
             'manual_reasons' => array_map(fn (ManualProjectionReason $reason): array => [
                 'value' => $reason->value, 'label' => $reason->label(),

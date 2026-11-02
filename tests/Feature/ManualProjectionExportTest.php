@@ -10,6 +10,8 @@ use App\Models\Site;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
 use App\Models\User;
+use App\Models\WorkOrder;
+use App\Models\WorkOrderItem;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -125,6 +127,23 @@ class ManualProjectionExportTest extends TestCase
         $this->assertSame('0 kebutuhan berasal dari input manual', $spreadsheet->getSheetByName('Rekap')->getCell('A4')->getValue());
     }
 
+    public function test_unapproved_and_unlinked_manual_entries_are_not_exported(): void
+    {
+        [$pending] = $this->manual('KT 1001 AA', '2026-11-10');
+        $pending->workOrderItem->update(['status' => 'replace', 'approved_at' => null]);
+        [$unlinked] = $this->manual('KT 1002 AA', '2026-11-10');
+        $unlinked->update(['work_order_item_id' => null]);
+        $supervisor = User::factory()->create(['role' => UserRole::SpvHo]);
+        $before = $this->download($supervisor);
+        $this->assertSame(1, $before->getSheetByName('Detail')->getHighestRow());
+        $this->assertSame('0 kebutuhan berasal dari input manual', $before->getSheetByName('Rekap')->getCell('A4')->getValue());
+
+        $this->post(route('work-orders.approve', $pending->workOrderItem->workOrder))->assertRedirect();
+        $after = $this->download($supervisor);
+        $this->assertSame(2, $after->getSheetByName('Detail')->getHighestRow());
+        $this->assertSame('1 kebutuhan berasal dari input manual', $after->getSheetByName('Rekap')->getCell('A4')->getValue());
+    }
+
     /** @param array<string, mixed> $filters */
     private function download(User $user, array $filters = []): Spreadsheet
     {
@@ -151,9 +170,19 @@ class ManualProjectionExportTest extends TestCase
             'unit_id' => $unit->id, 'planning_item_id' => $item->id, 'last_done_km' => 1000,
             'last_done_date' => '2026-10-01', 'next_due_km' => 10000, 'next_due_date' => $systemDate,
         ]);
+        $mechanic = User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $site->id]);
+        $workOrder = WorkOrder::query()->create([
+            'unit_id' => $unit->id, 'site_id' => $site->id, 'status' => 'open',
+            'trigger_type' => 'manual', 'assigned_mechanic_id' => $mechanic->id,
+        ]);
+        $task = WorkOrderItem::query()->create([
+            'work_order_id' => $workOrder->id, 'unit_planning_id' => $planning->id, 'planning_item_id' => $item->id,
+            'status' => 'in_progress', 'action' => 'replace', 'approved_at' => now(), 'scheduled_date' => $targetDate,
+        ]);
         $manual = ManualProjection::query()->create([
             'unit_id' => $unit->id, 'planning_item_id' => $item->id, 'unit_planning_id' => $planning->id,
             'target_date' => $targetDate, 'reason' => 'rusak', 'status' => 'active',
+            'work_order_item_id' => $task->id, 'assigned_mechanic_id' => $mechanic->id,
             'created_by' => User::factory()->create(['role' => UserRole::SpvHo])->id,
         ]);
 

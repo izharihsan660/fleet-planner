@@ -97,6 +97,9 @@ class ProjectionService
             ->get();
 
         $manualByUnit = ManualProjection::query()->active()
+            ->whereHas('workOrderItem', fn (Builder $query) => $query->whereNotNull('approved_at')
+                ->whereNotIn('status', ['pending_create', 'replace', 'postpone', 'complete', 'cancelled', 'rejected'])
+                ->whereHas('workOrder', fn (Builder $workOrderQuery) => $workOrderQuery->whereNotIn('status', ['complete', 'cancelled'])))
             ->whereIntegerInRaw('unit_id', $units->modelKeys())
             ->when($manualScopeUser !== null, fn (Builder $query) => $query->whereHas('unit', fn (Builder $query) => AccessScope::applySiteScope($query, $manualScopeUser)))
             ->whereDate('target_date', '<=', $periodEnd->toDateString())

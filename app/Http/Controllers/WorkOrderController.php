@@ -13,6 +13,7 @@ use App\Http\Requests\WorkOrderIndexRequest;
 use App\Http\Resources\SiteResource;
 use App\Http\Resources\UnitResource;
 use App\Http\Resources\WorkOrderResource;
+use App\Models\ManualProjection;
 use App\Models\PlanningItem;
 use App\Models\Site;
 use App\Models\SystemThreshold;
@@ -24,10 +25,12 @@ use App\Models\WorkOrderItem;
 use App\Services\CompletionBackdatePolicy;
 use App\Services\FleetNotificationService;
 use App\Services\PlanningIntervalResolver;
+use App\Services\ReplaceTaskSubmissionService;
 use App\Services\WorkOrderItemCompletionService;
 use App\Services\WorkOrderItemGuard;
 use App\Services\WorkOrderProgressService;
 use App\Support\AccessScope;
+use App\Support\WorkOrderAssignment;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -35,7 +38,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -291,7 +293,7 @@ class WorkOrderController extends Controller
         return back()->with('status', 'Task berhasil diajukan untuk approval SPV.');
     }
 
-    public function storeManualFinding(StoreManualFindingRequest $request, Unit $unit, FleetNotificationService $notifications): RedirectResponse
+    public function storeManualFinding(StoreManualFindingRequest $request, Unit $unit, ReplaceTaskSubmissionService $submissions): RedirectResponse
     {
         $unit->loadMissing('site:id,region_id');
         $planningItems = PlanningItem::query()
@@ -315,7 +317,7 @@ class WorkOrderController extends Controller
         }
         $assignment = $this->assignmentPayload($request, $unit->site_id);
 
-        $blockedItems = DB::transaction(function () use ($request, $unit, $planningItems, $notifications, $assignment): array {
+        $blockedItems = DB::transaction(function () use ($request, $unit, $planningItems, $submissions, $assignment): array {
             $workOrder = null;
             $blockedItems = [];
 
@@ -330,31 +332,9 @@ class WorkOrderController extends Controller
 
                 abort_if($planning->is_excluded, 422, 'Planning item ini ditandai Tidak Berlaku untuk unit tersebut.');
 
-                $item = $this->workOrderItemGuard->createIfUnblocked($planning, function () use ($request, $unit, $planning, $planningItemId, $assignment, &$workOrder): WorkOrderItem {
-                    $workOrder ??= WorkOrder::query()->create([
-                        'unit_id' => $unit->id,
-                        'site_id' => $unit->site_id,
-                        'trigger_type' => 'manual',
-                        'status' => 'open',
-                        'submitted_by' => $request->user()->id,
-                        'notes' => $request->string('reason')->toString(),
-                        ...$assignment['work_order'],
-                    ]);
-
-                    return WorkOrderItem::query()->create([
-                        'work_order_id' => $workOrder->id,
-                        'unit_planning_id' => $planning->id,
-                        'planning_item_id' => $planningItemId,
-                        'status' => 'replace',
-                        'action' => 'replace',
-                        'reason' => $request->string('reason')->toString(),
-                        'previous_due_km' => $planning->next_due_km,
-                        'previous_due_date' => $planning->next_due_date?->toDateString(),
-                        'submitted_by' => $request->user()->id,
-                        'submitted_at' => now(),
-                        ...$assignment['item'],
-                    ]);
-                });
+                $planning->setRelation('unit', $unit);
+                $planning->setRelation('planningItem', $planningItems->get($planningItemId));
+                $item = $submissions->create($planning, $request->user(), $request->string('reason')->toString(), $assignment, $workOrder);
 
                 if ($item === null) {
                     $blockingItem = $this->workOrderItemGuard->findBlockingItem($planning);
@@ -363,9 +343,7 @@ class WorkOrderController extends Controller
                     continue;
                 }
 
-                $item->setRelation('planningItem', $planningItems->get($planningItemId));
-                $item->setRelation('workOrder', $workOrder);
-                $notifications->taskSubmitted($item, 'replace');
+                $workOrder = $item->workOrder;
             }
 
             return $blockedItems;
@@ -513,6 +491,14 @@ class WorkOrderController extends Controller
                 'approved_by' => $request->user()->id,
                 'approved_at' => now(),
             ]));
+
+            ManualProjection::query()->active()
+                ->whereIn('work_order_item_id', $pendingItems->modelKeys())
+                ->update([
+                    'status' => 'cancelled',
+                    'cancelled_at' => now(),
+                    'cancelled_by' => $request->user()->id,
+                ]);
 
             $wo->update([
                 'approved_by' => $request->user()->id,
@@ -1331,22 +1317,9 @@ class WorkOrderController extends Controller
      */
     private function assignmentPayload(Request $request, int $siteId): array
     {
-        $assignment = $request->validate([
-            'assigned_mechanic_id' => [
-                'required',
-                'integer',
-                Rule::exists('users', 'id')->where('role', UserRole::Mekanik->value)->where('site_id', $siteId),
-            ],
-            'scheduled_date' => ['required', 'date'],
-        ], [
-            'assigned_mechanic_id.required' => 'Pilih mekanik penanggung jawab.',
-            'scheduled_date.required' => 'Tentukan rencana jadwal pengerjaan.',
-        ]);
+        $assignment = $request->validate(WorkOrderAssignment::rules($siteId), WorkOrderAssignment::messages());
 
-        return [
-            'work_order' => ['assigned_mechanic_id' => (int) $assignment['assigned_mechanic_id']],
-            'item' => ['scheduled_date' => $assignment['scheduled_date']],
-        ];
+        return WorkOrderAssignment::payload($assignment);
     }
 
     private function syncWorkOrderStatusFromItems(WorkOrder $workOrder): void

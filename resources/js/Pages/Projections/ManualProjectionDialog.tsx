@@ -5,14 +5,15 @@ import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { Textarea } from '@/Components/ui/textarea';
-import { ManualProjectionReason, PlanningItem, Unit } from '@/types';
+import { ManualProjectionMechanicOption, ManualProjectionReason, ManualProjectionUnitOption, PlanningItem, Unit } from '@/types';
 import { Combobox, ComboboxButton, ComboboxInput, ComboboxOption, ComboboxOptions } from '@headlessui/react';
 import { useForm } from '@inertiajs/react';
 import { ChevronsUpDown, Plus } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 interface ManualProjectionDialogProps {
-    units: Pick<Unit, 'id' | 'current_plate'>[];
+    units: ManualProjectionUnitOption[];
+    mechanics: ManualProjectionMechanicOption[];
     items: Pick<PlanningItem, 'id' | 'name'>[];
     reasons: { value: ManualProjectionReason; label: string }[];
     today: string;
@@ -20,11 +21,12 @@ interface ManualProjectionDialogProps {
     lockedUnit?: Pick<Unit, 'id' | 'current_plate'>;
 }
 
-export default function ManualProjectionDialog({ units, items, reasons, today, onCreated, lockedUnit }: ManualProjectionDialogProps) {
+export default function ManualProjectionDialog({ units, mechanics, items, reasons, today, onCreated, lockedUnit }: ManualProjectionDialogProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const form = useForm({ unit_id: lockedUnit ? String(lockedUnit.id) : '', planning_item_id: '', target_date: today, reason: 'aus' as ManualProjectionReason, notes: '' });
-    const selectedUnit = lockedUnit ?? units.find((unit) => String(unit.id) === form.data.unit_id) ?? null;
+    const form = useForm({ unit_id: lockedUnit ? String(lockedUnit.id) : '', planning_item_id: '', assigned_mechanic_id: '', target_date: today, reason: 'aus' as ManualProjectionReason, notes: '' });
+    const selectedUnit = units.find((unit) => String(unit.id) === form.data.unit_id) ?? null;
+    const availableMechanics = mechanics.filter((mechanic) => mechanic.site_id === selectedUnit?.site_id);
     const filteredUnits = units.filter((unit) => unit.current_plate.toLocaleLowerCase('id-ID').includes(query.trim().toLocaleLowerCase('id-ID')));
     const changeOpen = (nextOpen: boolean) => {
         if (form.processing) {
@@ -61,11 +63,14 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
                 <form onSubmit={submit} className="space-y-4">
                     <DialogHeader>
                         <DialogTitle>Tambah Kebutuhan Manual</DialogTitle>
-                        <DialogDescription>Catat kebutuhan penggantian lebih awal. Tidak mengubah due sistem atau membuat perintah kerja.</DialogDescription>
+                        <DialogDescription>Mengajukan task Replace untuk approval Spv. Kebutuhan masuk proyeksi setelah task disetujui; due sistem tetap berlaku.</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-2">
                         <Label htmlFor="manual-unit">Unit</Label>
-                        <Combobox value={selectedUnit} by="id" disabled={Boolean(lockedUnit)} onClose={() => setQuery('')} onChange={(unit) => form.setData('unit_id', unit ? String(unit.id) : '')}>
+                        <Combobox value={selectedUnit} by="id" disabled={Boolean(lockedUnit)} onClose={() => setQuery('')} onChange={(unit) => {
+                            form.setData((data) => ({ ...data, unit_id: unit ? String(unit.id) : '', assigned_mechanic_id: '' }));
+                            form.clearErrors('unit_id', 'assigned_mechanic_id', 'planning_item_id');
+                        }}>
                             <div className="relative">
                                 <ComboboxInput
                                     id="manual-unit"
@@ -87,6 +92,15 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
                         </Combobox>
                         <InputError message={form.errors.unit_id} />
                     </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="manual-mechanic">Mekanik (wajib)</Label>
+                        <Select required value={form.data.assigned_mechanic_id} disabled={!selectedUnit || availableMechanics.length === 0} onValueChange={(value) => form.setData('assigned_mechanic_id', value)}>
+                            <SelectTrigger id="manual-mechanic" className="w-full" aria-invalid={Boolean(form.errors.assigned_mechanic_id)}><SelectValue placeholder="Pilih mekanik" /></SelectTrigger>
+                            <SelectContent>{availableMechanics.map((mechanic) => <SelectItem key={mechanic.id} value={String(mechanic.id)}>{mechanic.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                        {selectedUnit && availableMechanics.length === 0 && <p role="alert" className="text-sm text-destructive">Belum ada mekanik terdaftar di site {selectedUnit.site_name}. Hubungi admin untuk menambahkan.</p>}
+                        <InputError message={form.errors.assigned_mechanic_id} />
+                    </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
                             <Label htmlFor="manual-item">Item</Label>
@@ -97,7 +111,7 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
                             <InputError message={form.errors.planning_item_id} />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="manual-target-date">Perkiraan Tanggal Ganti</Label>
+                            <Label htmlFor="manual-target-date">Perkiraan Tanggal Ganti / Jadwal Kerja</Label>
                             <Input id="manual-target-date" type="date" required min={today} value={form.data.target_date} onChange={(event) => form.setData('target_date', event.target.value)} aria-invalid={Boolean(form.errors.target_date)} />
                             <InputError message={form.errors.target_date} />
                         </div>
@@ -117,7 +131,7 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
                     </div>
                     <DialogFooter>
                         <Button type="button" variant="outline" disabled={form.processing} onClick={() => changeOpen(false)}>Batal</Button>
-                        <Button type="submit" disabled={form.processing || !form.data.unit_id || !form.data.planning_item_id}>{form.processing ? 'Menyimpan...' : 'Simpan Kebutuhan'}</Button>
+                        <Button type="submit" disabled={form.processing || !selectedUnit || !form.data.planning_item_id || !form.data.assigned_mechanic_id || availableMechanics.length === 0}>{form.processing ? 'Menyimpan...' : 'Simpan Kebutuhan'}</Button>
                     </DialogFooter>
                 </form>
             </DialogContent>

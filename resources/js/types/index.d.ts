@@ -345,11 +345,30 @@ export interface ProjectionResult {
 
 export type ManualProjectionReason = 'aus' | 'rusak' | 'temuan_mekanik' | 'keluhan_driver' | 'lainnya';
 
+export interface ManualProjectionUnitOption {
+    id: number;
+    current_plate: string;
+    site_id: number;
+    site_name: string;
+}
+
+export interface ManualProjectionMechanicOption {
+    id: number;
+    name: string;
+    site_id: number;
+}
+
 export interface ManualProjection {
     id: number;
     unit_id: number;
     planning_item_id: number;
     unit_planning_id: number | null;
+    work_order_item_id: number | null;
+    work_order_id: number | null;
+    task_status: string | null;
+    task_status_label: string | null;
+    assigned_mechanic_id: number | null;
+    assigned_mechanic_name: string | null;
     plate_number: string;
     site_name: string;
     planning_item_name: string;

@@ -6,6 +6,7 @@ use App\Models\ManualProjection;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
 class WorkOrderItemCompletionService
@@ -66,7 +67,9 @@ class WorkOrderItemCompletionService
             ManualProjection::query()->active()
                 ->where('unit_id', $unitPlanning->unit_id)
                 ->where('planning_item_id', $unitPlanning->planning_item_id)
-                ->where(fn ($query) => $query->where('unit_planning_id', $unitPlanning->id)->orWhereNull('unit_planning_id'))
+                ->where(fn (Builder $query) => $query->where('work_order_item_id', $item->id)
+                    ->orWhere(fn (Builder $legacyQuery) => $legacyQuery->whereNull('work_order_item_id')
+                        ->where(fn (Builder $planningQuery) => $planningQuery->where('unit_planning_id', $unitPlanning->id)->orWhereNull('unit_planning_id'))))
                 ->whereDate('created_at', '<=', $completedDate->toDateString())
                 ->update(['status' => 'fulfilled', 'fulfilled_at' => now()]);
 

@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { ManualProjection, ManualProjectionGroup, ManualProjectionLine, ManualProjectionReason, ManualProjectionResult, PageProps, PaginatedCollection, PlanningItem, ProjectionPeriodOption, Region, Site, Unit } from '@/types';
+import { ManualProjection, ManualProjectionGroup, ManualProjectionLine, ManualProjectionMechanicOption, ManualProjectionReason, ManualProjectionResult, ManualProjectionUnitOption, PageProps, PaginatedCollection, PlanningItem, ProjectionPeriodOption, Region, Site } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -36,7 +36,8 @@ type CalendarItem = {
 interface ProjectionIndexProps extends PageProps {
     projection: ManualProjectionResult;
     manual_projections: PaginatedCollection<ManualProjection>;
-    manual_units: Pick<Unit, 'id' | 'current_plate'>[];
+    manual_units: ManualProjectionUnitOption[];
+    manual_mechanics: ManualProjectionMechanicOption[];
     manual_items: Pick<PlanningItem, 'id' | 'name'>[];
     manual_reasons: { value: ManualProjectionReason; label: string }[];
     sites: { data: Site[] };
@@ -255,7 +256,7 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
     );
 }
 
-export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, today, permissions, manual_projections: manualProjections, manual_units: manualUnits, manual_items: manualItems, manual_reasons: manualReasons }: ProjectionIndexProps) {
+export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, today, permissions, manual_projections: manualProjections, manual_units: manualUnits, manual_mechanics: manualMechanics, manual_items: manualItems, manual_reasons: manualReasons }: ProjectionIndexProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(permissions.default_tab);
     const [showWarningList, setShowWarningList] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -284,6 +285,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                 {permissions.can_create_manual && (
                     <ManualProjectionDialog
                         units={manualUnits}
+                        mechanics={manualMechanics}
                         items={manualItems}
                         reasons={manualReasons}
                         today={today}
@@ -412,6 +414,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                                     {permissions.can_create_manual && (
                                                         <ManualProjectionDialog
                                                             units={manualUnits}
+                                                            mechanics={manualMechanics}
                                                             items={manualItems}
                                                             reasons={manualReasons}
                                                             today={today}

@@ -70,7 +70,7 @@ class ManualProjectionTest extends TestCase
         ];
     }
 
-    public function test_authorized_roles_can_create_without_mutating_planning_or_creating_work(): void
+    public function test_authorized_roles_can_submit_replace_without_mutating_existing_planning(): void
     {
         foreach ([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea] as $role) {
             [$unit, $item, $planning] = $this->scenario();
@@ -85,12 +85,13 @@ class ManualProjectionTest extends TestCase
             $this->assertSame($user->id, $manual->created_by);
             $this->assertSame($planning->id, $manual->unit_planning_id);
             $this->assertSame('active', $manual->status);
+            $this->assertSame('replace', $manual->workOrderItem->status);
             $this->assertSame($before, $planning->fresh()->getAttributes());
         }
 
         $this->assertDatabaseCount('unit_plannings', 3);
-        $this->assertDatabaseCount('work_orders', 0);
-        $this->assertDatabaseCount('work_order_items', 0);
+        $this->assertDatabaseCount('work_orders', 3);
+        $this->assertDatabaseCount('work_order_items', 3);
     }
 
     public function test_planner_cannot_create_or_cancel_in_another_region(): void
@@ -174,7 +175,7 @@ class ManualProjectionTest extends TestCase
         $this->postJson(route('projections.manual.store'), [...$this->payload($unit, $item), 'reason' => 'lainnya', 'notes' => 'Ban sobek di sisi dalam', 'target_date' => '2026-11-02'])->assertRedirect();
     }
 
-    public function test_manual_entries_without_a_planning_row_do_not_generate_one(): void
+    public function test_manual_entries_without_a_planning_row_create_the_task_planning_link(): void
     {
         [$unit, $item, $planning] = $this->scenario();
         $planning->delete();
@@ -182,16 +183,15 @@ class ManualProjectionTest extends TestCase
             ->postJson(route('projections.manual.store'), $this->payload($unit, $item))->assertRedirect();
 
         $manual = ManualProjection::query()->sole();
-        $this->assertNull($manual->unit_planning_id);
-        $line = app(ProjectionService::class)->calculate(1)['by_unit'][0]['items'][0];
-        $this->assertSame('manual', $line['trigger']);
-        $this->assertNull($line['unit_planning_id']);
-        $this->assertDatabaseCount('unit_plannings', 0);
-        $this->assertDatabaseCount('work_orders', 0);
-        $this->assertDatabaseCount('work_order_items', 0);
+        $this->assertNotNull($manual->unit_planning_id);
+        $this->assertSame($manual->unit_planning_id, $manual->workOrderItem->unit_planning_id);
+        $this->assertSame([], app(ProjectionService::class)->calculate(1)['by_unit']);
+        $this->assertDatabaseCount('unit_plannings', 1);
+        $this->assertDatabaseCount('work_orders', 1);
+        $this->assertDatabaseCount('work_order_items', 1);
     }
 
-    public function test_excluded_planning_can_be_added_manually_without_changing_its_exclusion(): void
+    public function test_excluded_planning_cannot_be_added_manually_and_keeps_its_exclusion(): void
     {
         [$unit, $item, $planning] = $this->scenario();
         $planning->update(['is_excluded' => true, 'excluded_reason' => 'Tidak Berlaku', 'next_due_date' => '2026-11-03']);
@@ -199,10 +199,11 @@ class ManualProjectionTest extends TestCase
         $this->assertSame([], app(ProjectionService::class)->calculate(1)['by_unit']);
 
         $this->actingAs(User::factory()->create(['role' => UserRole::SpvHo]))
-            ->postJson(route('projections.manual.store'), $this->payload($unit, $item))->assertRedirect();
-        $line = app(ProjectionService::class)->calculate(1)['by_unit'][0]['items'][0];
-        $this->assertSame('manual', $line['trigger']);
-        $this->assertSame('2026-11-09', $line['estimated_due_date']);
+            ->postJson(route('projections.manual.store'), $this->payload($unit, $item))
+            ->assertUnprocessable()->assertJsonValidationErrors('planning_item_id')
+            ->assertJsonPath('errors.planning_item_id.0', 'Item ini dikecualikan untuk unit tersebut');
+        $this->assertDatabaseCount('manual_projections', 0);
+        $this->assertDatabaseCount('work_orders', 0);
         $this->assertSame($before, $planning->fresh()->getAttributes());
     }
 
@@ -306,7 +307,9 @@ class ManualProjectionTest extends TestCase
     {
         [$unit, $item, $planning] = $this->scenario();
         $manual = $this->manual($unit, $item);
-        [$mechanic, $workOrder, $workItem] = $this->workItem($unit, $item, $planning);
+        $workItem = $manual->workOrderItem;
+        $workOrder = $workItem->workOrder;
+        $mechanic = $workOrder->assignedMechanic;
         $this->assertCount(1, app(ProjectionService::class)->calculate(1)['by_unit']);
         $this->actingAs($mechanic)->post(route('work-orders.items.complete', [$workOrder, $workItem]), [
             'completed_odo' => 5000, 'completed_date' => '2026-11-02',
@@ -325,20 +328,22 @@ class ManualProjectionTest extends TestCase
     {
         [$unit, $item, $planning] = $this->scenario();
         $manual = $this->manual($unit, $item);
-        [$mechanic, $workOrder, $workItem] = $this->workItem($unit, $item, $planning);
+        $workItem = $manual->workOrderItem;
+        $workOrder = $workItem->workOrder;
+        $mechanic = $workOrder->assignedMechanic;
         $this->actingAs($mechanic)->post(route('work-orders.items.complete', [$workOrder, $workItem]), [
             'completed_odo' => 5000, 'completed_date' => '2026-11-01',
         ])->assertRedirect()->assertSessionHasNoErrors();
         $this->assertSame('complete', $workItem->fresh()->status);
         $this->assertSame('active', $manual->refresh()->status);
         $this->assertNull($manual->fulfilled_at);
-        $this->assertSame('manual', app(ProjectionService::class)->calculate(1)['by_unit'][0]['items'][0]['trigger']);
+        $this->assertSame([], app(ProjectionService::class)->calculate(1)['by_unit']);
     }
 
     public function test_completion_matches_a_previously_unlinked_manual_but_not_other_items_or_cancelled_entries(): void
     {
         [$unit, $item, $planning] = $this->scenario();
-        $unlinked = $this->manual($unit, $item, ['unit_planning_id' => null]);
+        $unlinked = $this->manual($unit, $item, ['unit_planning_id' => null, 'work_order_item_id' => null]);
         $cancelled = $this->manual($unit, $item, ['status' => 'cancelled', 'cancelled_at' => now()]);
         [$otherUnit, $otherItem] = $this->scenario();
         $other = $this->manual($otherUnit, $otherItem);
@@ -370,17 +375,28 @@ class ManualProjectionTest extends TestCase
         return [$unit, $item, $planning];
     }
 
-    /** @return array{unit_id: int, planning_item_id: int, target_date: string, reason: string} */
+    /** @return array{unit_id: int, planning_item_id: int, target_date: string, reason: string, assigned_mechanic_id: int} */
     private function payload(Unit $unit, PlanningItem $item): array
     {
-        return ['unit_id' => $unit->id, 'planning_item_id' => $item->id, 'target_date' => '2026-11-09', 'reason' => 'rusak'];
+        $mechanic = User::query()->where('role', UserRole::Mekanik->value)->where('site_id', $unit->site_id)->first()
+            ?? User::factory()->create(['role' => UserRole::Mekanik, 'site_id' => $unit->site_id]);
+
+        return ['unit_id' => $unit->id, 'planning_item_id' => $item->id, 'target_date' => '2026-11-09', 'reason' => 'rusak', 'assigned_mechanic_id' => $mechanic->id];
     }
 
     /** @param array<string, mixed> $attributes */
     private function manual(Unit $unit, PlanningItem $item, array $attributes = []): ManualProjection
     {
+        $task = null;
+        $planning = UnitPlanning::query()->where('unit_id', $unit->id)->where('planning_item_id', $item->id)->first();
+
+        if (! array_key_exists('work_order_item_id', $attributes) && $planning !== null) {
+            [, , $task] = $this->workItem($unit, $item, $planning);
+        }
+
         return ManualProjection::query()->create([
             ...$this->payload($unit, $item),
+            'work_order_item_id' => $task?->id,
             'unit_planning_id' => UnitPlanning::query()->where('unit_id', $unit->id)->where('planning_item_id', $item->id)->value('id'),
             'created_by' => User::factory()->create(['role' => UserRole::SpvHo])->id,
             'status' => 'active', ...$attributes,
@@ -397,7 +413,7 @@ class ManualProjectionTest extends TestCase
         ]);
         $workItem = WorkOrderItem::query()->create([
             'work_order_id' => $workOrder->id, 'unit_planning_id' => $planning->id,
-            'planning_item_id' => $item->id, 'status' => 'in_progress', 'action' => 'replace', 'scheduled_date' => '2026-11-02',
+            'planning_item_id' => $item->id, 'status' => 'in_progress', 'action' => 'replace', 'scheduled_date' => '2026-11-02', 'approved_at' => now(),
         ]);
 
         return [$mechanic, $workOrder, $workItem];

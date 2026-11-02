@@ -12,6 +12,7 @@ class ManualProjection extends Model
     protected $fillable = [
         'unit_id', 'planning_item_id', 'unit_planning_id', 'target_date', 'reason',
         'notes', 'status', 'created_by', 'cancelled_by', 'cancelled_at', 'fulfilled_at',
+        'work_order_item_id', 'assigned_mechanic_id',
     ];
 
     protected function casts(): array
@@ -49,6 +50,29 @@ class ManualProjection extends Model
     public function unitPlanning(): BelongsTo
     {
         return $this->belongsTo(UnitPlanning::class);
+    }
+
+    /** @return BelongsTo<WorkOrderItem, $this> */
+    public function workOrderItem(): BelongsTo
+    {
+        return $this->belongsTo(WorkOrderItem::class);
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function assignedMechanic(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_mechanic_id');
+    }
+
+    public function taskOriginNote(): string
+    {
+        return 'Kebutuhan Manual #'.$this->id;
+    }
+
+    public function ownsTask(WorkOrderItem $item): bool
+    {
+        return $this->work_order_item_id === $item->id
+            && $item->workOrder?->notes === $this->taskOriginNote();
     }
 
     /** @return BelongsTo<User, $this> */
