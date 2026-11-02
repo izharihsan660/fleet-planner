@@ -17,13 +17,14 @@ interface ManualProjectionDialogProps {
     reasons: { value: ManualProjectionReason; label: string }[];
     today: string;
     onCreated: () => void;
+    lockedUnit?: Pick<Unit, 'id' | 'current_plate'>;
 }
 
-export default function ManualProjectionDialog({ units, items, reasons, today, onCreated }: ManualProjectionDialogProps) {
+export default function ManualProjectionDialog({ units, items, reasons, today, onCreated, lockedUnit }: ManualProjectionDialogProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
-    const form = useForm({ unit_id: '', planning_item_id: '', target_date: today, reason: 'aus' as ManualProjectionReason, notes: '' });
-    const selectedUnit = units.find((unit) => String(unit.id) === form.data.unit_id) ?? null;
+    const form = useForm({ unit_id: lockedUnit ? String(lockedUnit.id) : '', planning_item_id: '', target_date: today, reason: 'aus' as ManualProjectionReason, notes: '' });
+    const selectedUnit = lockedUnit ?? units.find((unit) => String(unit.id) === form.data.unit_id) ?? null;
     const filteredUnits = units.filter((unit) => unit.current_plate.toLocaleLowerCase('id-ID').includes(query.trim().toLocaleLowerCase('id-ID')));
     const changeOpen = (nextOpen: boolean) => {
         if (form.processing) {
@@ -52,7 +53,9 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
     return (
         <Dialog open={open} onOpenChange={changeOpen}>
             <DialogTrigger asChild>
-                <Button><Plus data-icon="inline-start" aria-hidden="true" />Tambah Kebutuhan Manual</Button>
+                <Button size={lockedUnit ? 'sm' : 'default'} variant={lockedUnit ? 'outline' : 'default'}>
+                    <Plus data-icon="inline-start" aria-hidden="true" />{lockedUnit ? 'Kebutuhan Manual' : 'Tambah Kebutuhan Manual'}
+                </Button>
             </DialogTrigger>
             <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
                 <form onSubmit={submit} className="space-y-4">
@@ -62,7 +65,7 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
                     </DialogHeader>
                     <div className="space-y-2">
                         <Label htmlFor="manual-unit">Unit</Label>
-                        <Combobox value={selectedUnit} by="id" onClose={() => setQuery('')} onChange={(unit) => form.setData('unit_id', unit ? String(unit.id) : '')}>
+                        <Combobox value={selectedUnit} by="id" disabled={Boolean(lockedUnit)} onClose={() => setQuery('')} onChange={(unit) => form.setData('unit_id', unit ? String(unit.id) : '')}>
                             <div className="relative">
                                 <ComboboxInput
                                     id="manual-unit"
@@ -71,7 +74,7 @@ export default function ManualProjectionDialog({ units, items, reasons, today, o
                                     displayValue={(unit: typeof selectedUnit) => unit?.current_plate ?? ''}
                                     onChange={(event) => setQuery(event.target.value)}
                                     aria-invalid={Boolean(form.errors.unit_id)}
-                                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 pr-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 pr-9 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
                                 />
                                 <ComboboxButton aria-label="Pilih unit" className="absolute inset-y-0 right-0 flex w-9 items-center justify-center text-muted-foreground"><ChevronsUpDown className="size-4" /></ComboboxButton>
                                 <ComboboxOptions className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">

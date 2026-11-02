@@ -402,13 +402,25 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     {projection.by_unit.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item jatuh tempo pada periode ini.</p>}
                                     {projection.by_unit.data.map((unit) => (
                                         <Card key={unit.unit_id} className="shadow-xs">
-                                            <CardHeader className="flex-row items-center justify-between gap-4 space-y-0 bg-muted/30">
-                                                <div>
+                                            <CardHeader className="flex items-start justify-between gap-4 space-y-0 bg-muted/30">
+                                                <div className="min-w-0 flex-1">
                                                     <CardTitle className="text-base">{unit.plate_number}{unit.insufficient_data && <span className="ml-2 text-amber-500" title={unit.data_status_message ?? 'Data inspeksi belum cukup'}>⚠</span>}</CardTitle>
                                                     <CardDescription>{unit.site_name} · Rata-rata {unit.avg_km_per_day} KM/hari · Est. odo {formatKm(unit.estimated_period_odo)}</CardDescription>
                                                     {unit.data_status_message && <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-300">{unit.data_status_message}</p>}
                                                 </div>
-                                                <StatusBadge>{unit.items.length} item</StatusBadge>
+                                                <div className="flex shrink-0 flex-col items-end gap-2">
+                                                    {permissions.can_create_manual && (
+                                                        <ManualProjectionDialog
+                                                            units={manualUnits}
+                                                            items={manualItems}
+                                                            reasons={manualReasons}
+                                                            today={today}
+                                                            lockedUnit={{ id: unit.unit_id, current_plate: unit.plate_number }}
+                                                            onCreated={() => setActiveTab('manual')}
+                                                        />
+                                                    )}
+                                                    <StatusBadge>{unit.items.length} item</StatusBadge>
+                                                </div>
                                             </CardHeader>
                                             <CardContent><DueTable items={unit.items} today={today} /></CardContent>
                                         </Card>

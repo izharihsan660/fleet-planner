@@ -36,6 +36,40 @@ class ManualProjectionTest extends TestCase
         parent::tearDown();
     }
 
+    #[DataProvider('manualCreationRoles')]
+    public function test_manual_creation_permission_matches_policy_for_unit_card_actions(UserRole $role, bool $allowed): void
+    {
+        [$unit, $item, $planning] = $this->scenario();
+        $planning->update(['next_due_date' => '2026-11-09']);
+        $user = User::factory()->create(['role' => $role, 'region_id' => $unit->site->region_id, 'site_id' => $unit->site_id]);
+        $this->assertSame($allowed, $user->can('create', ManualProjection::class));
+
+        $response = $this->actingAs($user)->get(route('projections.index'));
+
+        if (! $allowed) {
+            $response->assertForbidden();
+
+            return;
+        }
+
+        $response->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('Projections/Index')
+            ->where('permissions.can_create_manual', $allowed)
+            ->has('projection.by_unit.data', 1)
+            ->where('projection.by_unit.data.0.unit_id', $unit->id));
+    }
+
+    /** @return array<string, array{UserRole, bool}> */
+    public static function manualCreationRoles(): array
+    {
+        return [
+            'superadmin' => [UserRole::Superadmin, true],
+            'spv ho' => [UserRole::SpvHo, true],
+            'planner area' => [UserRole::PlannerArea, true],
+            'mekanik' => [UserRole::Mekanik, false],
+        ];
+    }
+
     public function test_authorized_roles_can_create_without_mutating_planning_or_creating_work(): void
     {
         foreach ([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea] as $role) {
