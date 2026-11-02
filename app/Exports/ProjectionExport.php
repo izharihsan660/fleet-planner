@@ -96,6 +96,7 @@ class ProjectionExport extends DefaultValueBinder implements WithCustomValueBind
                 'Periode: '.$this->periodStart->locale('id')->isoFormat('D MMM YYYY')." \u{2013} ".$periodEnd->locale('id')->isoFormat('D MMM YYYY').' | Filter: '.$this->filterLabel,
                 $this->projection['excluded_date_without_source_count'].' item tidak diproyeksikan (tanggal due tanpa data terakhir ganti)',
                 "Angka per item = jumlah unit. Subtotal = jumlah kebutuhan (unit \u{00D7} item).",
+                $items->where('trigger', 'manual')->count().' kebutuhan berasal dari input manual',
             ]),
             new ProjectionDetailSheet($items),
         ];

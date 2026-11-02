@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\ManualProjection;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderItem;
 use Carbon\CarbonImmutable;
@@ -61,6 +62,13 @@ class WorkOrderItemCompletionService
                 'notes' => filled($notes) ? $notes : null,
                 'submitted_by' => $submittedBy,
             ]);
+
+            ManualProjection::query()->active()
+                ->where('unit_id', $unitPlanning->unit_id)
+                ->where('planning_item_id', $unitPlanning->planning_item_id)
+                ->where(fn ($query) => $query->where('unit_planning_id', $unitPlanning->id)->orWhereNull('unit_planning_id'))
+                ->whereDate('created_at', '<=', $completedDate->toDateString())
+                ->update(['status' => 'fulfilled', 'fulfilled_at' => now()]);
 
             $unitPlanning->update([
                 'last_done_km' => $completedOdo,

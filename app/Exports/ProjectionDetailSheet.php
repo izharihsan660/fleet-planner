@@ -32,7 +32,7 @@ class ProjectionDetailSheet implements FromArray, ShouldAutoSize, WithColumnForm
      */
     public function headings(): array
     {
-        return ['Kelompok Model', 'No Polisi', 'Region', 'Site', 'Item', 'Est. Jatuh Tempo', 'Bucket', 'Hari Terlambat', 'Pemicu', 'Est. KM Jatuh Tempo', 'Baseline KM Kosong', 'Type Unit'];
+        return ['Kelompok Model', 'No Polisi', 'Region', 'Site', 'Item', 'Est. Jatuh Tempo', 'Bucket', 'Hari Terlambat', 'Pemicu', 'Alasan Manual', 'Est. KM Jatuh Tempo', 'Baseline KM Kosong', 'Type Unit'];
     }
 
     /**
@@ -53,7 +53,9 @@ class ProjectionDetailSheet implements FromArray, ShouldAutoSize, WithColumnForm
                 'km' => 'KM',
                 'date' => 'Tanggal',
                 'both' => 'KM & Tanggal',
+                'manual' => 'Manual',
             },
+            $item['trigger'] === 'manual' ? $item['manual_reason'] : null,
             $item['baseline_km_missing'] || $item['estimated_due_km'] === null ? null : (int) $item['estimated_due_km'],
             $item['baseline_km_missing'] ? 'Ya' : 'Tidak',
             $item['unit_type'],
@@ -65,14 +67,14 @@ class ProjectionDetailSheet implements FromArray, ShouldAutoSize, WithColumnForm
      */
     public function columnFormats(): array
     {
-        return ['F' => 'dd/mm/yyyy', 'H' => '0', 'J' => '#,##0'];
+        return ['F' => 'dd/mm/yyyy', 'H' => '0', 'K' => '#,##0'];
     }
 
     public function styles(Worksheet $sheet): void
     {
         $sheet->freezePane('C2');
-        $sheet->setAutoFilter('A1:L'.$sheet->getHighestRow());
-        $sheet->getStyle('A1:L1')->applyFromArray([
+        $sheet->setAutoFilter('A1:M'.$sheet->getHighestRow());
+        $sheet->getStyle('A1:M1')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1E3A5F']],
         ]);
@@ -83,7 +85,7 @@ class ProjectionDetailSheet implements FromArray, ShouldAutoSize, WithColumnForm
             }
 
             $row = $index + 2;
-            $sheet->getStyle('A'.$row.':L'.$row)->applyFromArray([
+            $sheet->getStyle('A'.$row.':M'.$row)->applyFromArray([
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'FDE2E2']],
             ]);
 

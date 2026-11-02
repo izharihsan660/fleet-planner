@@ -2,11 +2,15 @@
 
 namespace App\Services;
 
+use App\Models\ManualProjection;
 use App\Models\SystemThreshold;
 use App\Models\Unit;
 use App\Models\UnitPlanning;
+use App\Models\User;
 use App\Models\WorkOrderItem;
+use App\Support\AccessScope;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class ProjectionService
@@ -66,7 +70,7 @@ class ProjectionService
     /**
      * @return array{period_months: int, period_days: int, period_end: string, excluded_date_without_source_count: int, by_unit: array<int, array<string, mixed>>, by_item: array<int, array<string, mixed>>, by_part: array<int, array<string, mixed>>, warnings: array<int, array<string, mixed>>}
      */
-    public function calculate(int $months, ?int $siteId = null, ?int $regionId = null): array
+    public function calculate(int $months, ?int $siteId = null, ?int $regionId = null, ?User $manualScopeUser = null): array
     {
         $periodStart = CarbonImmutable::today();
         $remainingDays = $this->periodDays($months);
@@ -91,6 +95,13 @@ class ProjectionService
             ->when($siteId !== null, fn ($query) => $query->where('site_id', $siteId))
             ->orderBy('current_plate')
             ->get();
+
+        $manualByUnit = ManualProjection::query()->active()
+            ->whereIntegerInRaw('unit_id', $units->modelKeys())
+            ->when($manualScopeUser !== null, fn (Builder $query) => $query->whereHas('unit', fn (Builder $query) => AccessScope::applySiteScope($query, $manualScopeUser)))
+            ->whereDate('target_date', '<=', $periodEnd->toDateString())
+            ->with(['planningItem:id,name', 'unitPlanning'])
+            ->get()->groupBy('unit_id');
 
         $byUnit = [];
         $flatItems = collect();
@@ -138,14 +149,57 @@ class ProjectionService
                     'estimated_due_km' => $estimatedDueKm,
                     'estimated_quantity' => 1,
                     'trigger' => $dueByKm && $dueByDate ? 'both' : ($dueByKm ? 'km' : 'date'),
+                    'has_manual' => false,
+                    'manual_reason' => null,
                     'baseline_km_missing' => $baselineKmMissing,
                     'insufficient_data' => $insufficientData,
                     'data_status_message' => $insufficientData ? $this->insufficientDataMessage() : null,
                 ];
 
                 $unitItems->push($projectionItem);
-                $flatItems->push($projectionItem);
             }
+
+            $unitItems = $unitItems->keyBy('planning_item_id');
+
+            foreach ($manualByUnit->get($unit->id, collect()) as $manual) {
+                $existing = $unitItems->get($manual->planning_item_id);
+                $targetDate = $manual->target_date->toDateString();
+
+                if ($existing !== null) {
+                    $existing['has_manual'] = true;
+
+                    if ($existing['estimated_due_date'] === null || $targetDate < $existing['estimated_due_date']) {
+                        $existing['estimated_due_date'] = $targetDate;
+                        $existing['trigger'] = 'manual';
+                        $existing['manual_reason'] = $manual->reason->label();
+                    }
+
+                    $unitItems->put($manual->planning_item_id, $existing);
+
+                    continue;
+                }
+
+                $unitItems->put($manual->planning_item_id, [
+                    'unit_id' => $unit->id,
+                    'unit_planning_id' => $manual->unit_planning_id,
+                    'planning_item_id' => $manual->planning_item_id,
+                    'planning_item_name' => $manual->planningItem->name,
+                    'plate_number' => $unit->current_plate,
+                    'site_id' => $unit->site_id,
+                    'site_name' => $unit->site?->name ?? '-',
+                    'estimated_due_date' => $targetDate,
+                    'estimated_due_km' => null,
+                    'estimated_quantity' => 1,
+                    'trigger' => 'manual',
+                    'has_manual' => true,
+                    'manual_reason' => $manual->reason->label(),
+                    'baseline_km_missing' => $manual->unitPlanning?->isBaselineMissing() ?? true,
+                    'insufficient_data' => $insufficientData,
+                    'data_status_message' => $insufficientData ? $this->insufficientDataMessage() : null,
+                ]);
+            }
+
+            $flatItems = $flatItems->concat($unitItems->values());
 
             if ($insufficientData) {
                 $warnings[] = [

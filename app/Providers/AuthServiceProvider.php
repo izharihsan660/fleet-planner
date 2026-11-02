@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Enums\UserRole;
 use App\Models\HighUsageFlag;
+use App\Models\ManualProjection;
 use App\Models\Notification;
 use App\Models\PlanningItem;
 use App\Models\Site;
@@ -12,6 +13,7 @@ use App\Models\Unit;
 use App\Models\User;
 use App\Models\WorkOrder;
 use App\Policies\HighUsagePolicy;
+use App\Policies\ManualProjectionPolicy;
 use App\Policies\NotificationPolicy;
 use App\Policies\PlanningItemPolicy;
 use App\Policies\ProjectionPolicy;
@@ -41,6 +43,7 @@ class AuthServiceProvider extends ServiceProvider
         Gate::policy(WorkOrder::class, WorkOrderPolicy::class);
         Gate::policy(HighUsageFlag::class, HighUsagePolicy::class);
         Gate::policy(Notification::class, NotificationPolicy::class);
+        Gate::policy(ManualProjection::class, ManualProjectionPolicy::class);
 
         Gate::define('view-projections', fn (User $user): bool => app(ProjectionPolicy::class)->view($user));
         Gate::define('view-reports', fn (User $user): bool => app(ReportPolicy::class)->view($user));

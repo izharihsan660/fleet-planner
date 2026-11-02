@@ -8,12 +8,14 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { PageProps, ProjectionItem, ProjectionLine, ProjectionPart, ProjectionPeriodOption, ProjectionResult, Region, Site } from '@/types';
+import { ManualProjection, ManualProjectionGroup, ManualProjectionLine, ManualProjectionReason, ManualProjectionResult, PageProps, PaginatedCollection, PlanningItem, ProjectionPeriodOption, Region, Site, Unit } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import { Download } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import ManualProjectionDialog from './ManualProjectionDialog';
+import ManualProjectionTab from './ManualProjectionTab';
 
-type TabKey = 'unit' | 'item' | 'calendar' | 'part';
+type TabKey = 'unit' | 'item' | 'calendar' | 'part' | 'manual';
 
 type CalendarItem = {
     id: number;
@@ -32,7 +34,11 @@ type CalendarItem = {
 };
 
 interface ProjectionIndexProps extends PageProps {
-    projection: ProjectionResult;
+    projection: ManualProjectionResult;
+    manual_projections: PaginatedCollection<ManualProjection>;
+    manual_units: Pick<Unit, 'id' | 'current_plate'>[];
+    manual_items: Pick<PlanningItem, 'id' | 'name'>[];
+    manual_reasons: { value: ManualProjectionReason; label: string }[];
     sites: { data: Site[] };
     regions: { data: Region[] };
     calendar: {
@@ -50,6 +56,7 @@ interface ProjectionIndexProps extends PageProps {
     period_options: ProjectionPeriodOption[];
     today: string;
     permissions: {
+        can_create_manual: boolean;
         can_filter_site: boolean;
         can_filter_region: boolean;
         can_view_unit: boolean;
@@ -121,10 +128,11 @@ const todayMonth = (): string => {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const projectionTriggerLabels: Record<ProjectionLine['trigger'], string> = {
+const projectionTriggerLabels: Record<ManualProjectionLine['trigger'], string> = {
     km: 'KM',
     date: 'Tanggal',
     both: 'KM & Tanggal',
+    manual: 'Manual',
 };
 
 function BaselineKmBadge({ missing }: { missing: boolean }) {
@@ -148,15 +156,16 @@ function EstimatedDueDate({ date, today }: { date: string | null; today: string 
     );
 }
 
-function DueRows({ items, today, showItem = true }: { items: ProjectionLine[]; today: string; showItem?: boolean }) {
+function DueRows({ items, today, showItem = true }: { items: ManualProjectionLine[]; today: string; showItem?: boolean }) {
     return (
         <TableBody>
             {items.map((item) => (
-                <TableRow key={`${item.unit_planning_id}-${item.planning_item_id}`}>
+                <TableRow key={`${item.unit_id}-${item.planning_item_id}`}>
                     <TableCell className="font-medium text-foreground">
                         {item.plate_number}
                         {item.insufficient_data && <span className="ml-2 text-amber-500" title={item.data_status_message ?? 'Data inspeksi belum cukup'}>⚠</span>}
                         <BaselineKmBadge missing={item.baseline_km_missing} />
+                        {item.has_manual && <Badge variant="outline" className="ml-2 text-[10px]">Manual</Badge>}
                     </TableCell>
                     <TableCell>{item.site_name}</TableCell>
                     {showItem && <TableCell>{item.planning_item_name}</TableCell>}
@@ -169,7 +178,7 @@ function DueRows({ items, today, showItem = true }: { items: ProjectionLine[]; t
     );
 }
 
-function DueTable({ items, today, showItem = true }: { items: ProjectionLine[]; today: string; showItem?: boolean }) {
+function DueTable({ items, today, showItem = true }: { items: ManualProjectionLine[]; today: string; showItem?: boolean }) {
     return (
         <div className="overflow-x-auto">
             <Table>
@@ -246,7 +255,7 @@ function MonthCalendar({ calendar, selectedDate, onSelectDate }: { calendar: Pro
     );
 }
 
-export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, today, permissions }: ProjectionIndexProps) {
+export default function Index({ projection, sites, regions, calendar, filters, period_options: periodOptions, today, permissions, manual_projections: manualProjections, manual_units: manualUnits, manual_items: manualItems, manual_reasons: manualReasons }: ProjectionIndexProps) {
     const [activeTab, setActiveTab] = useState<TabKey>(permissions.default_tab);
     const [showWarningList, setShowWarningList] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -255,7 +264,8 @@ export default function Index({ projection, sites, regions, calendar, filters, p
         permissions.can_view_item ? { key: 'item' as const, label: 'Per Item' } : null,
         permissions.can_view_calendar ? { key: 'calendar' as const, label: 'Kalender' } : null,
         permissions.can_view_part ? { key: 'part' as const, label: 'Per Part' } : null,
-    ].filter(Boolean) as { key: TabKey; label: string }[], [permissions]);
+        { key: 'manual' as const, label: `Manual (${manualProjections.meta.total})` },
+    ].filter(Boolean) as { key: TabKey; label: string }[], [permissions, manualProjections.meta.total]);
 
     const selectedItems = useMemo(() => calendar.items.filter((item) => item.due_date === selectedDate), [calendar.items, selectedDate]);
     const exportUrl = route('projections.export', {
@@ -268,7 +278,20 @@ export default function Index({ projection, sites, regions, calendar, filters, p
     };
 
     return (
-        <AuthenticatedLayout header={<h2 className="text-xl font-semibold leading-tight text-foreground">Proyeksi Perawatan</h2>}>
+        <AuthenticatedLayout header={
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-xl font-semibold leading-tight text-foreground">Proyeksi Perawatan</h2>
+                {permissions.can_create_manual && (
+                    <ManualProjectionDialog
+                        units={manualUnits}
+                        items={manualItems}
+                        reasons={manualReasons}
+                        today={today}
+                        onCreated={() => setActiveTab('manual')}
+                    />
+                )}
+            </div>
+        }>
             <Head title="Proyeksi Perawatan" />
             <div className="py-10">
                 <div className="mx-auto max-w-7xl space-y-6 sm:px-6 lg:px-8">
@@ -371,9 +394,10 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                     <Card>
                         <CardContent>
                             <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabKey)}>
-                                <TabsList>
+                                <TabsList className="h-auto flex-wrap">
                                     {tabs.map((tab) => <TabsTrigger key={tab.key} value={tab.key}>{tab.label}</TabsTrigger>)}
                                 </TabsList>
+                                <TabsContent value="manual"><ManualProjectionTab entries={manualProjections} /></TabsContent>
                                 <TabsContent value="unit" className="space-y-5">
                                     {projection.by_unit.data.length === 0 && <p className="text-sm text-muted-foreground">Tidak ada item jatuh tempo pada periode ini.</p>}
                                     {projection.by_unit.data.map((unit) => (
@@ -392,7 +416,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                     <PaginationLinks meta={projection.by_unit.meta} />
                                 </TabsContent>
                                 <TabsContent value="item" className="space-y-5">
-                                    {projection.by_item.data.map((item: ProjectionItem) => (
+                                    {projection.by_item.data.map((item: ManualProjectionGroup) => (
                                         <Card key={item.planning_item_id} className="shadow-xs">
                                             <CardHeader className="bg-muted/30"><CardTitle className="text-base">{item.planning_item_name}</CardTitle></CardHeader>
                                             <CardContent><DueTable items={item.items} today={today} showItem={false} /></CardContent>
@@ -493,7 +517,7 @@ export default function Index({ projection, sites, regions, calendar, filters, p
                                 </TabsContent>
                                 <TabsContent value="part" className="space-y-5">
                                     <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">Kuantitas adalah estimasi dasar. Jumlah aktual diketahui saat mekanik eksekusi.</p>
-                                    {projection.by_part.data.map((part: ProjectionPart) => (
+                                    {projection.by_part.data.map((part: ManualProjectionGroup) => (
                                         <Card key={part.planning_item_id} className="shadow-xs">
                                             <CardHeader>
                                                 <CardTitle className="text-base">{part.planning_item_name}</CardTitle>

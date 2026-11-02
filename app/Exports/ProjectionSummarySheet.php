@@ -19,6 +19,8 @@ class ProjectionSummarySheet implements FromArray, ShouldAutoSize, WithStyles, W
     /** @var array<int, int> */
     private array $subtotalRows = [];
 
+    private int $headerRow;
+
     /**
      * @param  Collection<int, array<string, mixed>>  $items
      * @param  array<string, string>  $months
@@ -32,6 +34,7 @@ class ProjectionSummarySheet implements FromArray, ShouldAutoSize, WithStyles, W
             [$ungroupedCount > 0 ? $ungroupedCount.' unit belum dikelompokkan' : null],
             ['Kelompok Model', 'Item', 'Lewat Due', 'Tanpa Tanggal', ...array_values($months), 'Total'],
         ];
+        $this->headerRow = count($this->rows);
         $buckets = ['overdue', 'undated', ...array_keys($months)];
         $grandTotal = array_fill(0, count($buckets) + 1, 0);
 
@@ -76,16 +79,17 @@ class ProjectionSummarySheet implements FromArray, ShouldAutoSize, WithStyles, W
     {
         $lastColumn = $sheet->getHighestColumn();
 
-        foreach ([1, 2, 3, 4] as $row) {
+        foreach (range(1, $this->headerRow - 1) as $row) {
             $sheet->mergeCells("A{$row}:{$lastColumn}{$row}");
         }
 
-        $sheet->freezePane('C6');
-        $sheet->getStyle("A5:{$lastColumn}5")->applyFromArray([
+        $firstDataRow = $this->headerRow + 1;
+        $sheet->freezePane('C'.$firstDataRow);
+        $sheet->getStyle('A'.$this->headerRow.':'.$lastColumn.$this->headerRow)->applyFromArray([
             'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1E3A5F']],
         ]);
-        $sheet->getStyle('C6:'.$lastColumn.count($this->rows))->getNumberFormat()->setFormatCode('#,##0');
+        $sheet->getStyle('C'.$firstDataRow.':'.$lastColumn.count($this->rows))->getNumberFormat()->setFormatCode('#,##0');
 
         foreach ($this->subtotalRows as $row) {
             $sheet->getStyle("A{$row}:{$lastColumn}{$row}")->applyFromArray([

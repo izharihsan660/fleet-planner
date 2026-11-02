@@ -7,6 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\HighUsageController;
 use App\Http\Controllers\InspectionController;
 use App\Http\Controllers\MaintenanceImportController;
+use App\Http\Controllers\ManualProjectionController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PlanningItemController;
 use App\Http\Controllers\PlanningItemOverrideController;
@@ -48,6 +49,8 @@ Route::middleware('auth')->group(function () {
     Route::post('antrian-approval', [ApprovalQueueController::class, 'store'])->name('approval-queue.store');
     Route::get('projections', [ProjectionController::class, 'index'])->name('projections.index');
     Route::get('projections/export', [ProjectionController::class, 'export'])->name('projections.export');
+    Route::post('projections/manual', [ManualProjectionController::class, 'store'])->name('projections.manual.store');
+    Route::patch('projections/manual/{manualProjection}/cancel', [ManualProjectionController::class, 'cancel'])->name('projections.manual.cancel');
     Route::get('high-usage', [HighUsageController::class, 'index'])->name('high-usage.index');
     Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('reports/wo-summary', [ReportController::class, 'woSummary'])->name('reports.wo-summary');

@@ -2,15 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ManualProjectionReason;
 use App\Enums\UserRole;
 use App\Exports\ProjectionExport;
 use App\Http\Requests\ProjectionExportRequest;
 use App\Http\Requests\ProjectionIndexRequest;
+use App\Http\Resources\ManualProjectionResource;
 use App\Http\Resources\ProjectionResultResource;
 use App\Http\Resources\RegionResource;
 use App\Http\Resources\SiteResource;
+use App\Models\ManualProjection;
+use App\Models\PlanningItem;
 use App\Models\Region;
 use App\Models\Site;
+use App\Models\Unit;
 use App\Models\User;
 use App\Models\WorkOrderItem;
 use App\Services\ProjectionService;
@@ -36,6 +41,7 @@ class ProjectionController extends Controller
             $months,
             $siteId !== null ? (int) $siteId : null,
             $regionId !== null ? (int) $regionId : null,
+            $request->user(),
         );
         $site = $siteId !== null ? Site::query()->with('area:id,name')->find($siteId) : null;
         $regionName = $regionId !== null ? Region::query()->whereKey($regionId)->value('name') : $site?->area?->name;
@@ -64,7 +70,7 @@ class ProjectionController extends Controller
         $canFilterSite = $user->isOneOf([UserRole::Superadmin, UserRole::SpvHo, UserRole::PlannerArea]);
         $siteId = $user->hasRole(UserRole::Mekanik) || ($user->hasRole(UserRole::PlannerArea) && $user->region_id === null) ? $user->site_id : ($canFilterSite ? $requestedSiteId : null);
         $siteId = $siteId !== null ? (int) $siteId : null;
-        $result = $service->calculate($months, $siteId, $regionId);
+        $result = $service->calculate($months, $siteId, $regionId, $user);
         $calendar = $this->buildCalendar($user, $month, $siteId, $regionId);
 
         return Inertia::render('Projections/Index', [
@@ -86,7 +92,24 @@ class ProjectionController extends Controller
             'today' => CarbonImmutable::today()->toDateString(),
             'calendar' => $calendar,
             'period_options' => $service->periodOptions(),
+            'manual_projections' => ManualProjectionResource::collection(ManualProjection::query()->active()
+                ->whereHas('unit', function (Builder $query) use ($user, $regionId, $siteId): void {
+                    AccessScope::applySiteScope($query, $user);
+                    $query->when($regionId !== null, fn (Builder $query) => $query->whereHas('site', fn (Builder $query) => $query->where('region_id', $regionId)))
+                        ->when($siteId !== null, fn (Builder $query) => $query->where('site_id', $siteId));
+                })
+                ->with(['unit.site:id,name,region_id', 'planningItem:id,name', 'createdBy:id,name'])
+                ->orderBy('target_date')->orderBy('id')
+                ->paginate(25, ['*'], 'manual_page')->withQueryString()),
+            'manual_units' => Unit::query()
+                ->tap(fn (Builder $query) => AccessScope::applySiteScope($query, $user))
+                ->orderBy('current_plate')->get(['id', 'current_plate']),
+            'manual_items' => PlanningItem::query()->orderBy('id')->get(['id', 'name']),
+            'manual_reasons' => array_map(fn (ManualProjectionReason $reason): array => [
+                'value' => $reason->value, 'label' => $reason->label(),
+            ], ManualProjectionReason::cases()),
             'permissions' => [
+                'can_create_manual' => $user->can('create', ManualProjection::class),
                 'can_filter_site' => $canFilterSite,
                 'can_filter_region' => $canFilterRegion,
                 'can_view_unit' => true,

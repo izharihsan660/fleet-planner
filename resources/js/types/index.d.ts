@@ -343,6 +343,43 @@ export interface ProjectionResult {
     warnings: ProjectionWarning[];
 }
 
+export type ManualProjectionReason = 'aus' | 'rusak' | 'temuan_mekanik' | 'keluhan_driver' | 'lainnya';
+
+export interface ManualProjection {
+    id: number;
+    unit_id: number;
+    planning_item_id: number;
+    unit_planning_id: number | null;
+    plate_number: string;
+    site_name: string;
+    planning_item_name: string;
+    target_date: string;
+    reason: ManualProjectionReason;
+    reason_label: string;
+    notes: string | null;
+    status: 'active' | 'fulfilled' | 'cancelled';
+    created_by_name: string;
+    created_at: string;
+    can_cancel: boolean;
+}
+
+export interface ManualProjectionLine extends Omit<ProjectionLine, 'trigger' | 'unit_planning_id'> {
+    unit_planning_id: number | null;
+    trigger: ProjectionLine['trigger'] | 'manual';
+    has_manual: boolean;
+    manual_reason: string | null;
+}
+
+export interface ManualProjectionGroup extends Omit<ProjectionItem, 'items'> {
+    items: ManualProjectionLine[];
+}
+
+export interface ManualProjectionResult extends Omit<ProjectionResult, 'by_unit' | 'by_item' | 'by_part'> {
+    by_unit: PaginatedCollection<Omit<ProjectionUnit, 'items'> & { items: ManualProjectionLine[] }>;
+    by_item: PaginatedCollection<ManualProjectionGroup>;
+    by_part: PaginatedCollection<ManualProjectionGroup>;
+}
+
 export interface InspectionLog {
     id: number;
     unit_id: number;
